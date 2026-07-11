@@ -3,6 +3,7 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/mixer.dart';
 import 'api/simple.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -66,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1918914929;
+  int get rustContentHash => -901199179;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -81,6 +82,23 @@ abstract class RustLibApi extends BaseApi {
   String crateApiSimpleGreet({required String name});
 
   Future<void> crateApiSimpleInitApp();
+
+  Future<RecordingInfo> crateApiMixerLoadRecording({required String path});
+
+  Stream<RenderEvent> crateApiMixerRenderMix({
+    required String wavPath,
+    required String outPath,
+    required List<ApiTrack> tracks,
+    double? peakDbfs,
+    required ApiFormat format,
+  });
+
+  Future<void> crateApiMixerSaveSession({
+    required String wavPath,
+    required List<ApiTrack> tracks,
+    double? peakDbfs,
+    required ApiFormat format,
+  });
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -141,6 +159,131 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiSimpleInitAppConstMeta =>
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
+  @override
+  Future<RecordingInfo> crateApiMixerLoadRecording({required String path}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_recording_info,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMixerLoadRecordingConstMeta,
+        argValues: [path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerLoadRecordingConstMeta =>
+      const TaskConstMeta(debugName: "load_recording", argNames: ["path"]);
+
+  @override
+  Stream<RenderEvent> crateApiMixerRenderMix({
+    required String wavPath,
+    required String outPath,
+    required List<ApiTrack> tracks,
+    double? peakDbfs,
+    required ApiFormat format,
+  }) {
+    final events = RustStreamSink<RenderEvent>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_String(wavPath, serializer);
+            sse_encode_String(outPath, serializer);
+            sse_encode_list_api_track(tracks, serializer);
+            sse_encode_opt_box_autoadd_f_64(peakDbfs, serializer);
+            sse_encode_api_format(format, serializer);
+            sse_encode_StreamSink_render_event_Sse(events, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 4,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: sse_decode_AnyhowException,
+          ),
+          constMeta: kCrateApiMixerRenderMixConstMeta,
+          argValues: [wavPath, outPath, tracks, peakDbfs, format, events],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return events.stream;
+  }
+
+  TaskConstMeta get kCrateApiMixerRenderMixConstMeta => const TaskConstMeta(
+    debugName: "render_mix",
+    argNames: ["wavPath", "outPath", "tracks", "peakDbfs", "format", "events"],
+  );
+
+  @override
+  Future<void> crateApiMixerSaveSession({
+    required String wavPath,
+    required List<ApiTrack> tracks,
+    double? peakDbfs,
+    required ApiFormat format,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(wavPath, serializer);
+          sse_encode_list_api_track(tracks, serializer);
+          sse_encode_opt_box_autoadd_f_64(peakDbfs, serializer);
+          sse_encode_api_format(format, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMixerSaveSessionConstMeta,
+        argValues: [wavPath, tracks, peakDbfs, format],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerSaveSessionConstMeta => const TaskConstMeta(
+    debugName: "save_session",
+    argNames: ["wavPath", "tracks", "peakDbfs", "format"],
+  );
+
+  @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return AnyhowException(raw as String);
+  }
+
+  @protected
+  RustStreamSink<RenderEvent> dco_decode_StreamSink_render_event_Sse(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
   @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -148,9 +291,148 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ApiFormat dco_decode_api_format(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ApiFormat.values[raw as int];
+  }
+
+  @protected
+  ApiRenderReport dco_decode_api_render_report(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return ApiRenderReport(
+      peakDbfsBefore: dco_decode_f_64(arr[0]),
+      gainAppliedDb: dco_decode_f_64(arr[1]),
+      durationSeconds: dco_decode_f_64(arr[2]),
+      sampleRate: dco_decode_u_32(arr[3]),
+    );
+  }
+
+  @protected
+  ApiTrack dco_decode_api_track(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return ApiTrack(
+      index: dco_decode_u_32(arr[0]),
+      name: dco_decode_String(arr[1]),
+      gainDb: dco_decode_f_64(arr[2]),
+      pan: dco_decode_f_64(arr[3]),
+      polarityInvert: dco_decode_bool(arr[4]),
+      muted: dco_decode_bool(arr[5]),
+      solo: dco_decode_bool(arr[6]),
+      inMix: dco_decode_bool(arr[7]),
+    );
+  }
+
+  @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
+  ApiRenderReport dco_decode_box_autoadd_api_render_report(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_api_render_report(raw);
+  }
+
+  @protected
+  double dco_decode_box_autoadd_f_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
+  }
+
+  @protected
+  double dco_decode_f_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
+  }
+
+  @protected
+  double dco_decode_f_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
+  }
+
+  @protected
+  int dco_decode_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  List<ApiTrack> dco_decode_list_api_track(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_api_track).toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  ApiRenderReport? dco_decode_opt_box_autoadd_api_render_report(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_api_render_report(raw);
+  }
+
+  @protected
+  double? dco_decode_opt_box_autoadd_f_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_f_64(raw);
+  }
+
+  @protected
+  RecordingInfo dco_decode_recording_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return RecordingInfo(
+      path: dco_decode_String(arr[0]),
+      sampleRate: dco_decode_u_32(arr[1]),
+      channels: dco_decode_u_16(arr[2]),
+      bitsPerSample: dco_decode_u_16(arr[3]),
+      numFrames: dco_decode_u_64(arr[4]),
+      durationSeconds: dco_decode_f_64(arr[5]),
+      tracks: dco_decode_list_api_track(arr[6]),
+    );
+  }
+
+  @protected
+  RenderEvent dco_decode_render_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return RenderEvent(
+      progress: dco_decode_f_32(arr[0]),
+      report: dco_decode_opt_box_autoadd_api_render_report(arr[1]),
+    );
+  }
+
+  @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  int dco_decode_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
   }
 
   @protected
@@ -166,6 +448,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_String(deserializer);
+    return AnyhowException(inner);
+  }
+
+  @protected
+  RustStreamSink<RenderEvent> sse_decode_StreamSink_render_event_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
@@ -173,10 +470,176 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ApiFormat sse_decode_api_format(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ApiFormat.values[inner];
+  }
+
+  @protected
+  ApiRenderReport sse_decode_api_render_report(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_peakDbfsBefore = sse_decode_f_64(deserializer);
+    var var_gainAppliedDb = sse_decode_f_64(deserializer);
+    var var_durationSeconds = sse_decode_f_64(deserializer);
+    var var_sampleRate = sse_decode_u_32(deserializer);
+    return ApiRenderReport(
+      peakDbfsBefore: var_peakDbfsBefore,
+      gainAppliedDb: var_gainAppliedDb,
+      durationSeconds: var_durationSeconds,
+      sampleRate: var_sampleRate,
+    );
+  }
+
+  @protected
+  ApiTrack sse_decode_api_track(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_index = sse_decode_u_32(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_gainDb = sse_decode_f_64(deserializer);
+    var var_pan = sse_decode_f_64(deserializer);
+    var var_polarityInvert = sse_decode_bool(deserializer);
+    var var_muted = sse_decode_bool(deserializer);
+    var var_solo = sse_decode_bool(deserializer);
+    var var_inMix = sse_decode_bool(deserializer);
+    return ApiTrack(
+      index: var_index,
+      name: var_name,
+      gainDb: var_gainDb,
+      pan: var_pan,
+      polarityInvert: var_polarityInvert,
+      muted: var_muted,
+      solo: var_solo,
+      inMix: var_inMix,
+    );
+  }
+
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  ApiRenderReport sse_decode_box_autoadd_api_render_report(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_api_render_report(deserializer));
+  }
+
+  @protected
+  double sse_decode_box_autoadd_f_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_f_64(deserializer));
+  }
+
+  @protected
+  double sse_decode_f_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getFloat32();
+  }
+
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getFloat64();
+  }
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getInt32();
+  }
+
+  @protected
+  List<ApiTrack> sse_decode_list_api_track(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ApiTrack>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_api_track(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  ApiRenderReport? sse_decode_opt_box_autoadd_api_render_report(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_api_render_report(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_f_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  RecordingInfo sse_decode_recording_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_path = sse_decode_String(deserializer);
+    var var_sampleRate = sse_decode_u_32(deserializer);
+    var var_channels = sse_decode_u_16(deserializer);
+    var var_bitsPerSample = sse_decode_u_16(deserializer);
+    var var_numFrames = sse_decode_u_64(deserializer);
+    var var_durationSeconds = sse_decode_f_64(deserializer);
+    var var_tracks = sse_decode_list_api_track(deserializer);
+    return RecordingInfo(
+      path: var_path,
+      sampleRate: var_sampleRate,
+      channels: var_channels,
+      bitsPerSample: var_bitsPerSample,
+      numFrames: var_numFrames,
+      durationSeconds: var_durationSeconds,
+      tracks: var_tracks,
+    );
+  }
+
+  @protected
+  RenderEvent sse_decode_render_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_progress = sse_decode_f_32(deserializer);
+    var var_report = sse_decode_opt_box_autoadd_api_render_report(deserializer);
+    return RenderEvent(progress: var_progress, report: var_report);
+  }
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
+  }
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint32();
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
   }
 
   @protected
@@ -191,21 +654,117 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer) {
+  void sse_encode_AnyhowException(
+    AnyhowException self,
+    SseSerializer serializer,
+  ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getInt32();
+    sse_encode_String(self.message, serializer);
   }
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
+  void sse_encode_StreamSink_render_event_Sse(
+    RustStreamSink<RenderEvent> self,
+    SseSerializer serializer,
+  ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_render_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
   }
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_api_format(ApiFormat self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_api_render_report(
+    ApiRenderReport self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_64(self.peakDbfsBefore, serializer);
+    sse_encode_f_64(self.gainAppliedDb, serializer);
+    sse_encode_f_64(self.durationSeconds, serializer);
+    sse_encode_u_32(self.sampleRate, serializer);
+  }
+
+  @protected
+  void sse_encode_api_track(ApiTrack self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.index, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_f_64(self.gainDb, serializer);
+    sse_encode_f_64(self.pan, serializer);
+    sse_encode_bool(self.polarityInvert, serializer);
+    sse_encode_bool(self.muted, serializer);
+    sse_encode_bool(self.solo, serializer);
+    sse_encode_bool(self.inMix, serializer);
+  }
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_api_render_report(
+    ApiRenderReport self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_api_render_report(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_f_32(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putFloat32(self);
+  }
+
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putFloat64(self);
+  }
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putInt32(self);
+  }
+
+  @protected
+  void sse_encode_list_api_track(
+    List<ApiTrack> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_api_track(item, serializer);
+    }
   }
 
   @protected
@@ -219,6 +778,66 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_api_render_report(
+    ApiRenderReport? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_api_render_report(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_f_64(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_recording_info(RecordingInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.path, serializer);
+    sse_encode_u_32(self.sampleRate, serializer);
+    sse_encode_u_16(self.channels, serializer);
+    sse_encode_u_16(self.bitsPerSample, serializer);
+    sse_encode_u_64(self.numFrames, serializer);
+    sse_encode_f_64(self.durationSeconds, serializer);
+    sse_encode_list_api_track(self.tracks, serializer);
+  }
+
+  @protected
+  void sse_encode_render_event(RenderEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_32(self.progress, serializer);
+    sse_encode_opt_box_autoadd_api_render_report(self.report, serializer);
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
+  }
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint32(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
   void sse_encode_u_8(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self);
@@ -227,17 +846,5 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-  }
-
-  @protected
-  void sse_encode_i_32(int self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putInt32(self);
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }

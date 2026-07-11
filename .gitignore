@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Rust workspace build output
+/target/
+
+# DurecMix session files created during local testing
+*.durecmix.json

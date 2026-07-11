@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1918914929;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -901199179;
 
 // Section: executor
 
@@ -110,14 +110,253 @@ fn wire__crate__api__simple__init_app_impl(
         },
     )
 }
+fn wire__crate__api__mixer__load_recording_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "load_recording",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::mixer::load_recording(api_path)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__mixer__render_mix_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "render_mix",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_wav_path = <String>::sse_decode(&mut deserializer);
+            let api_out_path = <String>::sse_decode(&mut deserializer);
+            let api_tracks = <Vec<crate::api::mixer::ApiTrack>>::sse_decode(&mut deserializer);
+            let api_peak_dbfs = <Option<f64>>::sse_decode(&mut deserializer);
+            let api_format = <crate::api::mixer::ApiFormat>::sse_decode(&mut deserializer);
+            let api_events = <StreamSink<
+                crate::api::mixer::RenderEvent,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::mixer::render_mix(
+                            api_wav_path,
+                            api_out_path,
+                            api_tracks,
+                            api_peak_dbfs,
+                            api_format,
+                            api_events,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__mixer__save_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "save_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_wav_path = <String>::sse_decode(&mut deserializer);
+            let api_tracks = <Vec<crate::api::mixer::ApiTrack>>::sse_decode(&mut deserializer);
+            let api_peak_dbfs = <Option<f64>>::sse_decode(&mut deserializer);
+            let api_format = <crate::api::mixer::ApiFormat>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::mixer::save_session(
+                            api_wav_path,
+                            api_tracks,
+                            api_peak_dbfs,
+                            api_format,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 
 // Section: dart2rust
+
+impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return flutter_rust_bridge::for_generated::anyhow::anyhow!("{}", inner);
+    }
+}
+
+impl SseDecode
+    for StreamSink<crate::api::mixer::RenderEvent, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
 
 impl SseDecode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <Vec<u8>>::sse_decode(deserializer);
         return String::from_utf8(inner).unwrap();
+    }
+}
+
+impl SseDecode for crate::api::mixer::ApiFormat {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::mixer::ApiFormat::Wav16,
+            1 => crate::api::mixer::ApiFormat::Wav24,
+            2 => crate::api::mixer::ApiFormat::Wav32Float,
+            _ => unreachable!("Invalid variant for ApiFormat: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::mixer::ApiRenderReport {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_peakDbfsBefore = <f64>::sse_decode(deserializer);
+        let mut var_gainAppliedDb = <f64>::sse_decode(deserializer);
+        let mut var_durationSeconds = <f64>::sse_decode(deserializer);
+        let mut var_sampleRate = <u32>::sse_decode(deserializer);
+        return crate::api::mixer::ApiRenderReport {
+            peak_dbfs_before: var_peakDbfsBefore,
+            gain_applied_db: var_gainAppliedDb,
+            duration_seconds: var_durationSeconds,
+            sample_rate: var_sampleRate,
+        };
+    }
+}
+
+impl SseDecode for crate::api::mixer::ApiTrack {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_index = <u32>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_gainDb = <f64>::sse_decode(deserializer);
+        let mut var_pan = <f64>::sse_decode(deserializer);
+        let mut var_polarityInvert = <bool>::sse_decode(deserializer);
+        let mut var_muted = <bool>::sse_decode(deserializer);
+        let mut var_solo = <bool>::sse_decode(deserializer);
+        let mut var_inMix = <bool>::sse_decode(deserializer);
+        return crate::api::mixer::ApiTrack {
+            index: var_index,
+            name: var_name,
+            gain_db: var_gainDb,
+            pan: var_pan,
+            polarity_invert: var_polarityInvert,
+            muted: var_muted,
+            solo: var_solo,
+            in_mix: var_inMix,
+        };
+    }
+}
+
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
+impl SseDecode for f32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_f32::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for f64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_f64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for i32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_i32::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for Vec<crate::api::mixer::ApiTrack> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::mixer::ApiTrack>::sse_decode(deserializer));
+        }
+        return ans_;
     }
 }
 
@@ -133,6 +372,85 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Option<crate::api::mixer::ApiRenderReport> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::mixer::ApiRenderReport>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<f64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<f64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for crate::api::mixer::RecordingInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_sampleRate = <u32>::sse_decode(deserializer);
+        let mut var_channels = <u16>::sse_decode(deserializer);
+        let mut var_bitsPerSample = <u16>::sse_decode(deserializer);
+        let mut var_numFrames = <u64>::sse_decode(deserializer);
+        let mut var_durationSeconds = <f64>::sse_decode(deserializer);
+        let mut var_tracks = <Vec<crate::api::mixer::ApiTrack>>::sse_decode(deserializer);
+        return crate::api::mixer::RecordingInfo {
+            path: var_path,
+            sample_rate: var_sampleRate,
+            channels: var_channels,
+            bits_per_sample: var_bitsPerSample,
+            num_frames: var_numFrames,
+            duration_seconds: var_durationSeconds,
+            tracks: var_tracks,
+        };
+    }
+}
+
+impl SseDecode for crate::api::mixer::RenderEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_progress = <f32>::sse_decode(deserializer);
+        let mut var_report = <Option<crate::api::mixer::ApiRenderReport>>::sse_decode(deserializer);
+        return crate::api::mixer::RenderEvent {
+            progress: var_progress,
+            report: var_report,
+        };
+    }
+}
+
+impl SseDecode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u16::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for u32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u32::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u64::<NativeEndian>().unwrap()
+    }
+}
+
 impl SseDecode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -145,20 +463,6 @@ impl SseDecode for () {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
 }
 
-impl SseDecode for i32 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_i32::<NativeEndian>().unwrap()
-    }
-}
-
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
-    }
-}
-
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -169,6 +473,9 @@ fn pde_ffi_dispatcher_primary_impl(
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
         2 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        3 => wire__crate__api__mixer__load_recording_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__mixer__render_mix_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__mixer__save_session_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -188,10 +495,219 @@ fn pde_ffi_dispatcher_sync_impl(
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiFormat {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Wav16 => 0.into_dart(),
+            Self::Wav24 => 1.into_dart(),
+            Self::Wav32Float => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::mixer::ApiFormat {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::ApiFormat>
+    for crate::api::mixer::ApiFormat
+{
+    fn into_into_dart(self) -> crate::api::mixer::ApiFormat {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiRenderReport {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.peak_dbfs_before.into_into_dart().into_dart(),
+            self.gain_applied_db.into_into_dart().into_dart(),
+            self.duration_seconds.into_into_dart().into_dart(),
+            self.sample_rate.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::mixer::ApiRenderReport
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::ApiRenderReport>
+    for crate::api::mixer::ApiRenderReport
+{
+    fn into_into_dart(self) -> crate::api::mixer::ApiRenderReport {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiTrack {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.index.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.gain_db.into_into_dart().into_dart(),
+            self.pan.into_into_dart().into_dart(),
+            self.polarity_invert.into_into_dart().into_dart(),
+            self.muted.into_into_dart().into_dart(),
+            self.solo.into_into_dart().into_dart(),
+            self.in_mix.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::mixer::ApiTrack {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::ApiTrack>
+    for crate::api::mixer::ApiTrack
+{
+    fn into_into_dart(self) -> crate::api::mixer::ApiTrack {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::mixer::RecordingInfo {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.path.into_into_dart().into_dart(),
+            self.sample_rate.into_into_dart().into_dart(),
+            self.channels.into_into_dart().into_dart(),
+            self.bits_per_sample.into_into_dart().into_dart(),
+            self.num_frames.into_into_dart().into_dart(),
+            self.duration_seconds.into_into_dart().into_dart(),
+            self.tracks.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::mixer::RecordingInfo
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::RecordingInfo>
+    for crate::api::mixer::RecordingInfo
+{
+    fn into_into_dart(self) -> crate::api::mixer::RecordingInfo {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::mixer::RenderEvent {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.progress.into_into_dart().into_dart(),
+            self.report.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::mixer::RenderEvent
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::RenderEvent>
+    for crate::api::mixer::RenderEvent
+{
+    fn into_into_dart(self) -> crate::api::mixer::RenderEvent {
+        self
+    }
+}
+
+impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(format!("{:?}", self), serializer);
+    }
+}
+
+impl SseEncode
+    for StreamSink<crate::api::mixer::RenderEvent, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
 impl SseEncode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<u8>>::sse_encode(self.into_bytes(), serializer);
+    }
+}
+
+impl SseEncode for crate::api::mixer::ApiFormat {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::mixer::ApiFormat::Wav16 => 0,
+                crate::api::mixer::ApiFormat::Wav24 => 1,
+                crate::api::mixer::ApiFormat::Wav32Float => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::mixer::ApiRenderReport {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <f64>::sse_encode(self.peak_dbfs_before, serializer);
+        <f64>::sse_encode(self.gain_applied_db, serializer);
+        <f64>::sse_encode(self.duration_seconds, serializer);
+        <u32>::sse_encode(self.sample_rate, serializer);
+    }
+}
+
+impl SseEncode for crate::api::mixer::ApiTrack {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.index, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <f64>::sse_encode(self.gain_db, serializer);
+        <f64>::sse_encode(self.pan, serializer);
+        <bool>::sse_encode(self.polarity_invert, serializer);
+        <bool>::sse_encode(self.muted, serializer);
+        <bool>::sse_encode(self.solo, serializer);
+        <bool>::sse_encode(self.in_mix, serializer);
+    }
+}
+
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
+impl SseEncode for f32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_f32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for f64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_f64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for i32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for Vec<crate::api::mixer::ApiTrack> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::mixer::ApiTrack>::sse_encode(item, serializer);
+        }
     }
 }
 
@@ -205,6 +721,68 @@ impl SseEncode for Vec<u8> {
     }
 }
 
+impl SseEncode for Option<crate::api::mixer::ApiRenderReport> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::mixer::ApiRenderReport>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<f64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <f64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for crate::api::mixer::RecordingInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.path, serializer);
+        <u32>::sse_encode(self.sample_rate, serializer);
+        <u16>::sse_encode(self.channels, serializer);
+        <u16>::sse_encode(self.bits_per_sample, serializer);
+        <u64>::sse_encode(self.num_frames, serializer);
+        <f64>::sse_encode(self.duration_seconds, serializer);
+        <Vec<crate::api::mixer::ApiTrack>>::sse_encode(self.tracks, serializer);
+    }
+}
+
+impl SseEncode for crate::api::mixer::RenderEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <f32>::sse_encode(self.progress, serializer);
+        <Option<crate::api::mixer::ApiRenderReport>>::sse_encode(self.report, serializer);
+    }
+}
+
+impl SseEncode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u16::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for u32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u64::<NativeEndian>(self).unwrap();
+    }
+}
+
 impl SseEncode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -215,20 +793,6 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
-}
-
-impl SseEncode for i32 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
-    }
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
-    }
 }
 
 #[cfg(not(target_family = "wasm"))]
