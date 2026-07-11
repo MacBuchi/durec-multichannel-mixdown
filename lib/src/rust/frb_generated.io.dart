@@ -31,7 +31,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  ApiChannelWaveform dco_decode_api_channel_waveform(dynamic raw);
+
+  @protected
   ApiFormat dco_decode_api_format(dynamic raw);
+
+  @protected
+  ApiPlayerState dco_decode_api_player_state(dynamic raw);
 
   @protected
   ApiRenderReport dco_decode_api_render_report(dynamic raw);
@@ -58,7 +64,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_i_32(dynamic raw);
 
   @protected
+  List<ApiChannelWaveform> dco_decode_list_api_channel_waveform(dynamic raw);
+
+  @protected
   List<ApiTrack> dco_decode_list_api_track(dynamic raw);
+
+  @protected
+  Float32List dco_decode_list_prim_f_32_strict(dynamic raw);
 
   @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
@@ -91,6 +103,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void dco_decode_unit(dynamic raw);
 
   @protected
+  BigInt dco_decode_usize(dynamic raw);
+
+  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
@@ -102,7 +117,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  ApiChannelWaveform sse_decode_api_channel_waveform(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ApiFormat sse_decode_api_format(SseDeserializer deserializer);
+
+  @protected
+  ApiPlayerState sse_decode_api_player_state(SseDeserializer deserializer);
 
   @protected
   ApiRenderReport sse_decode_api_render_report(SseDeserializer deserializer);
@@ -131,7 +154,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
+  List<ApiChannelWaveform> sse_decode_list_api_channel_waveform(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ApiTrack> sse_decode_list_api_track(SseDeserializer deserializer);
+
+  @protected
+  Float32List sse_decode_list_prim_f_32_strict(SseDeserializer deserializer);
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
@@ -166,6 +197,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer);
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -181,7 +215,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_api_channel_waveform(
+    ApiChannelWaveform self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_api_format(ApiFormat self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_api_player_state(
+    ApiPlayerState self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_api_render_report(
@@ -214,7 +260,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_api_channel_waveform(
+    List<ApiChannelWaveform> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_api_track(List<ApiTrack> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_f_32_strict(
+    Float32List self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_8_strict(
@@ -251,6 +309,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer);
 }
 
 // Section: wire_class

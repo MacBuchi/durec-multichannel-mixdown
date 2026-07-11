@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_track`, `to_engine_settings`, `to_engine_track`
+// These functions are ignored because they are not marked as `pub`: `from_engine_track`, `player_slot`, `to_engine_settings`, `to_engine_track`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge any
 /// existing session file next to it.
@@ -42,7 +42,102 @@ Stream<RenderEvent> renderMix({
   format: format,
 );
 
+/// Streamed min/max envelope of every channel, `buckets` values per channel.
+Future<List<ApiChannelWaveform>> analyzeWaveforms({
+  required String path,
+  required BigInt buckets,
+}) => RustLib.instance.api.crateApiMixerAnalyzeWaveforms(
+  path: path,
+  buckets: buckets,
+);
+
+/// Start (or restart) live playback of the mix at `start_frame`.
+Future<void> playerStart({
+  required String path,
+  required List<ApiTrack> tracks,
+  required BigInt startFrame,
+}) => RustLib.instance.api.crateApiMixerPlayerStart(
+  path: path,
+  tracks: tracks,
+  startFrame: startFrame,
+);
+
+Future<void> playerStop() => RustLib.instance.api.crateApiMixerPlayerStop();
+
+Future<void> playerSeek({required BigInt frame}) =>
+    RustLib.instance.api.crateApiMixerPlayerSeek(frame: frame);
+
+/// Push updated mix parameters to the running player (audible in ~0.2 s).
+Future<void> playerUpdateTracks({required List<ApiTrack> tracks}) =>
+    RustLib.instance.api.crateApiMixerPlayerUpdateTracks(tracks: tracks);
+
+/// Poll playback position and meters (call at UI frame rate).
+ApiPlayerState playerState() => RustLib.instance.api.crateApiMixerPlayerState();
+
+class ApiChannelWaveform {
+  final Float32List min;
+  final Float32List max;
+  final double peakDbfs;
+
+  const ApiChannelWaveform({
+    required this.min,
+    required this.max,
+    required this.peakDbfs,
+  });
+
+  @override
+  int get hashCode => min.hashCode ^ max.hashCode ^ peakDbfs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiChannelWaveform &&
+          runtimeType == other.runtimeType &&
+          min == other.min &&
+          max == other.max &&
+          peakDbfs == other.peakDbfs;
+}
+
 enum ApiFormat { wav16, wav24, wav32Float }
+
+class ApiPlayerState {
+  final bool playing;
+  final BigInt positionFrames;
+  final double peakL;
+  final double peakR;
+  final double lufsMomentary;
+  final double correlation;
+
+  const ApiPlayerState({
+    required this.playing,
+    required this.positionFrames,
+    required this.peakL,
+    required this.peakR,
+    required this.lufsMomentary,
+    required this.correlation,
+  });
+
+  @override
+  int get hashCode =>
+      playing.hashCode ^
+      positionFrames.hashCode ^
+      peakL.hashCode ^
+      peakR.hashCode ^
+      lufsMomentary.hashCode ^
+      correlation.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiPlayerState &&
+          runtimeType == other.runtimeType &&
+          playing == other.playing &&
+          positionFrames == other.positionFrames &&
+          peakL == other.peakL &&
+          peakR == other.peakR &&
+          lufsMomentary == other.lufsMomentary &&
+          correlation == other.correlation;
+}
 
 class ApiRenderReport {
   final double peakDbfsBefore;

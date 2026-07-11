@@ -1,0 +1,52 @@
+# Agent Instructions — DurecMix
+
+Cross-platform (macOS/Windows/Android/iOS), fully offline downmixer for RME DUREC multichannel WAV recordings. Successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer) (Python, stays untouched). The approved rework plan with the full audio-engineering gap analysis lives in `docs/PLAN.md` — read it before large changes.
+
+## Architecture rules
+
+```
+engine/          Pure Rust DSP + file I/O — no FFI, no GUI, fully unit-tested
+rust/            flutter_rust_bridge API layer — thin DTO conversion ONLY, no logic
+lib/             Flutter app (UI, state, platform file access)
+rust_builder/    cargokit glue (generated, don't touch)
+```
+
+1. **`engine/` must stay free of FFI and UI concerns.** All audio logic and tests live here. New engine functions need tests in `engine/tests/engine_tests.rs`.
+2. **`rust/` must stay logic-free** — it only converts bridge DTOs ↔ engine types.
+3. **Audio is never fully loaded into RAM** — stream in blocks (`BLOCK_FRAMES`), render in two passes. DUREC files are multi-GB; this must work on phones.
+4. After changing `rust/src/api/`, regenerate bindings: `flutter_rust_bridge_codegen generate` (tool is installed via cargo).
+5. Session files (`<take>.durecmix.json`) live next to the source WAV.
+
+## Commands
+
+```sh
+cargo test --workspace                          # engine tests
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all
+flutter analyze
+flutter run -d macos                            # run the app
+cargo run -p durecmix-engine --release --example render_demo <in.wav> <out.wav>
+cargo run -p durecmix-engine --release --example play_demo <in.wav> [start_s]
+```
+
+Rust toolchain: rustup at `~/.cargo` (needs `source ~/.cargo/env` in fresh shells). Flutter SDK: `/Volumes/MacStore/Programming/Flutter/SDK/flutter`. `gh` CLI is NOT installed — CI status must be checked in the GitHub Actions tab.
+
+## Real test files (user's recordings, 34 ch, 24-bit, 44.1 kHz, ~920 MB)
+
+- `/Volumes/MacStore/Durec_Export/2025_10_23/UFX33_00_DuesPaid.WAV`
+- `/Volumes/MacStore/Durec_Export/2025_10_23/UFX32_00_WTF.WAV`
+
+Note: a unity mix of all 34 tracks peaks ~+16 dBFS because DUREC also recorded monitor/aux buses (In Ear, Phones, Line Out, *_Out). Real mixes exclude those via `in_mix`.
+
+## Milestone status (2026-07-12)
+
+- **M0 done** — repo bootstrap, FRB template, CI (`ci.yml`: rust checks, flutter analyze, 4-platform build matrix).
+- **M1 done** — engine core: streaming WAV/RF64/BW64 reader, iXML parsing (UTF-8-safe), constant-power pan (−3 dB centre), mix bus (solo/mute/polarity/in-mix), two-pass peak-normalised WAV render, session persistence. 31 tests. Validated against both real DUREC files (~5 s per 920 MB render).
+- **M2 code complete** — cpal live playback (decode thread → rtrb ring → audio callback; live param updates via epoch counter; ~0.2 s latency), meters (peak L/R, momentary LUFS via ebur128, correlation), streaming waveform analysis, full mixer UI (track strips with fader/pan/ø/M/S/mix + waveforms, transport bar with seek + meters, export with progress + report, session autosave debounce). `play_demo` verified real-time playback + meters against UFX33. **Still to verify: launch the Flutter macOS app itself and exercise open → mix → play → export in the GUI** (flutter analyze passes; macOS entitlements for user-selected read-write files are set).
+- **M3 next** — per-track HPF + 3-band EQ, true-peak limiter, LUFS targets (−14/−16/−23/custom, −1 dBTP ceiling), TPDF dither on 16-bit, FLAC/MP3 export, trim/fade handles, BPM detection, loudness report, filename templating.
+- **M4** — Android SAF/USB-OTG import (fd handoff to Rust, no copying), iOS Files/USB, phone layout polish, background export (foreground service / background task).
+- **M5** — stereo-pair linking (iXML " L"/" R" suffix, `stereo_pair_base()` exists), A/B snapshots, channel-name presets (auto-exclude monitor buses), batch queue, signed releases (Apple Developer account needed for iOS + macOS notarisation).
+
+## Workflow
+
+Conventional Commits (`feat:`/`fix:`/`feat!:`/`chore:`/`ci:`/`docs:`/`test:`/`refactor:`). Direct pushes to `main` are OK for now (solo dev); keep CI green. Remote: https://github.com/MacBuchi/durec-multichannel-mixdown (private).

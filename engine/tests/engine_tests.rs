@@ -511,3 +511,37 @@ fn session_path_derivation() {
     let p = Session::session_path_for(std::path::Path::new("/x/Take 01.wav"));
     assert_eq!(p, std::path::PathBuf::from("/x/Take 01.durecmix.json"));
 }
+
+// ── analysis ────────────────────────────────────────────────────────────────
+
+#[test]
+fn waveform_buckets_capture_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wave.wav");
+    // 2 channels, 100 frames: ch1 ramps up positive, ch2 constant -0.5
+    let samples: Vec<i16> = (0..100).flat_map(|i| [(i * 300) as i16, -16384]).collect();
+    std::fs::write(&path, wav16(2, 48000, &samples, None)).unwrap();
+
+    let waves = durecmix_engine::analysis::analyze_waveforms(&path, 10).unwrap();
+    assert_eq!(waves.len(), 2);
+    assert_eq!(waves[0].min.len(), 10);
+    assert_eq!(waves[0].max.len(), 10);
+    // ch1 max grows monotonically across buckets
+    assert!(waves[0].max[9] > waves[0].max[0]);
+    // ch2 is flat at -0.5: min ≈ -0.5, max ≤ 0
+    assert!((waves[1].min[5] + 0.5).abs() < 1e-3);
+    assert!(waves[1].max[5] <= 0.0);
+    // peaks
+    assert!((waves[1].peak_dbfs - (-6.02)).abs() < 0.1);
+}
+
+#[test]
+fn waveform_bucket_count_smaller_than_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tiny.wav");
+    let samples: Vec<i16> = vec![1000, 2000, 3000]; // 3 mono frames
+    std::fs::write(&path, wav16(1, 48000, &samples, None)).unwrap();
+    // more buckets than frames must not panic; trailing buckets stay 0
+    let waves = durecmix_engine::analysis::analyze_waveforms(&path, 8).unwrap();
+    assert_eq!(waves[0].max.len(), 8);
+}

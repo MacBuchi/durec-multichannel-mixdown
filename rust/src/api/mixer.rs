@@ -4,15 +4,24 @@
 //! engine types so the engine stays independently testable.
 
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::Context;
+use durecmix_engine::analysis;
 use durecmix_engine::ixml;
 use durecmix_engine::mix::TrackParams;
+use durecmix_engine::playback::Player;
 use durecmix_engine::render::{self, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
 use durecmix_engine::wav::WavReader;
 
 use crate::frb_generated::StreamSink;
+
+static PLAYER: OnceLock<Mutex<Option<Player>>> = OnceLock::new();
+
+fn player_slot() -> &'static Mutex<Option<Player>> {
+    PLAYER.get_or_init(|| Mutex::new(None))
+}
 
 pub struct ApiTrack {
     pub index: u32,
@@ -181,4 +190,97 @@ pub fn render_mix(
         }),
     });
     Ok(())
+}
+
+// ── waveform analysis ───────────────────────────────────────────────────────
+
+pub struct ApiChannelWaveform {
+    pub min: Vec<f32>,
+    pub max: Vec<f32>,
+    pub peak_dbfs: f32,
+}
+
+/// Streamed min/max envelope of every channel, `buckets` values per channel.
+pub fn analyze_waveforms(path: String, buckets: usize) -> anyhow::Result<Vec<ApiChannelWaveform>> {
+    let waves =
+        analysis::analyze_waveforms(&path, buckets).with_context(|| format!("analyze {path}"))?;
+    Ok(waves
+        .into_iter()
+        .map(|w| ApiChannelWaveform {
+            min: w.min,
+            max: w.max,
+            peak_dbfs: w.peak_dbfs,
+        })
+        .collect())
+}
+
+// ── live preview playback ───────────────────────────────────────────────────
+
+pub struct ApiPlayerState {
+    pub playing: bool,
+    pub position_frames: u64,
+    pub peak_l: f32,
+    pub peak_r: f32,
+    pub lufs_momentary: f32,
+    pub correlation: f32,
+}
+
+/// Start (or restart) live playback of the mix at `start_frame`.
+pub fn player_start(path: String, tracks: Vec<ApiTrack>, start_frame: u64) -> anyhow::Result<()> {
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let new_player = Player::start(&path, engine_tracks, start_frame)
+        .with_context(|| format!("start playback of {path}"))?;
+    let mut slot = player_slot().lock().unwrap();
+    if let Some(old) = slot.take() {
+        old.stop();
+    }
+    *slot = Some(new_player);
+    Ok(())
+}
+
+pub fn player_stop() {
+    let mut slot = player_slot().lock().unwrap();
+    if let Some(p) = slot.take() {
+        p.stop();
+    }
+}
+
+pub fn player_seek(frame: u64) {
+    if let Some(p) = player_slot().lock().unwrap().as_ref() {
+        p.seek(frame);
+    }
+}
+
+/// Push updated mix parameters to the running player (audible in ~0.2 s).
+pub fn player_update_tracks(tracks: Vec<ApiTrack>) {
+    if let Some(p) = player_slot().lock().unwrap().as_ref() {
+        p.update_tracks(tracks.iter().map(to_engine_track).collect());
+    }
+}
+
+/// Poll playback position and meters (call at UI frame rate).
+#[flutter_rust_bridge::frb(sync)]
+pub fn player_state() -> ApiPlayerState {
+    let slot = player_slot().lock().unwrap();
+    match slot.as_ref() {
+        Some(p) => {
+            let s = p.snapshot();
+            ApiPlayerState {
+                playing: s.playing,
+                position_frames: s.position_frames,
+                peak_l: s.peak_l,
+                peak_r: s.peak_r,
+                lufs_momentary: s.lufs_momentary,
+                correlation: s.correlation,
+            }
+        }
+        None => ApiPlayerState {
+            playing: false,
+            position_frames: 0,
+            peak_l: 0.0,
+            peak_r: 0.0,
+            lufs_momentary: -70.0,
+            correlation: 0.0,
+        },
+    }
 }

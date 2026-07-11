@@ -4,3 +4,10 @@ members = ["rust", "engine"]
 
 [profile.release]
 lto = "thin"
+
+# Engine DSP at near-release speed even in flutter debug builds
+[profile.dev.package.durecmix-engine]
+opt-level = 2
+
+[profile.dev.package.hound]
+opt-level = 2
