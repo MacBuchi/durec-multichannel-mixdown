@@ -203,6 +203,7 @@ dependencies = [
 name = "durecmix-engine"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "hound",
  "quick-xml",
  "serde",
