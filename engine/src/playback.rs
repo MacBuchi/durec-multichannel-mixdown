@@ -5,15 +5,16 @@
 //! ```text
 //! decode thread                     audio callback (cpal)
 //! ─────────────                     ─────────────────────
-//! WavReader → MixBus → f32 ──rtrb──→ pop → device
-//!   ▲ params via Mutex (rebuilt      position/meters via atomics
+//! WavReader → MixChain → f32 ──rtrb──→ pop → device
+//!   ▲ params via Mutex (rebuilt        position/meters via atomics
 //!     on epoch bump, read per block)
 //! ```
 //!
-//! Fader/pan/solo changes bump an epoch counter; the decode thread rebuilds
-//! its `MixBus` snapshot on the next block, so changes are audible within the
-//! ring-buffer latency (~0.2 s). Meters (peak L/R, momentary LUFS,
-//! correlation) are computed on the decode thread and published as atomics.
+//! Fader/pan/solo/EQ changes bump an epoch counter; the decode thread
+//! rebuilds its `MixChain` on the next block (adopting the old filter state,
+//! so tweaks are click-free), and changes are audible within the ring-buffer
+//! latency (~0.2 s). Meters (peak L/R, momentary LUFS, correlation) are
+//! computed on the decode thread and published as atomics.
 //! The cpal stream is `!Send`, so it lives on a dedicated thread that parks
 //! until stop is requested.
 
@@ -23,8 +24,9 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
+use crate::chain::{ChainConfig, MixChain};
 use crate::error::{EngineError, Result};
-use crate::mix::{MixBus, TrackParams};
+use crate::mix::TrackParams;
 use crate::wav::WavReader;
 
 const RING_FRAMES: usize = 8192; // ~0.19 s at 44.1 kHz
@@ -180,7 +182,8 @@ fn spawn_decode_thread(
     std::thread::Builder::new()
         .name("durecmix-decode".into())
         .spawn(move || {
-            let mut bus = MixBus::new(&params.lock().unwrap(), channels);
+            let cfg = ChainConfig { sample_rate };
+            let mut chain = MixChain::new(&params.lock().unwrap(), channels, &cfg);
             let mut seen_epoch = shared.params_epoch.load(Ordering::Acquire);
             let mut ebu = ebur128::EbuR128::new(2, sample_rate, ebur128::Mode::M).ok();
             let mut input: Vec<f64> = Vec::new();
@@ -197,11 +200,14 @@ fn spawn_decode_thread(
                     shared.position_frames.store(seek, Ordering::Release);
                     shared.eof.store(false, Ordering::Release);
                     shared.finished.store(false, Ordering::Release);
+                    chain.reset(); // filter state belongs to the old position
                 }
                 let epoch = shared.params_epoch.load(Ordering::Acquire);
                 if epoch != seen_epoch {
                     seen_epoch = epoch;
-                    bus = MixBus::new(&params.lock().unwrap(), channels);
+                    let mut new_chain = MixChain::new(&params.lock().unwrap(), channels, &cfg);
+                    new_chain.adopt_state_from(&chain); // click-free live tweaks
+                    chain = new_chain;
                 }
 
                 let n = reader.read_frames(&mut input, DECODE_BLOCK).unwrap_or(0);
@@ -211,7 +217,7 @@ fn spawn_decode_thread(
                     continue;
                 }
 
-                bus.process(&input, &mut stereo);
+                chain.process(&input, &mut stereo);
                 stereo_f32.clear();
                 stereo_f32.extend(stereo.iter().map(|&s| s as f32));
                 publish_meters(&shared, &stereo_f32, ebu.as_mut());

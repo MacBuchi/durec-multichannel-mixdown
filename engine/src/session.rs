@@ -17,7 +17,9 @@ use crate::ixml::{default_pan_for_name, TrackInfo};
 use crate::mix::TrackParams;
 use crate::render::{LoudnessMode, OutputFormat, RenderSettings};
 
-pub const SESSION_VERSION: u32 = 1;
+/// v1: tracks + loudness/format. v2: adds per-track EQ (serde defaults keep
+/// v1 files loadable unchanged).
+pub const SESSION_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {

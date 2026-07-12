@@ -10,6 +10,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::chain::{ChainConfig, MixChain};
 use crate::dsp::linear_to_db;
 use crate::error::{EngineError, Result};
 use crate::mix::{MixBus, TrackParams};
@@ -80,10 +81,14 @@ pub fn render_to_wav<P: AsRef<Path>>(
 ) -> Result<RenderReport> {
     let mut reader = WavReader::open(&input_path)?;
     let spec = reader.spec();
-    let bus = MixBus::new(tracks, spec.channels as usize);
+    let cfg = ChainConfig {
+        sample_rate: spec.sample_rate,
+    };
     let total_frames = reader.num_frames().max(1) as f64;
 
-    // Pass 1: measure the raw mix peak.
+    // Pass 1: measure the raw mix peak. Fresh chain — filter state must not
+    // leak into pass 2.
+    let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
     reader.seek_to_frame(0)?;
     let mut input = Vec::new();
     let mut stereo = Vec::new();
@@ -93,7 +98,7 @@ pub fn render_to_wav<P: AsRef<Path>>(
         if n == 0 {
             break;
         }
-        bus.process(&input, &mut stereo);
+        chain.process(&input, &mut stereo);
         for &s in &stereo {
             peak = peak.max(s.abs());
         }
@@ -135,13 +140,14 @@ pub fn render_to_wav<P: AsRef<Path>>(
     let mut writer = hound::WavWriter::create(&out_path, hound_spec)
         .map_err(|e| EngineError::Encode(e.to_string()))?;
 
+    let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
     reader.seek_to_frame(0)?;
     loop {
         let n = reader.read_frames(&mut input, BLOCK_FRAMES)?;
         if n == 0 {
             break;
         }
-        bus.process(&input, &mut stereo);
+        chain.process(&input, &mut stereo);
         write_block(&mut writer, &stereo, norm_gain, settings.format)?;
         progress((0.5 + reader.pos_frames() as f64 / total_frames * 0.5) as f32);
     }

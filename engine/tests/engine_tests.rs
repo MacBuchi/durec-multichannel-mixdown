@@ -1,11 +1,12 @@
 use std::io::Cursor;
 
+use durecmix_engine::chain::{ChainConfig, MixChain};
 use durecmix_engine::dsp::biquad::{Biquad, BiquadCoeffs, BUTTERWORTH_2ND_Q, BUTTERWORTH_4TH_Q};
 use durecmix_engine::dsp::{db_to_linear, linear_to_db, pan_gains, GAIN_FLOOR_DB};
 use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
 };
-use durecmix_engine::mix::{MixBus, TrackParams};
+use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
 use durecmix_engine::render::{render_to_wav, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
 use durecmix_engine::wav::{SampleFormat, WavReader};
@@ -273,6 +274,169 @@ fn biquad_stability_with_extreme_params() {
 }
 
 // ── dsp: gain/pan ───────────────────────────────────────────────────────────
+
+// ── chain ───────────────────────────────────────────────────────────────────
+
+/// Deterministic pseudo-noise in −1..1 (xorshift*).
+fn noise(seed: &mut u64) -> f64 {
+    *seed ^= *seed >> 12;
+    *seed ^= *seed << 25;
+    *seed ^= *seed >> 27;
+    (seed.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+}
+
+#[test]
+fn chain_matches_mixbus_when_eq_off() {
+    let tracks = vec![
+        TrackParams::new(1, "Vocals", 0.0),
+        {
+            let mut t = TrackParams::new(2, "OH L", -1.0);
+            t.gain_db = -6.0;
+            t
+        },
+        {
+            let mut t = TrackParams::new(3, "OH R", 1.0);
+            t.polarity_invert = true;
+            t
+        },
+        {
+            let mut t = TrackParams::new(4, "Talkback", 0.0);
+            t.in_mix = false;
+            t
+        },
+    ];
+    let n_ch = 4;
+    let mut seed = 42u64;
+    let input: Vec<f64> = (0..n_ch * 1024).map(|_| noise(&mut seed)).collect();
+
+    let bus = MixBus::new(&tracks, n_ch);
+    let mut chain = MixChain::new(
+        &tracks,
+        n_ch,
+        &ChainConfig {
+            sample_rate: 44_100,
+        },
+    );
+    let mut out_bus = Vec::new();
+    let mut out_chain = Vec::new();
+    bus.process(&input, &mut out_bus);
+    chain.process(&input, &mut out_chain);
+    assert_eq!(out_bus, out_chain); // bit-identical with EQ bypassed
+}
+
+#[test]
+fn chain_hpf_attenuates_low_channel() {
+    let sr = 44_100u32;
+    let mut low_track = TrackParams::new(1, "Kick", 0.0);
+    low_track.eq.hpf_enabled = true;
+    low_track.eq.hpf_freq = 80.0;
+    low_track.eq.hpf_slope = HpfSlope::Db24;
+    let mid_track = TrackParams::new(2, "Vocals", 0.0);
+    let tracks = vec![low_track, mid_track];
+
+    // ch1: 50 Hz sine, ch2: 1 kHz sine — interleaved 2-channel input.
+    let frames = sr as usize * 2;
+    let mut input = Vec::with_capacity(frames * 2);
+    for n in 0..frames {
+        let t = n as f64 / sr as f64;
+        input.push((std::f64::consts::TAU * 50.0 * t).sin());
+        input.push((std::f64::consts::TAU * 1000.0 * t).sin());
+    }
+
+    // Reference without HPF.
+    let mut plain = tracks.clone();
+    plain[0].eq = TrackEq::default();
+    let mut ref_chain = MixChain::new(&plain, 2, &ChainConfig { sample_rate: sr });
+    let mut eq_chain = MixChain::new(&tracks, 2, &ChainConfig { sample_rate: sr });
+    let mut out_ref = Vec::new();
+    let mut out_eq = Vec::new();
+    ref_chain.process(&input, &mut out_ref);
+    eq_chain.process(&input, &mut out_eq);
+
+    // Compare RMS of the second half (filter settled). Both tracks are
+    // centred, so the left channel carries both; isolate by frequency via
+    // the difference signal: out_ref − out_eq ≈ the removed 50 Hz content.
+    let half = out_ref.len() / 2;
+    let rms = |v: &[f64]| (v.iter().map(|s| s * s).sum::<f64>() / v.len() as f64).sqrt();
+    let removed: Vec<f64> = out_ref[half..]
+        .iter()
+        .zip(&out_eq[half..])
+        .map(|(a, b)| a - b)
+        .collect();
+    // The 50 Hz channel (RMS 1/√2 · pan 1/√2 = 0.5) is attenuated > 18 dB by
+    // an 80 Hz 24 dB/oct HPF, so the removed content is nearly the whole
+    // 50 Hz signal and the kept mix retains the full 1 kHz content.
+    assert!(rms(&removed) > 0.4, "HPF removed too little 50 Hz content");
+    let leftover_low = rms(&out_eq[half..]) - 0.5; // 1 kHz contributes 0.5 RMS
+    assert!(
+        leftover_low.abs() < 0.06,
+        "unexpected residual after HPF: {leftover_low}"
+    );
+}
+
+#[test]
+fn chain_state_adoption_is_click_free() {
+    let sr = 44_100u32;
+    let mk_track = |gain_db: f64| {
+        let mut t = TrackParams::new(1, "Bass", 0.0);
+        t.eq.low = EqBand {
+            enabled: true,
+            freq: 120.0,
+            gain_db,
+            q: 0.707,
+        };
+        t
+    };
+    let cfg = ChainConfig { sample_rate: sr };
+    let mut chain = MixChain::new(&[mk_track(6.0)], 1, &cfg);
+
+    // Feed a loud low sine, then swap parameters mid-stream.
+    let sine = |n0: usize, frames: usize| -> Vec<f64> {
+        (n0..n0 + frames)
+            .map(|n| 0.9 * (std::f64::consts::TAU * 60.0 * n as f64 / sr as f64).sin())
+            .collect()
+    };
+    let mut out_a = Vec::new();
+    chain.process(&sine(0, 4096), &mut out_a);
+
+    let mut swapped = MixChain::new(&[mk_track(5.5)], 1, &cfg);
+    swapped.adopt_state_from(&chain);
+    let mut out_b = Vec::new();
+    swapped.process(&sine(4096, 4096), &mut out_b);
+
+    // No discontinuity at the boundary or inside the blocks: consecutive
+    // samples of a 60 Hz sine at 44.1 kHz can never jump by more than ~0.02
+    // plus what the 0.5 dB coefficient step explains.
+    let mut prev = out_a[out_a.len() - 2]; // left channel, last frame
+    for fr in out_b.chunks_exact(2) {
+        assert!(
+            (fr[0] - prev).abs() < 0.05,
+            "click at parameter swap: {} -> {}",
+            prev,
+            fr[0]
+        );
+        prev = fr[0];
+    }
+}
+
+#[test]
+fn session_v1_json_loads_with_default_eq() {
+    // Literal v1 on-disk format (pre-EQ).
+    let v1 = r#"{
+      "version": 1,
+      "tracks": [{
+        "index": 1, "name": "Vocals", "gain_db": -3.0, "pan": 0.0,
+        "polarity_invert": false, "muted": false, "solo": false, "in_mix": true
+      }],
+      "settings": { "loudness": { "PeakDbfs": -1.0 }, "format": "Wav24" }
+    }"#;
+    let session: Session = serde_json::from_str(v1).unwrap();
+    assert_eq!(session.tracks[0].gain_db, -3.0);
+    assert!(!session.tracks[0].eq.is_active());
+    assert_eq!(session.tracks[0].eq.hpf_freq, 80.0);
+}
+
+// ── dsp: gain/pan basics ────────────────────────────────────────────────────
 
 #[test]
 fn db_to_linear_basics() {

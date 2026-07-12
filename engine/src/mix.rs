@@ -4,6 +4,67 @@ use serde::{Deserialize, Serialize};
 
 use crate::dsp::{db_to_linear, pan_gains, GAIN_FLOOR_DB};
 
+/// HPF slope: one or two cascaded 2nd-order Butterworth sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HpfSlope {
+    #[default]
+    Db12,
+    Db24,
+}
+
+/// One parametric EQ band (peak or shelf depending on its slot).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct EqBand {
+    pub enabled: bool,
+    pub freq: f64,
+    pub gain_db: f64,
+    pub q: f64,
+}
+
+impl EqBand {
+    fn off(freq: f64, q: f64) -> Self {
+        Self {
+            enabled: false,
+            freq,
+            gain_db: 0.0,
+            q,
+        }
+    }
+}
+
+/// Per-track high-pass filter + 3-band EQ (low shelf, mid peak, high shelf).
+/// Everything defaults to bypassed, so pre-M3 sessions load unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TrackEq {
+    pub hpf_enabled: bool,
+    pub hpf_freq: f64,
+    pub hpf_slope: HpfSlope,
+    pub low: EqBand,
+    pub mid: EqBand,
+    pub high: EqBand,
+}
+
+impl Default for TrackEq {
+    fn default() -> Self {
+        Self {
+            hpf_enabled: false,
+            hpf_freq: 80.0,
+            hpf_slope: HpfSlope::Db12,
+            low: EqBand::off(120.0, std::f64::consts::FRAC_1_SQRT_2),
+            mid: EqBand::off(1000.0, 1.0),
+            high: EqBand::off(8000.0, std::f64::consts::FRAC_1_SQRT_2),
+        }
+    }
+}
+
+impl TrackEq {
+    /// True when any stage would touch the signal.
+    pub fn is_active(&self) -> bool {
+        self.hpf_enabled || self.low.enabled || self.mid.enabled || self.high.enabled
+    }
+}
+
 /// Per-track mix parameters. `index` is the 1-based interleave index of the
 /// channel inside the source WAV.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +81,9 @@ pub struct TrackParams {
     pub solo: bool,
     /// Include this track in the mixdown (parity with the old "Mix" checkbox).
     pub in_mix: bool,
+    /// HPF + 3-band EQ; defaults to bypassed (absent in v1 session files).
+    #[serde(default)]
+    pub eq: TrackEq,
 }
 
 impl TrackParams {
@@ -33,16 +97,50 @@ impl TrackParams {
             muted: false,
             solo: false,
             in_mix: true,
+            eq: TrackEq::default(),
         }
     }
 }
 
 /// Pre-resolved stereo coefficients for one source channel.
 #[derive(Debug, Clone, Copy)]
-struct ChannelCoeff {
-    channel: usize, // 0-based interleave position
-    left: f64,
-    right: f64,
+pub(crate) struct ChannelCoeff {
+    /// 0-based interleave position in the source file.
+    pub(crate) channel: usize,
+    pub(crate) left: f64,
+    pub(crate) right: f64,
+    /// Position of the originating track in the `tracks` slice.
+    pub(crate) track_pos: usize,
+}
+
+/// Resolve solo/mute/in-mix plus gain/pan/polarity into flat per-channel
+/// stereo coefficients — the single source of truth for which channels are
+/// audible, shared by [`MixBus`] and [`crate::chain::MixChain`].
+pub(crate) fn resolve_channels(tracks: &[TrackParams], num_channels: usize) -> Vec<ChannelCoeff> {
+    let any_solo = tracks.iter().any(|t| t.solo);
+    let mut coeffs = Vec::new();
+    for (track_pos, t) in tracks.iter().enumerate() {
+        if !t.in_mix || t.muted || (any_solo && !t.solo) {
+            continue;
+        }
+        let ch = t.index as usize;
+        if ch == 0 || ch > num_channels {
+            continue;
+        }
+        let gain = db_to_linear(t.gain_db, GAIN_FLOOR_DB);
+        if gain == 0.0 {
+            continue;
+        }
+        let (pl, pr) = pan_gains(t.pan);
+        let sign = if t.polarity_invert { -1.0 } else { 1.0 };
+        coeffs.push(ChannelCoeff {
+            channel: ch - 1,
+            left: gain * pl * sign,
+            right: gain * pr * sign,
+            track_pos,
+        });
+    }
+    coeffs
 }
 
 /// A fixed snapshot of the mix graph: resolves solo/mute/in-mix logic and
@@ -56,30 +154,8 @@ pub struct MixBus {
 
 impl MixBus {
     pub fn new(tracks: &[TrackParams], num_channels: usize) -> Self {
-        let any_solo = tracks.iter().any(|t| t.solo);
-        let mut coeffs = Vec::new();
-        for t in tracks {
-            if !t.in_mix || t.muted || (any_solo && !t.solo) {
-                continue;
-            }
-            let ch = t.index as usize;
-            if ch == 0 || ch > num_channels {
-                continue;
-            }
-            let gain = db_to_linear(t.gain_db, GAIN_FLOOR_DB);
-            if gain == 0.0 {
-                continue;
-            }
-            let (pl, pr) = pan_gains(t.pan);
-            let sign = if t.polarity_invert { -1.0 } else { 1.0 };
-            coeffs.push(ChannelCoeff {
-                channel: ch - 1,
-                left: gain * pl * sign,
-                right: gain * pr * sign,
-            });
-        }
         Self {
-            coeffs,
+            coeffs: resolve_channels(tracks, num_channels),
             num_channels,
         }
     }

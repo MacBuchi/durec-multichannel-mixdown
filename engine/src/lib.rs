@@ -5,6 +5,7 @@
 //! consumer.
 
 pub mod analysis;
+pub mod chain;
 pub mod dsp;
 pub mod error;
 pub mod ixml;

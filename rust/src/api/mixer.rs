@@ -74,6 +74,8 @@ fn to_engine_track(t: &ApiTrack) -> TrackParams {
         muted: t.muted,
         solo: t.solo,
         in_mix: t.in_mix,
+        // EQ is not exposed over the bridge yet (M3a UI commit adds it).
+        eq: Default::default(),
     }
 }
 
