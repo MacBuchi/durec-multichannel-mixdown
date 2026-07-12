@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DurecMix logo: many DUREC channels converging into a stereo pair. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141b28"/>
+      <stop offset="1" stop-color="#0b0f17"/>
+    </linearGradient>
+    <linearGradient id="stream" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3d5a80"/>
+      <stop offset="0.55" stop-color="#41a7e0"/>
+      <stop offset="1" stop-color="#7fdcff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- six channels flowing into L and R -->
+  <g fill="none" stroke="url(#stream)" stroke-width="34" stroke-linecap="round" opacity="0.85">
+    <path d="M140,252 L340,252 C580,252 600,442 866,442"/>
+    <path d="M140,356 L340,356 C580,356 600,442 866,442"/>
+    <path d="M140,460 L340,460 C580,460 600,442 866,442"/>
+    <path d="M140,564 L340,564 C580,564 600,582 866,582"/>
+    <path d="M140,668 L340,668 C580,668 600,582 866,582"/>
+    <path d="M140,772 L340,772 C580,772 600,582 866,582"/>
+  </g>
+
+  <!-- stereo terminals -->
+  <circle cx="866" cy="442" r="40" fill="#eaf7ff"/>
+  <circle cx="866" cy="582" r="40" fill="#eaf7ff"/>
+
+  <!-- fader dots on the channel lines -->
+  <g fill="#dce8f5">
+    <circle cx="236" cy="252" r="22"/>
+    <circle cx="292" cy="356" r="22"/>
+    <circle cx="204" cy="460" r="22"/>
+    <circle cx="308" cy="564" r="22"/>
+    <circle cx="248" cy="668" r="22"/>
+    <circle cx="188" cy="772" r="22"/>
+  </g>
+</svg>
