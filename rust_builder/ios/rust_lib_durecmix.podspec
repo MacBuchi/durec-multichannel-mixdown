@@ -42,4 +42,6 @@ A new Flutter FFI plugin project.
     'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
     'OTHER_LDFLAGS' => '-force_load ${BUILT_PRODUCTS_DIR}/librust_lib_durecmix.a',
   }
+  # cpal live playback needs CoreAudio symbols in the final app link.
+  s.frameworks = 'CoreAudio', 'AudioToolbox', 'AVFAudio'
 end
