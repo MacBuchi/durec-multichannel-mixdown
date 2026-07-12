@@ -81,13 +81,19 @@ pub struct ApiLoudness {
     pub value: f64,
 }
 
-/// Master-bus settings: loudness target, output format, limiter, dither.
+/// Master-bus settings: loudness target, output format, limiter, dither,
+/// trim range and fades.
 pub struct ApiMaster {
     pub loudness: ApiLoudness,
     pub format: ApiFormat,
     pub limiter_enabled: bool,
     pub ceiling_dbtp: f64,
     pub dither: bool,
+    pub trim_start_frame: u64,
+    /// One-past-last frame; `None` = end of file.
+    pub trim_end_frame: Option<u64>,
+    pub fade_in_ms: f64,
+    pub fade_out_ms: f64,
 }
 
 pub struct RecordingInfo {
@@ -212,6 +218,10 @@ fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
         limiter_enabled: m.limiter_enabled,
         ceiling_dbtp: m.ceiling_dbtp,
         dither: m.dither,
+        trim_start_frame: m.trim_start_frame,
+        trim_end_frame: m.trim_end_frame,
+        fade_in_ms: m.fade_in_ms,
+        fade_out_ms: m.fade_out_ms,
     }
 }
 
@@ -242,6 +252,10 @@ fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
         limiter_enabled: s.limiter_enabled,
         ceiling_dbtp: s.ceiling_dbtp,
         dither: s.dither,
+        trim_start_frame: s.trim_start_frame,
+        trim_end_frame: s.trim_end_frame,
+        fade_in_ms: s.fade_in_ms,
+        fade_out_ms: s.fade_out_ms,
     }
 }
 
@@ -351,18 +365,28 @@ pub struct ApiChannelWaveform {
     pub peak_dbfs: f32,
 }
 
-/// Streamed min/max envelope of every channel, `buckets` values per channel.
-pub fn analyze_waveforms(path: String, buckets: usize) -> anyhow::Result<Vec<ApiChannelWaveform>> {
-    let waves =
-        analysis::analyze_waveforms(&path, buckets).with_context(|| format!("analyze {path}"))?;
-    Ok(waves
-        .into_iter()
-        .map(|w| ApiChannelWaveform {
-            min: w.min,
-            max: w.max,
-            peak_dbfs: w.peak_dbfs,
-        })
-        .collect())
+pub struct ApiAnalysis {
+    pub waveforms: Vec<ApiChannelWaveform>,
+    /// Detected tempo (whole BPM), `None` when no clear beat.
+    pub bpm: Option<f64>,
+}
+
+/// Streamed min/max envelope of every channel (`buckets` values per channel)
+/// plus BPM detection, in one pass.
+pub fn analyze_recording(path: String, buckets: usize) -> anyhow::Result<ApiAnalysis> {
+    let analysis = analysis::analyze(&path, buckets).with_context(|| format!("analyze {path}"))?;
+    Ok(ApiAnalysis {
+        waveforms: analysis
+            .waveforms
+            .into_iter()
+            .map(|w| ApiChannelWaveform {
+                min: w.min,
+                max: w.max,
+                peak_dbfs: w.peak_dbfs,
+            })
+            .collect(),
+        bpm: analysis.bpm,
+    })
 }
 
 // ── live preview playback ───────────────────────────────────────────────────

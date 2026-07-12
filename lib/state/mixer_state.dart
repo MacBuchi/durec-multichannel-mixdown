@@ -146,6 +146,15 @@ class MixerState extends ChangeNotifier {
   double customLufs = -17.0;
   rust.ApiFormat format = rust.ApiFormat.wav24;
 
+  /// Trim range in seconds (null = untrimmed); fades match the old tool's
+  /// 80 ms default whenever a trim point is set.
+  double? trimStartSeconds;
+  double? trimEndSeconds;
+  static const double fadeMs = 80.0;
+
+  /// Detected tempo of the recording (whole BPM), if any.
+  double? bpm;
+
   /// Track indices whose EQ panel is expanded.
   final Set<int> expandedEq = {};
 
@@ -194,9 +203,13 @@ class MixerState extends ChangeNotifier {
     analyzing = true;
     notifyListeners();
     try {
-      waveforms = await rust.analyzeWaveforms(path: path, buckets: BigInt.from(600));
+      final analysis =
+          await rust.analyzeRecording(path: path, buckets: BigInt.from(600));
+      waveforms = analysis.waveforms;
+      bpm = analysis.bpm;
     } catch (_) {
       waveforms = null;
+      bpm = null;
     }
     analyzing = false;
     notifyListeners();
@@ -245,10 +258,31 @@ class MixerState extends ChangeNotifier {
     limiterEnabled: true,
     ceilingDbtp: -1.0,
     dither: true,
+    trimStartFrame: BigInt.from(((trimStartSeconds ?? 0) * sampleRate).round()),
+    trimEndFrame:
+        trimEndSeconds != null ? BigInt.from((trimEndSeconds! * sampleRate).round()) : null,
+    fadeInMs: trimStartSeconds != null ? fadeMs : 0,
+    fadeOutMs: trimEndSeconds != null ? fadeMs : 0,
   );
+
+  void setTrimStart(double? seconds) {
+    trimStartSeconds = seconds?.clamp(0, durationSeconds);
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  void setTrimEnd(double? seconds) {
+    trimEndSeconds = seconds?.clamp(0, durationSeconds);
+    _scheduleSave();
+    notifyListeners();
+  }
 
   void _restoreMaster(rust.ApiMaster m) {
     format = m.format;
+    final sr = recording?.sampleRate ?? 48000;
+    final start = m.trimStartFrame.toInt();
+    trimStartSeconds = start > 0 ? start / sr : null;
+    trimEndSeconds = m.trimEndFrame != null ? m.trimEndFrame!.toInt() / sr : null;
     switch (m.loudness.mode) {
       case rust.ApiLoudnessMode.none:
         loudness = LoudnessChoice.none;

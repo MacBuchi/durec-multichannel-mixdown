@@ -45,11 +45,12 @@ Stream<RenderEvent> renderMix({
   master: master,
 );
 
-/// Streamed min/max envelope of every channel, `buckets` values per channel.
-Future<List<ApiChannelWaveform>> analyzeWaveforms({
+/// Streamed min/max envelope of every channel (`buckets` values per channel)
+/// plus BPM detection, in one pass.
+Future<ApiAnalysis> analyzeRecording({
   required String path,
   required BigInt buckets,
-}) => RustLib.instance.api.crateApiMixerAnalyzeWaveforms(
+}) => RustLib.instance.api.crateApiMixerAnalyzeRecording(
   path: path,
   buckets: buckets,
 );
@@ -83,6 +84,26 @@ Future<void> playerUpdateParams({
 
 /// Poll playback position and meters (call at UI frame rate).
 ApiPlayerState playerState() => RustLib.instance.api.crateApiMixerPlayerState();
+
+class ApiAnalysis {
+  final List<ApiChannelWaveform> waveforms;
+
+  /// Detected tempo (whole BPM), `None` when no clear beat.
+  final double? bpm;
+
+  const ApiAnalysis({required this.waveforms, this.bpm});
+
+  @override
+  int get hashCode => waveforms.hashCode ^ bpm.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiAnalysis &&
+          runtimeType == other.runtimeType &&
+          waveforms == other.waveforms &&
+          bpm == other.bpm;
+}
 
 class ApiChannelWaveform {
   final Float32List min;
@@ -172,13 +193,20 @@ class ApiLoudness {
 
 enum ApiLoudnessMode { none, peakDbfs, lufsIntegrated }
 
-/// Master-bus settings: loudness target, output format, limiter, dither.
+/// Master-bus settings: loudness target, output format, limiter, dither,
+/// trim range and fades.
 class ApiMaster {
   final ApiLoudness loudness;
   final ApiFormat format;
   final bool limiterEnabled;
   final double ceilingDbtp;
   final bool dither;
+  final BigInt trimStartFrame;
+
+  /// One-past-last frame; `None` = end of file.
+  final BigInt? trimEndFrame;
+  final double fadeInMs;
+  final double fadeOutMs;
 
   const ApiMaster({
     required this.loudness,
@@ -186,6 +214,10 @@ class ApiMaster {
     required this.limiterEnabled,
     required this.ceilingDbtp,
     required this.dither,
+    required this.trimStartFrame,
+    this.trimEndFrame,
+    required this.fadeInMs,
+    required this.fadeOutMs,
   });
 
   @override
@@ -194,7 +226,11 @@ class ApiMaster {
       format.hashCode ^
       limiterEnabled.hashCode ^
       ceilingDbtp.hashCode ^
-      dither.hashCode;
+      dither.hashCode ^
+      trimStartFrame.hashCode ^
+      trimEndFrame.hashCode ^
+      fadeInMs.hashCode ^
+      fadeOutMs.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -205,7 +241,11 @@ class ApiMaster {
           format == other.format &&
           limiterEnabled == other.limiterEnabled &&
           ceilingDbtp == other.ceilingDbtp &&
-          dither == other.dither;
+          dither == other.dither &&
+          trimStartFrame == other.trimStartFrame &&
+          trimEndFrame == other.trimEndFrame &&
+          fadeInMs == other.fadeInMs &&
+          fadeOutMs == other.fadeOutMs;
 }
 
 class ApiPlayerState {
