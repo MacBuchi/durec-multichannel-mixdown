@@ -24,7 +24,8 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use crate::chain::{ChainConfig, MixChain};
+use crate::chain::{ChainConfig, MasterParams, MixChain};
+use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use crate::error::{EngineError, Result};
 use crate::mix::TrackParams;
 use crate::wav::WavReader;
@@ -44,6 +45,8 @@ struct SharedState {
     peak_l: AtomicU32,
     peak_r: AtomicU32,
     lufs_momentary: AtomicU32,
+    lufs_integrated: AtomicU32,
+    true_peak: AtomicU32,
     correlation: AtomicU32,
 }
 
@@ -55,18 +58,35 @@ pub struct PlayerSnapshot {
     pub peak_l: f32,
     pub peak_r: f32,
     pub lufs_momentary: f32,
+    /// Integrated loudness since start/last seek — what render pass 1 will
+    /// measure (playback applies no normalisation gain).
+    pub lufs_integrated: f32,
+    /// Running true-peak maximum since start/last seek, dBTP-linear.
+    pub true_peak: f32,
     pub correlation: f32,
+}
+
+/// Live parameters swapped in atomically via epoch bump.
+#[derive(Debug, Clone)]
+pub struct LiveParams {
+    pub tracks: Vec<TrackParams>,
+    pub master: MasterParams,
 }
 
 pub struct Player {
     shared: Arc<SharedState>,
-    params: Arc<Mutex<Vec<TrackParams>>>,
+    params: Arc<Mutex<LiveParams>>,
     sample_rate: u32,
 }
 
 impl Player {
     /// Open `path` and start playing at `start_frame` with the given mix.
-    pub fn start(path: &str, tracks: Vec<TrackParams>, start_frame: u64) -> Result<Player> {
+    pub fn start(
+        path: &str,
+        tracks: Vec<TrackParams>,
+        master: MasterParams,
+        start_frame: u64,
+    ) -> Result<Player> {
         let mut reader = WavReader::open(path)?;
         let spec = reader.spec();
         let channels = spec.channels as usize;
@@ -77,9 +97,10 @@ impl Player {
             seek_to: AtomicU64::new(SEEK_NONE),
             position_frames: AtomicU64::new(start_frame),
             lufs_momentary: AtomicU32::new((-70.0f32).to_bits()),
+            lufs_integrated: AtomicU32::new((-70.0f32).to_bits()),
             ..SharedState::default()
         });
-        let params = Arc::new(Mutex::new(tracks));
+        let params = Arc::new(Mutex::new(LiveParams { tracks, master }));
 
         let (producer, consumer) = rtrb::RingBuffer::<f32>::new(RING_FRAMES * 2);
 
@@ -142,9 +163,9 @@ impl Player {
         self.shared.seek_to.store(frame, Ordering::Release);
     }
 
-    /// Swap in new track parameters; audible within ring latency.
-    pub fn update_tracks(&self, tracks: Vec<TrackParams>) {
-        *self.params.lock().unwrap() = tracks;
+    /// Swap in new track/master parameters; audible within ring latency.
+    pub fn update_params(&self, tracks: Vec<TrackParams>, master: MasterParams) {
+        *self.params.lock().unwrap() = LiveParams { tracks, master };
         self.shared.params_epoch.fetch_add(1, Ordering::AcqRel);
     }
 
@@ -160,6 +181,8 @@ impl Player {
             peak_l: f32::from_bits(s.peak_l.load(Ordering::Acquire)),
             peak_r: f32::from_bits(s.peak_r.load(Ordering::Acquire)),
             lufs_momentary: f32::from_bits(s.lufs_momentary.load(Ordering::Acquire)),
+            lufs_integrated: f32::from_bits(s.lufs_integrated.load(Ordering::Acquire)),
+            true_peak: f32::from_bits(s.true_peak.load(Ordering::Acquire)),
             correlation: f32::from_bits(s.correlation.load(Ordering::Acquire)),
         }
     }
@@ -177,17 +200,43 @@ fn spawn_decode_thread(
     sample_rate: u32,
     mut producer: rtrb::Producer<f32>,
     shared: Arc<SharedState>,
-    params: Arc<Mutex<Vec<TrackParams>>>,
+    params: Arc<Mutex<LiveParams>>,
 ) -> Result<()> {
     std::thread::Builder::new()
         .name("durecmix-decode".into())
         .spawn(move || {
             let cfg = ChainConfig { sample_rate };
-            let mut chain = MixChain::new(&params.lock().unwrap(), channels, &cfg);
+            let build_limiter = |m: &MasterParams| {
+                m.limiter_enabled.then(|| {
+                    TruePeakLimiter::new(
+                        LimiterParams {
+                            ceiling_dbtp: m.ceiling_dbtp,
+                            ..LimiterParams::default()
+                        },
+                        sample_rate,
+                    )
+                })
+            };
+            let (mut chain, mut master) = {
+                let p = params.lock().unwrap();
+                (MixChain::new(&p.tracks, channels, &cfg), p.master)
+            };
+            let mut limiter = build_limiter(&master);
             let mut seen_epoch = shared.params_epoch.load(Ordering::Acquire);
-            let mut ebu = ebur128::EbuR128::new(2, sample_rate, ebur128::Mode::M).ok();
+            // Meter mode M|I|TRUE_PEAK: momentary for the bar, integrated +
+            // running true peak so the user sees what render pass 1 will.
+            let make_ebu = || {
+                ebur128::EbuR128::new(
+                    2,
+                    sample_rate,
+                    ebur128::Mode::M | ebur128::Mode::I | ebur128::Mode::TRUE_PEAK,
+                )
+                .ok()
+            };
+            let mut ebu = make_ebu();
             let mut input: Vec<f64> = Vec::new();
             let mut stereo: Vec<f64> = Vec::new();
+            let mut limited: Vec<f64> = Vec::new();
             let mut stereo_f32: Vec<f32> = Vec::new();
 
             loop {
@@ -201,13 +250,22 @@ fn spawn_decode_thread(
                     shared.eof.store(false, Ordering::Release);
                     shared.finished.store(false, Ordering::Release);
                     chain.reset(); // filter state belongs to the old position
+                    if let Some(lim) = &mut limiter {
+                        lim.reset();
+                    }
+                    ebu = make_ebu(); // integrated loudness restarts at seeks
                 }
                 let epoch = shared.params_epoch.load(Ordering::Acquire);
                 if epoch != seen_epoch {
                     seen_epoch = epoch;
-                    let mut new_chain = MixChain::new(&params.lock().unwrap(), channels, &cfg);
+                    let p = params.lock().unwrap();
+                    let mut new_chain = MixChain::new(&p.tracks, channels, &cfg);
                     new_chain.adopt_state_from(&chain); // click-free live tweaks
                     chain = new_chain;
+                    if p.master != master {
+                        master = p.master;
+                        limiter = build_limiter(&master);
+                    }
                 }
 
                 let n = reader.read_frames(&mut input, DECODE_BLOCK).unwrap_or(0);
@@ -218,8 +276,16 @@ fn spawn_decode_thread(
                 }
 
                 chain.process(&input, &mut stereo);
+                let block: &[f64] = match &mut limiter {
+                    Some(lim) => {
+                        limited.clear();
+                        lim.process(&stereo, &mut limited);
+                        &limited
+                    }
+                    None => &stereo,
+                };
                 stereo_f32.clear();
-                stereo_f32.extend(stereo.iter().map(|&s| s as f32));
+                stereo_f32.extend(block.iter().map(|&s| s as f32));
                 publish_meters(&shared, &stereo_f32, ebu.as_mut());
 
                 // Push into the ring, waiting while it is full.
@@ -317,6 +383,16 @@ fn publish_meters(shared: &SharedState, stereo: &[f32], ebu: Option<&mut ebur128
                 shared
                     .lufs_momentary
                     .store((l as f32).to_bits(), Ordering::Release);
+            }
+            if let Ok(l) = ebu.loudness_global() {
+                shared
+                    .lufs_integrated
+                    .store((l as f32).to_bits(), Ordering::Release);
+            }
+            if let (Ok(l), Ok(r)) = (ebu.true_peak(0), ebu.true_peak(1)) {
+                shared
+                    .true_peak
+                    .store((l.max(r) as f32).to_bits(), Ordering::Release);
             }
         }
     }

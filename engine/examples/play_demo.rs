@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
 
     let session = Session::from_track_info(&infos);
     let start_frame = (start_s * sr as f64) as u64;
-    let player = Player::start(&input, session.tracks, start_frame)?;
+    let player = Player::start(&input, session.tracks, Default::default(), start_frame)?;
     println!("playing from {start_s:.1} s …");
 
     let mut last_pos = start_frame;

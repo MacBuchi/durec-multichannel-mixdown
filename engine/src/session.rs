@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 use crate::ixml::{default_pan_for_name, TrackInfo};
 use crate::mix::TrackParams;
-use crate::render::{LoudnessMode, OutputFormat, RenderSettings};
+use crate::render::RenderSettings;
 
 /// v1: tracks + loudness/format. v2: adds per-track EQ (serde defaults keep
 /// v1 files loadable unchanged).
@@ -33,10 +33,7 @@ impl Default for Session {
         Self {
             version: SESSION_VERSION,
             tracks: Vec::new(),
-            settings: RenderSettings {
-                loudness: LoudnessMode::PeakDbfs(-1.0),
-                format: OutputFormat::Wav24,
-            },
+            settings: RenderSettings::default(),
         }
     }
 }

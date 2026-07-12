@@ -805,6 +805,9 @@ fn renders_peak_normalised_wav() {
     let settings = RenderSettings {
         loudness: LoudnessMode::PeakDbfs(-1.0),
         format: OutputFormat::Wav24,
+        // Exact sample-peak semantics: keep the limiter out of the way.
+        limiter_enabled: false,
+        ..RenderSettings::default()
     };
     let mut last_progress = 0.0f32;
     let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |p| {
@@ -841,6 +844,9 @@ fn render_without_normalisation_prevents_clipping() {
     let settings = RenderSettings {
         loudness: LoudnessMode::None,
         format: OutputFormat::Wav32Float,
+        // Static clip protection only engages when the limiter is off.
+        limiter_enabled: false,
+        ..RenderSettings::default()
     };
     render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
 
@@ -850,6 +856,123 @@ fn render_without_normalisation_prevents_clipping() {
         .map(|s| s.unwrap().abs())
         .fold(0.0f32, f32::max);
     assert!(peak <= 1.0 + 1e-6);
+}
+
+#[test]
+fn lufs_target_hit_within_half_lu() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+
+    // 10 s of a −20 dBFS 997 Hz sine, mono channel panned centre.
+    let sr = 48_000u32;
+    let samples: Vec<i16> = (0..sr as usize * 10)
+        .map(|n| {
+            (0.1 * (std::f64::consts::TAU * 997.0 * n as f64 / sr as f64).sin() * 32767.0) as i16
+        })
+        .collect();
+    std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::LufsIntegrated(-16.0),
+        format: OutputFormat::Wav32Float,
+        ..RenderSettings::default()
+    };
+    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+
+    // Report says the target was hit…
+    assert!(
+        (report.integrated_lufs + 16.0).abs() < 0.5,
+        "report LUFS {}",
+        report.integrated_lufs
+    );
+    assert!((report.gain_applied_db - (-16.0 - report.source_integrated_lufs)).abs() < 0.1);
+
+    // …and an independent measurement of the file agrees.
+    let mut r = hound::WavReader::open(&out_path).unwrap();
+    let all: Vec<f64> = r.samples::<f32>().map(|s| s.unwrap() as f64).collect();
+    let mut ebu = ebur128::EbuR128::new(2, sr, ebur128::Mode::I).unwrap();
+    ebu.add_frames_f64(&all).unwrap();
+    let measured = ebu.loudness_global().unwrap();
+    assert!((measured + 16.0).abs() < 0.5, "file LUFS {measured}");
+    assert!((measured - report.integrated_lufs).abs() < 0.1);
+}
+
+#[test]
+fn lufs_target_engages_limiter() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+
+    // Quiet but peaky source: pushing it up to −8 LUFS forces peaks over
+    // −1 dBTP, so the limiter must act.
+    let sr = 44_100u32;
+    let samples: Vec<i16> = (0..sr as usize * 6)
+        .map(|n| {
+            let t = n as f64 / sr as f64;
+            let burst = if (t * 2.0).fract() < 0.05 { 1.0 } else { 0.1 };
+            (0.3 * burst * (std::f64::consts::TAU * 220.0 * t).sin() * 32767.0) as i16
+        })
+        .collect();
+    std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::LufsIntegrated(-8.0),
+        format: OutputFormat::Wav32Float,
+        ..RenderSettings::default()
+    };
+    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    assert!(
+        report.gain_applied_db > 6.0,
+        "gain {}",
+        report.gain_applied_db
+    );
+    assert!(
+        report.true_peak_dbtp <= -1.0 + 0.05,
+        "TP {} dBTP",
+        report.true_peak_dbtp
+    );
+    assert!(report.lra_lu >= 0.0);
+    // Output length unchanged by limiter latency handling.
+    let r = hound::WavReader::open(&out_path).unwrap();
+    assert_eq!(r.duration() as usize, samples.len());
+}
+
+#[test]
+fn dithered_16bit_render_reaches_both_codes() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+
+    // A constant level that falls between two 16-bit codes after the mix
+    // bus (pan centre = 1/√2): without dither it sticks to one code.
+    let sr = 44_100u32;
+    let samples: Vec<i32> = (0..sr as usize).map(|_| 3_000_000i32).collect();
+    std::fs::write(&in_path, wav24(1, sr, &samples)).unwrap();
+
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::None,
+        format: OutputFormat::Wav16,
+        limiter_enabled: false,
+        ..RenderSettings::default()
+    };
+    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    assert_eq!(report.gain_applied_db, 0.0);
+
+    let mut r = hound::WavReader::open(&out_path).unwrap();
+    let left: Vec<i16> = r.samples::<i16>().map(|s| s.unwrap()).step_by(2).collect();
+    let distinct: std::collections::HashSet<i16> = left.iter().copied().collect();
+    assert!(distinct.len() >= 2, "dither missing: {distinct:?}");
+    // The dithered average reconstructs the in-between value (±0.1 LSB).
+    let expected = 3_000_000.0 / 8_388_607.0 * std::f64::consts::FRAC_1_SQRT_2 * 32767.0;
+    let mean = left.iter().map(|&v| v as f64).sum::<f64>() / left.len() as f64;
+    assert!(
+        (mean - expected).abs() < 0.1,
+        "mean {mean} expected {expected}"
+    );
 }
 
 // ── session ─────────────────────────────────────────────────────────────────

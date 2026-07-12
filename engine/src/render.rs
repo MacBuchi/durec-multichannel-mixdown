@@ -1,9 +1,7 @@
-//! Two-pass offline render: analysis pass (peak measurement) followed by a
-//! streamed render pass. Files are never loaded into memory, so multi-GB
-//! DUREC recordings work on mobile devices.
-//!
-//! M1 scope: peak normalisation + WAV output. LUFS targets, true-peak
-//! limiting, dither and FLAC/MP3 arrive in M3.
+//! Two-pass offline render: analysis pass (peak + loudness measurement)
+//! followed by a streamed render pass through gain → true-peak limiter →
+//! quantise (+ TPDF dither on 16-bit). Files are never loaded into memory,
+//! so multi-GB DUREC recordings work on mobile devices.
 
 use std::io::{Read, Seek};
 use std::path::Path;
@@ -11,6 +9,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::chain::{ChainConfig, MixChain};
+use crate::dsp::dither::TpdfDither;
+use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use crate::dsp::linear_to_db;
 use crate::error::{EngineError, Result};
 use crate::mix::{MixBus, TrackParams};
@@ -21,10 +21,14 @@ pub const BLOCK_FRAMES: usize = 65_536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum LoudnessMode {
-    /// No normalisation; gain is only reduced if the mix would clip.
+    /// No normalisation. If the limiter is also disabled, gain is still
+    /// reduced when the mix would clip; with the limiter on, overs are its job.
     None,
     /// Normalise the mix so its sample peak hits the given dBFS value.
     PeakDbfs(f64),
+    /// Normalise integrated loudness (EBU R128) to the given LUFS value;
+    /// the true-peak limiter catches whatever the gain pushes over the top.
+    LufsIntegrated(f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,10 +38,42 @@ pub enum OutputFormat {
     Wav32Float,
 }
 
+fn default_limiter_enabled() -> bool {
+    true
+}
+fn default_ceiling_dbtp() -> f64 {
+    -1.0
+}
+fn default_dither() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RenderSettings {
     pub loudness: LoudnessMode,
     pub format: OutputFormat,
+    /// Master true-peak limiter (defaults on; serde defaults keep v1
+    /// sessions loadable).
+    #[serde(default = "default_limiter_enabled")]
+    pub limiter_enabled: bool,
+    /// Limiter ceiling in dBTP.
+    #[serde(default = "default_ceiling_dbtp")]
+    pub ceiling_dbtp: f64,
+    /// TPDF dither on word-length reduction (only acts on 16-bit output).
+    #[serde(default = "default_dither")]
+    pub dither: bool,
+}
+
+impl Default for RenderSettings {
+    fn default() -> Self {
+        Self {
+            loudness: LoudnessMode::PeakDbfs(-1.0),
+            format: OutputFormat::Wav24,
+            limiter_enabled: default_limiter_enabled(),
+            ceiling_dbtp: default_ceiling_dbtp(),
+            dither: default_dither(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,6 +84,14 @@ pub struct RenderReport {
     pub gain_applied_db: f64,
     pub duration_seconds: f64,
     pub sample_rate: u32,
+    /// Integrated loudness of the delivered file (post-limiter), LUFS.
+    pub integrated_lufs: f64,
+    /// True peak of the delivered file (post-limiter), dBTP.
+    pub true_peak_dbtp: f64,
+    /// Loudness range of the delivered file, LU.
+    pub lra_lu: f64,
+    /// Integrated loudness of the source mix (pre-gain), LUFS.
+    pub source_integrated_lufs: f64,
 }
 
 /// Measure the sample peak of the mixed output without writing anything.
@@ -86,9 +130,11 @@ pub fn render_to_wav<P: AsRef<Path>>(
     };
     let total_frames = reader.num_frames().max(1) as f64;
 
-    // Pass 1: measure the raw mix peak. Fresh chain — filter state must not
-    // leak into pass 2.
+    // Pass 1: measure raw mix peak and integrated loudness. Fresh chain —
+    // filter state must not leak into pass 2.
     let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
+    let mut ebu_src = ebur128::EbuR128::new(2, spec.sample_rate, ebur128::Mode::I)
+        .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
     reader.seek_to_frame(0)?;
     let mut input = Vec::new();
     let mut stereo = Vec::new();
@@ -102,8 +148,10 @@ pub fn render_to_wav<P: AsRef<Path>>(
         for &s in &stereo {
             peak = peak.max(s.abs());
         }
+        let _ = ebu_src.add_frames_f64(&stereo);
         progress((reader.pos_frames() as f64 / total_frames * 0.5) as f32);
     }
+    let source_lufs = ebu_src.loudness_global().unwrap_or(f64::NEG_INFINITY);
 
     let norm_gain = match settings.loudness {
         LoudnessMode::PeakDbfs(target_db) => {
@@ -113,9 +161,16 @@ pub fn render_to_wav<P: AsRef<Path>>(
                 1.0
             }
         }
+        LoudnessMode::LufsIntegrated(target_lufs) => {
+            if source_lufs.is_finite() {
+                10f64.powf((target_lufs - source_lufs) / 20.0)
+            } else {
+                1.0
+            }
+        }
         LoudnessMode::None => {
-            // Still protect against clipping.
-            if peak > 1.0 {
+            // Clip protection is the limiter's job when it is enabled.
+            if !settings.limiter_enabled && peak > 1.0 {
                 1.0 / peak
             } else {
                 1.0
@@ -140,7 +195,26 @@ pub fn render_to_wav<P: AsRef<Path>>(
     let mut writer = hound::WavWriter::create(&out_path, hound_spec)
         .map_err(|e| EngineError::Encode(e.to_string()))?;
 
+    // Pass 2: mix → normalisation gain → limiter → measure → quantise.
     let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
+    let mut limiter = settings.limiter_enabled.then(|| {
+        TruePeakLimiter::new(
+            LimiterParams {
+                ceiling_dbtp: settings.ceiling_dbtp,
+                ..LimiterParams::default()
+            },
+            spec.sample_rate,
+        )
+    });
+    let mut ebu_out = ebur128::EbuR128::new(
+        2,
+        spec.sample_rate,
+        ebur128::Mode::I | ebur128::Mode::LRA | ebur128::Mode::TRUE_PEAK,
+    )
+    .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
+    let mut dither =
+        (settings.dither && settings.format == OutputFormat::Wav16).then(TpdfDither::default);
+    let mut limited = Vec::new();
     reader.seek_to_frame(0)?;
     loop {
         let n = reader.read_frames(&mut input, BLOCK_FRAMES)?;
@@ -148,47 +222,77 @@ pub fn render_to_wav<P: AsRef<Path>>(
             break;
         }
         chain.process(&input, &mut stereo);
-        write_block(&mut writer, &stereo, norm_gain, settings.format)?;
+        for s in &mut stereo {
+            *s *= norm_gain;
+        }
+        let block: &[f64] = match &mut limiter {
+            Some(lim) => {
+                limited.clear();
+                lim.process(&stereo, &mut limited);
+                &limited
+            }
+            None => &stereo,
+        };
+        let _ = ebu_out.add_frames_f64(block);
+        write_block(&mut writer, block, settings.format, dither.as_mut())?;
         progress((0.5 + reader.pos_frames() as f64 / total_frames * 0.5) as f32);
+    }
+    if let Some(lim) = &mut limiter {
+        limited.clear();
+        lim.flush(&mut limited);
+        let _ = ebu_out.add_frames_f64(&limited);
+        write_block(&mut writer, &limited, settings.format, dither.as_mut())?;
     }
     writer
         .finalize()
         .map_err(|e| EngineError::Encode(e.to_string()))?;
     progress(1.0);
 
+    let true_peak = ebu_out
+        .true_peak(0)
+        .and_then(|l| ebu_out.true_peak(1).map(|r| l.max(r)))
+        .unwrap_or(0.0);
     Ok(RenderReport {
         peak_dbfs_before: linear_to_db(peak),
         gain_applied_db: linear_to_db(norm_gain),
         duration_seconds: total_frames / spec.sample_rate as f64,
         sample_rate: spec.sample_rate,
+        integrated_lufs: ebu_out.loudness_global().unwrap_or(f64::NEG_INFINITY),
+        true_peak_dbtp: linear_to_db(true_peak),
+        lra_lu: ebu_out.loudness_range().unwrap_or(0.0),
+        source_integrated_lufs: source_lufs,
     })
 }
 
 fn write_block<W: std::io::Write + Seek>(
     writer: &mut hound::WavWriter<W>,
     stereo: &[f64],
-    gain: f64,
     format: OutputFormat,
+    mut dither: Option<&mut TpdfDither>,
 ) -> Result<()> {
     let enc = |e: hound::Error| EngineError::Encode(e.to_string());
     match format {
         OutputFormat::Wav16 => {
             for &s in stereo {
-                let v = (s * gain).clamp(-1.0, 1.0);
-                let q = (v * 32767.0).round() as i16;
+                let v = s.clamp(-1.0, 1.0) * 32767.0;
+                let v = match &mut dither {
+                    Some(d) => v + d.sample(),
+                    None => v,
+                };
+                let q = v.round().clamp(-32768.0, 32767.0) as i16;
                 writer.write_sample(q).map_err(enc)?;
             }
         }
         OutputFormat::Wav24 => {
             for &s in stereo {
-                let v = (s * gain).clamp(-1.0, 1.0);
+                let v = s.clamp(-1.0, 1.0);
                 let q = (v * 8_388_607.0).round() as i32;
                 writer.write_sample(q).map_err(enc)?;
             }
         }
         OutputFormat::Wav32Float => {
             for &s in stereo {
-                writer.write_sample((s * gain) as f32).map_err(enc)?;
+                writer.write_sample(s as f32).map_err(enc)?;
             }
         }
     }

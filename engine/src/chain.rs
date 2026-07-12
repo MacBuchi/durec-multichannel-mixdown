@@ -148,6 +148,23 @@ pub struct ChainConfig {
     pub sample_rate: u32,
 }
 
+/// Master-bus parameters shared by playback and (via `RenderSettings`)
+/// export, so preview and delivery run the same processing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MasterParams {
+    pub limiter_enabled: bool,
+    pub ceiling_dbtp: f64,
+}
+
+impl Default for MasterParams {
+    fn default() -> Self {
+        Self {
+            limiter_enabled: true,
+            ceiling_dbtp: -1.0,
+        }
+    }
+}
+
 /// The stateful mix chain shared by render and playback.
 #[derive(Debug, Clone)]
 pub struct MixChain {
