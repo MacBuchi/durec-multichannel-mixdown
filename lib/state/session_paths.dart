@@ -10,15 +10,16 @@ import 'package:path_provider/path_provider.dart';
 /// The basename keeps the files human-readable; the FNV-1a hash of the full
 /// path keeps recordings with identical names apart. Legacy sibling files
 /// next to the WAV are still read once by the engine as a migration fallback.
-Future<String> sessionPathFor(String wavPath) async {
+Future<String> sessionPathFor(String wavSource, {String? displayName}) async {
   final support = await getApplicationSupportDirectory();
   final dir = Directory('${support.path}/sessions');
   await dir.create(recursive: true);
-  final base = wavPath
-      .split('/')
-      .last
-      .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
-  return '${dir.path}/${base}_${_fnv1a64(wavPath)}.durecmix.json';
+  // Content URIs (Android SAF) have no meaningful basename — use the
+  // provider-reported display name for readability instead.
+  final base = (displayName ?? wavSource.split('/').last)
+      .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '')
+      .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+  return '${dir.path}/${base}_${_fnv1a64(wavSource)}.durecmix.json';
 }
 
 /// FNV-1a 64-bit hash, hex-encoded. Stable across runs and platforms.

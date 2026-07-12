@@ -7,7 +7,6 @@
 //! on 16-bit integer targets only (FLAC/WAV — MP3 takes float input).
 
 use std::io::{Seek, SeekFrom, Write};
-use std::path::Path;
 
 use flacenc::bitsink::ByteSink;
 use flacenc::component::BitRepr;
@@ -27,6 +26,34 @@ fn enc_err<E: std::fmt::Debug>(e: E) -> EngineError {
     EngineError::Encode(format!("{e:?}"))
 }
 
+/// Where to write the rendered file: a filesystem path, or (on Unix) a raw
+/// writable+seekable file descriptor from the platform (Android SAF
+/// `CREATE_DOCUMENT`). One fd per render; ownership transfers here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutputHandle {
+    Path(String),
+    Fd(i32),
+}
+
+impl OutputHandle {
+    fn create_file(&self) -> Result<std::fs::File> {
+        match self {
+            OutputHandle::Path(p) => Ok(std::fs::File::create(p)?),
+            #[cfg(unix)]
+            OutputHandle::Fd(fd) => {
+                use std::os::fd::FromRawFd;
+                // Safety: the platform layer hands us exclusive ownership of
+                // a freshly opened descriptor.
+                Ok(unsafe { std::fs::File::from_raw_fd(*fd) })
+            }
+            #[cfg(not(unix))]
+            OutputHandle::Fd(_) => Err(EngineError::Encode(
+                "fd output is only supported on unix platforms".into(),
+            )),
+        }
+    }
+}
+
 pub enum StereoSink {
     Wav {
         writer: hound::WavWriter<std::io::BufWriter<std::fs::File>>,
@@ -37,7 +64,12 @@ pub enum StereoSink {
 }
 
 impl StereoSink {
-    pub fn create(path: &Path, format: OutputFormat, sample_rate: u32) -> Result<StereoSink> {
+    pub fn create(
+        out: &OutputHandle,
+        format: OutputFormat,
+        sample_rate: u32,
+    ) -> Result<StereoSink> {
+        let file = std::io::BufWriter::new(out.create_file()?);
         match format {
             OutputFormat::Wav16 | OutputFormat::Wav24 | OutputFormat::Wav32Float => {
                 let spec = hound::WavSpec {
@@ -54,7 +86,7 @@ impl StereoSink {
                     },
                 };
                 Ok(StereoSink::Wav {
-                    writer: hound::WavWriter::create(path, spec).map_err(enc_err)?,
+                    writer: hound::WavWriter::new(file, spec).map_err(enc_err)?,
                     format,
                 })
             }
@@ -65,12 +97,12 @@ impl StereoSink {
                     24
                 };
                 Ok(StereoSink::Flac(FlacWriter::create(
-                    path,
+                    file,
                     sample_rate,
                     bits,
                 )?))
             }
-            OutputFormat::Mp3 => Ok(StereoSink::Mp3(Mp3Writer::create(path, sample_rate)?)),
+            OutputFormat::Mp3 => Ok(StereoSink::Mp3(Mp3Writer::create(file, sample_rate)?)),
         }
     }
 
@@ -136,13 +168,17 @@ pub struct FlacWriter {
 }
 
 impl FlacWriter {
-    fn create(path: &Path, sample_rate: u32, bits: usize) -> Result<FlacWriter> {
+    fn create(
+        file: std::io::BufWriter<std::fs::File>,
+        sample_rate: u32,
+        bits: usize,
+    ) -> Result<FlacWriter> {
         let config = flacenc::config::Encoder::default()
             .into_verified()
             .map_err(|(_, e)| enc_err(e))?;
         let stream_info =
             flacenc::component::StreamInfo::new(sample_rate as usize, 2, bits).map_err(enc_err)?;
-        let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
+        let mut file = file;
         write_flac_header(&mut file, &stream_info)?;
         Ok(FlacWriter {
             file,
@@ -237,7 +273,7 @@ pub struct Mp3Writer {
 }
 
 impl Mp3Writer {
-    fn create(path: &Path, sample_rate: u32) -> Result<Mp3Writer> {
+    fn create(file: std::io::BufWriter<std::fs::File>, sample_rate: u32) -> Result<Mp3Writer> {
         let mut builder = mp3lame_encoder::Builder::new()
             .ok_or_else(|| EngineError::Encode("lame init failed".into()))?;
         builder.set_num_channels(2).map_err(enc_err)?;
@@ -250,7 +286,7 @@ impl Mp3Writer {
             .map_err(enc_err)?;
         let encoder = builder.build().map_err(enc_err)?;
         Ok(Mp3Writer {
-            file: std::io::BufWriter::new(std::fs::File::create(path)?),
+            file,
             encoder,
             left: Vec::new(),
             right: Vec::new(),

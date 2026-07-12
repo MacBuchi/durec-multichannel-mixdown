@@ -6,7 +6,6 @@ use std::path::Path;
 
 use crate::error::Result;
 use crate::render::BLOCK_FRAMES;
-use crate::wav::WavReader;
 
 /// Onset-envelope hop size in frames (~11.6 ms at 44.1 kHz — enough
 /// resolution for ±1 BPM around typical tempi).
@@ -34,7 +33,15 @@ pub struct Analysis {
 /// Compute per-channel waveform envelopes and the tempo of the channel sum
 /// in one streamed pass.
 pub fn analyze<P: AsRef<Path>>(path: P, buckets: usize) -> Result<Analysis> {
-    let mut reader = WavReader::open(path)?;
+    analyze_input(
+        &crate::wav::InputHandle::Path(path.as_ref().to_string_lossy().into_owned()),
+        buckets,
+    )
+}
+
+/// [`analyze`] over a platform handle — path or raw fd (Android SAF).
+pub fn analyze_input(input: &crate::wav::InputHandle, buckets: usize) -> Result<Analysis> {
+    let mut reader = input.open()?;
     let channels = reader.spec().channels as usize;
     let sample_rate = reader.spec().sample_rate;
     let num_frames = reader.num_frames().max(1);

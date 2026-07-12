@@ -14,8 +14,8 @@ use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use crate::dsp::linear_to_db;
 use crate::error::{EngineError, Result};
 use crate::mix::{MixBus, TrackParams};
-use crate::sink::StereoSink;
-use crate::wav::WavReader;
+use crate::sink::{OutputHandle, StereoSink};
+use crate::wav::{InputHandle, WavReader};
 
 /// Frames per streamed block (~1.4 s at 48 kHz, ~16 MB for 32 channels f64).
 pub const BLOCK_FRAMES: usize = 65_536;
@@ -202,9 +202,26 @@ pub fn render_to_file<P: AsRef<Path>>(
     tracks: &[TrackParams],
     settings: &RenderSettings,
     out_path: P,
+    progress: impl FnMut(f32),
+) -> Result<RenderReport> {
+    render_io(
+        &InputHandle::Path(input_path.as_ref().to_string_lossy().into_owned()),
+        tracks,
+        settings,
+        &OutputHandle::Path(out_path.as_ref().to_string_lossy().into_owned()),
+        progress,
+    )
+}
+
+/// [`render_to_file`] over platform handles — paths or raw fds (Android SAF).
+pub fn render_io(
+    input: &InputHandle,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    output: &OutputHandle,
     mut progress: impl FnMut(f32),
 ) -> Result<RenderReport> {
-    let mut reader = WavReader::open(&input_path)?;
+    let mut reader = input.open()?;
     let spec = reader.spec();
     let cfg = ChainConfig {
         sample_rate: spec.sample_rate,
@@ -280,7 +297,7 @@ pub fn render_to_file<P: AsRef<Path>>(
     };
 
     // Pass 2: mix → normalisation gain → limiter → measure → encode.
-    let mut sink = StereoSink::create(out_path.as_ref(), settings.format, spec.sample_rate)?;
+    let mut sink = StereoSink::create(output, settings.format, spec.sample_rate)?;
     let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
     let mut limiter = settings.limiter_enabled.then(|| {
         TruePeakLimiter::new(

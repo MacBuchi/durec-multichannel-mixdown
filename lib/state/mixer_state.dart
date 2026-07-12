@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'session_paths.dart';
 
@@ -172,7 +173,19 @@ class MixerState extends ChangeNotifier {
   int get sampleRate => recording?.sampleRate ?? 48000;
   bool get loaded => recording != null;
 
-  Future<void> open(String path) async {
+  /// Provider-reported file name when the source is a content URI.
+  String? displayName;
+
+  bool get _isSaf => recording != null && Saf.isContentUri(recording!.path);
+
+  /// A fresh read fd for SAF sources; null on path-based platforms.
+  Future<int?> _inputFd(String source) async =>
+      Saf.isContentUri(source) ? Saf.openFd(source) : null;
+
+  /// `source` is a filesystem path, or a `content://` URI on Android (the
+  /// engine then reads through per-call file descriptors — DUREC files are
+  /// never copied).
+  Future<void> open(String source, {String? name}) async {
     _stopPolling();
     if (playing) {
       rust.playerStop();
@@ -180,9 +193,14 @@ class MixerState extends ChangeNotifier {
     }
     error = null;
     waveforms = null;
+    displayName = name;
     try {
-      _sessionPath = await sessionPathFor(path);
-      recording = await rust.loadRecording(path: path, sessionPath: _sessionPath!);
+      _sessionPath = await sessionPathFor(source, displayName: name);
+      recording = await rust.loadRecording(
+        path: source,
+        sessionPath: _sessionPath!,
+        fd: await _inputFd(source),
+      );
       tracks = recording!.tracks.map(TrackUi.fromApi).toList();
       _restoreMaster(recording!.master);
       positionSeconds = 0;
@@ -192,19 +210,22 @@ class MixerState extends ChangeNotifier {
       // Persist immediately so a session migrated from a legacy sibling file
       // lands in the app container even if the user changes nothing.
       await saveSession();
-      _analyze(path);
+      _analyze(source);
     } catch (e) {
       error = e.toString();
       notifyListeners();
     }
   }
 
-  Future<void> _analyze(String path) async {
+  Future<void> _analyze(String source) async {
     analyzing = true;
     notifyListeners();
     try {
-      final analysis =
-          await rust.analyzeRecording(path: path, buckets: BigInt.from(600));
+      final analysis = await rust.analyzeRecording(
+        path: source,
+        buckets: BigInt.from(600),
+        fd: await _inputFd(source),
+      );
       waveforms = analysis.waveforms;
       bpm = analysis.bpm;
     } catch (_) {
@@ -351,6 +372,7 @@ class MixerState extends ChangeNotifier {
         tracks: tracks.map((t) => t.toApi()).toList(),
         master: master,
         startFrame: startFrame,
+        fd: await _inputFd(rec.path),
       );
       playing = true;
       _startPolling();
@@ -396,7 +418,9 @@ class MixerState extends ChangeNotifier {
 
   // ── export ────────────────────────────────────────────────────────────────
 
-  Future<void> export(String outPath) async {
+  /// `outTarget` is a filesystem path, or a `content://` URI on Android
+  /// (SAF CREATE_DOCUMENT result) written through a raw fd.
+  Future<void> export(String outTarget) async {
     final rec = recording;
     if (rec == null || rendering) return;
     rendering = true;
@@ -405,16 +429,21 @@ class MixerState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
+      final outputFd = Saf.isContentUri(outTarget)
+          ? await Saf.openFd(outTarget, mode: 'rwt')
+          : null;
       await for (final ev in rust.renderMix(
         wavPath: rec.path,
-        outPath: outPath,
+        outPath: outTarget,
         tracks: tracks.map((t) => t.toApi()).toList(),
         master: master,
+        inputFd: _isSaf ? await _inputFd(rec.path) : null,
+        outputFd: outputFd,
       )) {
         renderProgress = ev.progress;
         if (ev.report != null) {
           lastReport = ev.report;
-          lastOutputPath = outPath;
+          lastOutputPath = outTarget;
         }
         notifyListeners();
       }
