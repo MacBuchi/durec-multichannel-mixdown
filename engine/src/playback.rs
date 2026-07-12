@@ -87,7 +87,22 @@ impl Player {
         master: MasterParams,
         start_frame: u64,
     ) -> Result<Player> {
-        let mut reader = WavReader::open(path)?;
+        Self::start_input(
+            &crate::wav::InputHandle::Path(path.into()),
+            tracks,
+            master,
+            start_frame,
+        )
+    }
+
+    /// [`Player::start`] over a platform handle — path or raw fd (Android SAF).
+    pub fn start_input(
+        input: &crate::wav::InputHandle,
+        tracks: Vec<TrackParams>,
+        master: MasterParams,
+        start_frame: u64,
+    ) -> Result<Player> {
+        let mut reader = input.open()?;
         let spec = reader.spec();
         let channels = spec.channels as usize;
         let sample_rate = spec.sample_rate;

@@ -14,7 +14,17 @@ use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
 use durecmix_engine::playback::Player;
 use durecmix_engine::render::{self, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
-use durecmix_engine::wav::WavReader;
+use durecmix_engine::sink::OutputHandle;
+use durecmix_engine::wav::InputHandle;
+
+/// Prefer the raw fd when the platform provided one (Android SAF), else the
+/// path. The path is still passed for display/session purposes.
+fn input_handle(path: &str, fd: Option<i32>) -> InputHandle {
+    match fd {
+        Some(fd) => InputHandle::Fd(fd),
+        None => InputHandle::Path(path.to_string()),
+    }
+}
 
 use crate::frb_generated::StreamSink;
 
@@ -269,8 +279,14 @@ fn to_master_params(m: &ApiMaster) -> MasterParams {
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
 /// next to the WAV, from before sessions moved into the app container).
-pub fn load_recording(path: String, session_path: String) -> anyhow::Result<RecordingInfo> {
-    let reader = WavReader::open(&path).with_context(|| format!("open {path}"))?;
+pub fn load_recording(
+    path: String,
+    session_path: String,
+    fd: Option<i32>,
+) -> anyhow::Result<RecordingInfo> {
+    let reader = input_handle(&path, fd)
+        .open()
+        .with_context(|| format!("open {path}"))?;
     let spec = reader.spec();
 
     let infos = reader.ixml().map(ixml::parse_tracks).unwrap_or_default();
@@ -328,18 +344,30 @@ pub fn render_mix(
     out_path: String,
     tracks: Vec<ApiTrack>,
     master: ApiMaster,
+    input_fd: Option<i32>,
+    output_fd: Option<i32>,
     events: StreamSink<RenderEvent>,
 ) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
     let settings = to_engine_settings(&master);
-    let report = render::render_to_file(&wav_path, &engine_tracks, &settings, &out_path, |p| {
-        if p < 1.0 {
-            let _ = events.add(RenderEvent {
-                progress: p,
-                report: None,
-            });
-        }
-    })
+    let output = match output_fd {
+        Some(fd) => OutputHandle::Fd(fd),
+        None => OutputHandle::Path(out_path.clone()),
+    };
+    let report = render::render_io(
+        &input_handle(&wav_path, input_fd),
+        &engine_tracks,
+        &settings,
+        &output,
+        |p| {
+            if p < 1.0 {
+                let _ = events.add(RenderEvent {
+                    progress: p,
+                    report: None,
+                });
+            }
+        },
+    )
     .with_context(|| format!("render {wav_path}"))?;
     let _ = events.add(RenderEvent {
         progress: 1.0,
@@ -373,8 +401,13 @@ pub struct ApiAnalysis {
 
 /// Streamed min/max envelope of every channel (`buckets` values per channel)
 /// plus BPM detection, in one pass.
-pub fn analyze_recording(path: String, buckets: usize) -> anyhow::Result<ApiAnalysis> {
-    let analysis = analysis::analyze(&path, buckets).with_context(|| format!("analyze {path}"))?;
+pub fn analyze_recording(
+    path: String,
+    buckets: usize,
+    fd: Option<i32>,
+) -> anyhow::Result<ApiAnalysis> {
+    let analysis = analysis::analyze_input(&input_handle(&path, fd), buckets)
+        .with_context(|| format!("analyze {path}"))?;
     Ok(ApiAnalysis {
         waveforms: analysis
             .waveforms
@@ -410,10 +443,16 @@ pub fn player_start(
     tracks: Vec<ApiTrack>,
     master: ApiMaster,
     start_frame: u64,
+    fd: Option<i32>,
 ) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
-    let new_player = Player::start(&path, engine_tracks, to_master_params(&master), start_frame)
-        .with_context(|| format!("start playback of {path}"))?;
+    let new_player = Player::start_input(
+        &input_handle(&path, fd),
+        engine_tracks,
+        to_master_params(&master),
+        start_frame,
+    )
+    .with_context(|| format!("start playback of {path}"))?;
     let mut slot = player_slot().lock().unwrap();
     if let Some(old) = slot.take() {
         old.stop();

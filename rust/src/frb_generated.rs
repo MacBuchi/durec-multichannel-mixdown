@@ -70,12 +70,13 @@ fn wire__crate__api__mixer__analyze_recording_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_path = <String>::sse_decode(&mut deserializer);
             let api_buckets = <usize>::sse_decode(&mut deserializer);
+            let api_fd = <Option<i32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
                         let output_ok =
-                            crate::api::mixer::analyze_recording(api_path, api_buckets)?;
+                            crate::api::mixer::analyze_recording(api_path, api_buckets, api_fd)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -171,12 +172,13 @@ fn wire__crate__api__mixer__load_recording_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_path = <String>::sse_decode(&mut deserializer);
             let api_session_path = <String>::sse_decode(&mut deserializer);
+            let api_fd = <Option<i32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
                         let output_ok =
-                            crate::api::mixer::load_recording(api_path, api_session_path)?;
+                            crate::api::mixer::load_recording(api_path, api_session_path, api_fd)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -245,6 +247,7 @@ fn wire__crate__api__mixer__player_start_impl(
             let api_tracks = <Vec<crate::api::mixer::ApiTrack>>::sse_decode(&mut deserializer);
             let api_master = <crate::api::mixer::ApiMaster>::sse_decode(&mut deserializer);
             let api_start_frame = <u64>::sse_decode(&mut deserializer);
+            let api_fd = <Option<i32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -254,6 +257,7 @@ fn wire__crate__api__mixer__player_start_impl(
                             api_tracks,
                             api_master,
                             api_start_frame,
+                            api_fd,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -387,6 +391,8 @@ fn wire__crate__api__mixer__render_mix_impl(
             let api_out_path = <String>::sse_decode(&mut deserializer);
             let api_tracks = <Vec<crate::api::mixer::ApiTrack>>::sse_decode(&mut deserializer);
             let api_master = <crate::api::mixer::ApiMaster>::sse_decode(&mut deserializer);
+            let api_input_fd = <Option<i32>>::sse_decode(&mut deserializer);
+            let api_output_fd = <Option<i32>>::sse_decode(&mut deserializer);
             let api_events = <StreamSink<
                 crate::api::mixer::RenderEvent,
                 flutter_rust_bridge::for_generated::SseCodec,
@@ -400,6 +406,8 @@ fn wire__crate__api__mixer__render_mix_impl(
                             api_out_path,
                             api_tracks,
                             api_master,
+                            api_input_fd,
+                            api_output_fd,
                             api_events,
                         )?;
                         Ok(output_ok)
@@ -791,6 +799,17 @@ impl SseDecode for Option<f64> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<f64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<i32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<i32>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -1511,6 +1530,16 @@ impl SseEncode for Option<f64> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <f64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<i32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <i32>::sse_encode(value, serializer);
         }
     }
 }

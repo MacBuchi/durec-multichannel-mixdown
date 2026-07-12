@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import '../state/mixer_state.dart';
 import 'meters.dart';
@@ -25,6 +26,15 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Future<void> _openFile() async {
+    if (Saf.isAvailable) {
+      // Android: SAF returns a content URI; the engine reads it through raw
+      // fds without ever copying the multi-GB file.
+      final uri = await Saf.pickWav();
+      if (uri != null) {
+        await state.open(uri, name: await Saf.displayName(uri));
+      }
+      return;
+    }
     const group = XTypeGroup(label: 'WAV recordings', extensions: ['wav', 'WAV']);
     final file = await openFile(acceptedTypeGroups: [group]);
     if (file != null) {
@@ -41,7 +51,8 @@ class _MixerScreenState extends State<MixerScreen> {
       rust.ApiFormat.mp3 => 'mp3',
       _ => 'wav',
     };
-    final base = rec.path.split('/').last.replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
+    final base = (state.displayName ?? rec.path.split('/').last)
+        .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
     final target = switch (state.loudness) {
       LoudnessChoice.none => 'raw',
       LoudnessChoice.peakMinus1 => '1dBFS',
@@ -61,6 +72,18 @@ class _MixerScreenState extends State<MixerScreen> {
 
   Future<void> _export() async {
     if (state.recording == null) return;
+    if (Saf.isAvailable) {
+      final mime = switch (state.format) {
+        rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'audio/flac',
+        rust.ApiFormat.mp3 => 'audio/mpeg',
+        _ => 'audio/x-wav',
+      };
+      final uri = await Saf.createDocument(_suggestedName(), mime);
+      if (uri != null) {
+        await state.export(uri);
+      }
+      return;
+    }
     final location = await getSaveLocation(suggestedName: _suggestedName());
     if (location != null) {
       await state.export(location.path);
@@ -76,7 +99,7 @@ class _MixerScreenState extends State<MixerScreen> {
         return Scaffold(
           appBar: AppBar(
             title: Text(
-              rec == null ? 'DurecMix' : rec.path.split('/').last,
+              rec == null ? 'DurecMix' : (state.displayName ?? rec.path.split('/').last),
               style: const TextStyle(fontSize: 16),
             ),
             actions: [

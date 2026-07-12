@@ -82,6 +82,7 @@ abstract class RustLibApi extends BaseApi {
   Future<ApiAnalysis> crateApiMixerAnalyzeRecording({
     required String path,
     required BigInt buckets,
+    int? fd,
   });
 
   String crateApiSimpleGreet({required String name});
@@ -91,6 +92,7 @@ abstract class RustLibApi extends BaseApi {
   Future<RecordingInfo> crateApiMixerLoadRecording({
     required String path,
     required String sessionPath,
+    int? fd,
   });
 
   Future<void> crateApiMixerPlayerSeek({required BigInt frame});
@@ -100,6 +102,7 @@ abstract class RustLibApi extends BaseApi {
     required List<ApiTrack> tracks,
     required ApiMaster master,
     required BigInt startFrame,
+    int? fd,
   });
 
   ApiPlayerState crateApiMixerPlayerState();
@@ -116,6 +119,8 @@ abstract class RustLibApi extends BaseApi {
     required String outPath,
     required List<ApiTrack> tracks,
     required ApiMaster master,
+    int? inputFd,
+    int? outputFd,
   });
 
   Future<void> crateApiMixerSaveSession({
@@ -137,6 +142,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<ApiAnalysis> crateApiMixerAnalyzeRecording({
     required String path,
     required BigInt buckets,
+    int? fd,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -144,6 +150,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
           sse_encode_usize(buckets, serializer);
+          sse_encode_opt_box_autoadd_i_32(fd, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -156,7 +163,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerAnalyzeRecordingConstMeta,
-        argValues: [path, buckets],
+        argValues: [path, buckets, fd],
         apiImpl: this,
       ),
     );
@@ -165,7 +172,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiMixerAnalyzeRecordingConstMeta =>
       const TaskConstMeta(
         debugName: "analyze_recording",
-        argNames: ["path", "buckets"],
+        argNames: ["path", "buckets", "fd"],
       );
 
   @override
@@ -222,6 +229,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<RecordingInfo> crateApiMixerLoadRecording({
     required String path,
     required String sessionPath,
+    int? fd,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -229,6 +237,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
           sse_encode_String(sessionPath, serializer);
+          sse_encode_opt_box_autoadd_i_32(fd, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -241,7 +250,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerLoadRecordingConstMeta,
-        argValues: [path, sessionPath],
+        argValues: [path, sessionPath, fd],
         apiImpl: this,
       ),
     );
@@ -249,7 +258,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerLoadRecordingConstMeta => const TaskConstMeta(
     debugName: "load_recording",
-    argNames: ["path", "sessionPath"],
+    argNames: ["path", "sessionPath", "fd"],
   );
 
   @override
@@ -286,6 +295,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required List<ApiTrack> tracks,
     required ApiMaster master,
     required BigInt startFrame,
+    int? fd,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -295,6 +305,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_list_api_track(tracks, serializer);
           sse_encode_box_autoadd_api_master(master, serializer);
           sse_encode_u_64(startFrame, serializer);
+          sse_encode_opt_box_autoadd_i_32(fd, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -307,7 +318,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerPlayerStartConstMeta,
-        argValues: [path, tracks, master, startFrame],
+        argValues: [path, tracks, master, startFrame, fd],
         apiImpl: this,
       ),
     );
@@ -315,7 +326,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerPlayerStartConstMeta => const TaskConstMeta(
     debugName: "player_start",
-    argNames: ["path", "tracks", "master", "startFrame"],
+    argNames: ["path", "tracks", "master", "startFrame", "fd"],
   );
 
   @override
@@ -408,6 +419,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String outPath,
     required List<ApiTrack> tracks,
     required ApiMaster master,
+    int? inputFd,
+    int? outputFd,
   }) {
     final events = RustStreamSink<RenderEvent>();
     unawaited(
@@ -419,6 +432,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             sse_encode_String(outPath, serializer);
             sse_encode_list_api_track(tracks, serializer);
             sse_encode_box_autoadd_api_master(master, serializer);
+            sse_encode_opt_box_autoadd_i_32(inputFd, serializer);
+            sse_encode_opt_box_autoadd_i_32(outputFd, serializer);
             sse_encode_StreamSink_render_event_Sse(events, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
@@ -432,7 +447,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: sse_decode_AnyhowException,
           ),
           constMeta: kCrateApiMixerRenderMixConstMeta,
-          argValues: [wavPath, outPath, tracks, master, events],
+          argValues: [
+            wavPath,
+            outPath,
+            tracks,
+            master,
+            inputFd,
+            outputFd,
+            events,
+          ],
           apiImpl: this,
         ),
       ),
@@ -442,7 +465,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerRenderMixConstMeta => const TaskConstMeta(
     debugName: "render_mix",
-    argNames: ["wavPath", "outPath", "tracks", "master", "events"],
+    argNames: [
+      "wavPath",
+      "outPath",
+      "tracks",
+      "master",
+      "inputFd",
+      "outputFd",
+      "events",
+    ],
   );
 
   @override
@@ -685,6 +716,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  int dco_decode_box_autoadd_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_u_64(raw);
@@ -742,6 +779,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_f_64(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_i_32(raw);
   }
 
   @protected
@@ -1047,6 +1090,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_i_32(deserializer));
+  }
+
+  @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_64(deserializer));
@@ -1129,6 +1178,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_f_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_i_32(deserializer));
     } else {
       return null;
     }
@@ -1400,6 +1460,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_64(self, serializer);
@@ -1487,6 +1553,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_f_64(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_i_32(self, serializer);
     }
   }
 

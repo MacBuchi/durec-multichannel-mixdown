@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_settings`, `from_engine_track`, `player_slot`, `to_engine_band`, `to_engine_eq`, `to_engine_settings`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_settings`, `from_engine_track`, `input_handle`, `player_slot`, `to_engine_band`, `to_engine_eq`, `to_engine_settings`, `to_engine_track`, `to_master_params`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -14,9 +14,11 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<RecordingInfo> loadRecording({
   required String path,
   required String sessionPath,
+  int? fd,
 }) => RustLib.instance.api.crateApiMixerLoadRecording(
   path: path,
   sessionPath: sessionPath,
+  fd: fd,
 );
 
 /// Persist the current mix to `session_path` (an app-container location
@@ -38,11 +40,15 @@ Stream<RenderEvent> renderMix({
   required String outPath,
   required List<ApiTrack> tracks,
   required ApiMaster master,
+  int? inputFd,
+  int? outputFd,
 }) => RustLib.instance.api.crateApiMixerRenderMix(
   wavPath: wavPath,
   outPath: outPath,
   tracks: tracks,
   master: master,
+  inputFd: inputFd,
+  outputFd: outputFd,
 );
 
 /// Streamed min/max envelope of every channel (`buckets` values per channel)
@@ -50,9 +56,11 @@ Stream<RenderEvent> renderMix({
 Future<ApiAnalysis> analyzeRecording({
   required String path,
   required BigInt buckets,
+  int? fd,
 }) => RustLib.instance.api.crateApiMixerAnalyzeRecording(
   path: path,
   buckets: buckets,
+  fd: fd,
 );
 
 /// Start (or restart) live playback of the mix at `start_frame`.
@@ -61,11 +69,13 @@ Future<void> playerStart({
   required List<ApiTrack> tracks,
   required ApiMaster master,
   required BigInt startFrame,
+  int? fd,
 }) => RustLib.instance.api.crateApiMixerPlayerStart(
   path: path,
   tracks: tracks,
   master: master,
   startFrame: startFrame,
+  fd: fd,
 );
 
 Future<void> playerStop() => RustLib.instance.api.crateApiMixerPlayerStop();

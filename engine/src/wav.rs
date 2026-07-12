@@ -49,6 +49,38 @@ pub struct WavReader<R: Read + Seek> {
     ixml: Option<String>,
 }
 
+/// Where to read a recording from: a filesystem path, or (on Unix) a raw
+/// file descriptor handed over by the platform — Android's Storage Access
+/// Framework never exposes paths, only fds, and DUREC files are far too
+/// large to copy. Each engine call consumes one fresh fd (the platform side
+/// opens one per call), so no duplication happens here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputHandle {
+    Path(String),
+    /// Owned raw fd; must be open for reading and seekable.
+    Fd(i32),
+}
+
+impl InputHandle {
+    pub fn open(&self) -> Result<WavReader<BufReader<File>>> {
+        match self {
+            InputHandle::Path(p) => WavReader::open(p),
+            #[cfg(unix)]
+            InputHandle::Fd(fd) => {
+                use std::os::fd::FromRawFd;
+                // Safety: the platform layer hands us exclusive ownership of
+                // a freshly opened descriptor.
+                let file = unsafe { File::from_raw_fd(*fd) };
+                WavReader::new(BufReader::new(file))
+            }
+            #[cfg(not(unix))]
+            InputHandle::Fd(_) => Err(crate::error::EngineError::Encode(
+                "fd input is only supported on unix platforms".into(),
+            )),
+        }
+    }
+}
+
 impl WavReader<BufReader<File>> {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::new(BufReader::new(File::open(path)?))
