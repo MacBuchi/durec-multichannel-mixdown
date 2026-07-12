@@ -1,5 +1,6 @@
 use std::io::Cursor;
 
+use durecmix_engine::dsp::biquad::{Biquad, BiquadCoeffs, BUTTERWORTH_2ND_Q, BUTTERWORTH_4TH_Q};
 use durecmix_engine::dsp::{db_to_linear, linear_to_db, pan_gains, GAIN_FLOOR_DB};
 use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
@@ -175,7 +176,103 @@ fn stereo_pair_base_detects_pairs() {
     assert_eq!(stereo_pair_base("Vocals"), None);
 }
 
-// ── dsp ─────────────────────────────────────────────────────────────────────
+// ── dsp: biquads ────────────────────────────────────────────────────────────
+
+/// RMS of a sine pushed through a filter, skipping the first second so the
+/// transient settles — cross-checks `process` against `magnitude_at`.
+fn filtered_sine_gain_db(coeffs: BiquadCoeffs, sr: f64, freq: f64) -> f64 {
+    let mut bq = Biquad::new(coeffs);
+    let n = (sr * 2.0) as usize;
+    let skip = (sr) as usize;
+    let mut sum = 0.0;
+    for i in 0..n {
+        let x = (std::f64::consts::TAU * freq * i as f64 / sr).sin();
+        let y = bq.process(x);
+        if i >= skip {
+            sum += y * y;
+        }
+    }
+    let rms = (sum / (n - skip) as f64).sqrt();
+    linear_to_db(rms / std::f64::consts::FRAC_1_SQRT_2)
+}
+
+#[test]
+fn hpf_response_spot_checks() {
+    let sr = 44_100.0;
+    // 12 dB/oct (Butterworth 2nd order): −3 dB at fc, ~−12 dB one octave below.
+    let c = BiquadCoeffs::highpass(sr, 100.0, BUTTERWORTH_2ND_Q);
+    assert!((linear_to_db(c.magnitude_at(sr, 100.0)) + 3.0).abs() < 0.2);
+    assert!((linear_to_db(c.magnitude_at(sr, 50.0)) + 12.0).abs() < 1.0);
+    assert!(linear_to_db(c.magnitude_at(sr, 1000.0)).abs() < 0.1);
+    // time-domain agreement with the closed-form response
+    assert!(
+        (filtered_sine_gain_db(c, sr, 50.0) - linear_to_db(c.magnitude_at(sr, 50.0))).abs() < 0.3
+    );
+
+    // 24 dB/oct: two cascaded sections with 4th-order Butterworth Qs.
+    let c1 = BiquadCoeffs::highpass(sr, 100.0, BUTTERWORTH_4TH_Q[0]);
+    let c2 = BiquadCoeffs::highpass(sr, 100.0, BUTTERWORTH_4TH_Q[1]);
+    let mag_db = |f: f64| linear_to_db(c1.magnitude_at(sr, f) * c2.magnitude_at(sr, f));
+    assert!((mag_db(100.0) + 3.0).abs() < 0.2); // Butterworth: −3 dB at fc
+    assert!((mag_db(50.0) + 24.0).abs() < 1.5);
+    assert!(mag_db(1000.0).abs() < 0.1);
+}
+
+#[test]
+fn peaking_gain_and_symmetry() {
+    let sr = 48_000.0;
+    let boost = BiquadCoeffs::peaking(sr, 1000.0, 6.0, 1.0);
+    assert!((linear_to_db(boost.magnitude_at(sr, 1000.0)) - 6.0).abs() < 0.05);
+    assert!(linear_to_db(boost.magnitude_at(sr, 20.0)).abs() < 0.1);
+    assert!(linear_to_db(boost.magnitude_at(sr, 15_000.0)).abs() < 0.2);
+    // A −6 dB cut is the exact complement of a +6 dB boost.
+    let cut = BiquadCoeffs::peaking(sr, 1000.0, -6.0, 1.0);
+    for f in [250.0, 500.0, 1000.0, 2000.0, 8000.0] {
+        let product = boost.magnitude_at(sr, f) * cut.magnitude_at(sr, f);
+        assert!((product - 1.0).abs() < 1e-9, "not complementary at {f} Hz");
+    }
+}
+
+#[test]
+fn shelf_response() {
+    let sr = 44_100.0;
+    let low = BiquadCoeffs::low_shelf(sr, 120.0, 6.0, BUTTERWORTH_2ND_Q);
+    assert!((linear_to_db(low.magnitude_at(sr, 20.0)) - 6.0).abs() < 0.2);
+    assert!(linear_to_db(low.magnitude_at(sr, 5000.0)).abs() < 0.1);
+    let high = BiquadCoeffs::high_shelf(sr, 8000.0, -9.0, BUTTERWORTH_2ND_Q);
+    assert!((linear_to_db(high.magnitude_at(sr, 20_000.0)) + 9.0).abs() < 0.3);
+    assert!(linear_to_db(high.magnitude_at(sr, 200.0)).abs() < 0.1);
+}
+
+#[test]
+fn biquad_stability_with_extreme_params() {
+    let sr = 44_100.0;
+    // Constructor clamps keep even absurd inputs stable.
+    let cases = [
+        BiquadCoeffs::highpass(sr, -50.0, 0.0),
+        BiquadCoeffs::highpass(sr, 1e9, 1e9),
+        BiquadCoeffs::peaking(sr, 0.0, 1e6, -5.0),
+        BiquadCoeffs::low_shelf(sr, 1e9, -1e6, 1e9),
+        BiquadCoeffs::high_shelf(sr, -1.0, 1e6, 0.0),
+    ];
+    for (i, c) in cases.iter().enumerate() {
+        let mut bq = Biquad::new(*c);
+        let mut x = 123456789u64;
+        for _ in 0..44_100 {
+            // xorshift* noise in −1..1
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            let noise =
+                (x.wrapping_mul(0x2545F4914F6CDD1D) >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
+            let y = bq.process(noise);
+            assert!(y.is_finite(), "case {i} produced non-finite output");
+            assert!(y.abs() < 1e6, "case {i} diverged");
+        }
+    }
+}
+
+// ── dsp: gain/pan ───────────────────────────────────────────────────────────
 
 #[test]
 fn db_to_linear_basics() {
