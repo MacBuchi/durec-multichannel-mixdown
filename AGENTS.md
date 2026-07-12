@@ -52,4 +52,4 @@ Note: a unity mix of all 34 tracks peaks ~+16 dBFS because DUREC also recorded m
 
 ## Workflow
 
-Conventional Commits (`feat:`/`fix:`/`feat!:`/`chore:`/`ci:`/`docs:`/`test:`/`refactor:`). Direct pushes to `main` are OK for now (solo dev); keep CI green. Remote: https://github.com/MacBuchi/durec-multichannel-mixdown (private).
+Conventional Commits (`feat:`/`fix:`/`feat!:`/`chore:`/`ci:`/`docs:`/`test:`/`refactor:`). **Feature branches + PRs** (since M3b): branch `feat/<topic>` or `fix/<topic>` off `main`, push, open a PR, merge only when the full CI matrix is green (squash-merge, PR title in conventional-commit form). Releases: bump `pubspec.yaml` on `main`, tag `vX.Y.Z` → `release.yml` publishes artifacts. PRs can be opened/merged via the GitHub API with the stored git credential (`gh` CLI is not installed). Remote: https://github.com/MacBuchi/durec-multichannel-mixdown (private).

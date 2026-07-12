@@ -9,7 +9,7 @@ use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
-use durecmix_engine::render::{render_to_wav, LoudnessMode, OutputFormat, RenderSettings};
+use durecmix_engine::render::{render_to_file, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
 use durecmix_engine::wav::{SampleFormat, WavReader};
 use durecmix_engine::EngineError;
@@ -810,7 +810,7 @@ fn renders_peak_normalised_wav() {
         ..RenderSettings::default()
     };
     let mut last_progress = 0.0f32;
-    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |p| {
+    let report = render_to_file(&in_path, &tracks, &settings, &out_path, |p| {
         assert!(p >= last_progress);
         last_progress = p;
     })
@@ -848,7 +848,7 @@ fn render_without_normalisation_prevents_clipping() {
         limiter_enabled: false,
         ..RenderSettings::default()
     };
-    render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
 
     let mut r = hound::WavReader::open(&out_path).unwrap();
     let peak = r
@@ -879,7 +879,7 @@ fn lufs_target_hit_within_half_lu() {
         format: OutputFormat::Wav32Float,
         ..RenderSettings::default()
     };
-    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
 
     // Report says the target was hit…
     assert!(
@@ -923,7 +923,7 @@ fn lufs_target_engages_limiter() {
         format: OutputFormat::Wav32Float,
         ..RenderSettings::default()
     };
-    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
     assert!(
         report.gain_applied_db > 6.0,
         "gain {}",
@@ -959,7 +959,7 @@ fn dithered_16bit_render_reaches_both_codes() {
         limiter_enabled: false,
         ..RenderSettings::default()
     };
-    let report = render_to_wav(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
     assert_eq!(report.gain_applied_db, 0.0);
 
     let mut r = hound::WavReader::open(&out_path).unwrap();
@@ -972,6 +972,91 @@ fn dithered_16bit_render_reaches_both_codes() {
     assert!(
         (mean - expected).abs() < 0.1,
         "mean {mean} expected {expected}"
+    );
+}
+
+// ── encoded formats ─────────────────────────────────────────────────────────
+
+#[test]
+fn flac_export_decodes_to_same_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.flac");
+
+    // ~1.3 s of a −6 dBFS 440 Hz sine; the odd length exercises the final
+    // partial FLAC frame.
+    let sr = 44_100u32;
+    let n_samples = 58_000usize;
+    let samples: Vec<i16> = (0..n_samples)
+        .map(|n| {
+            (0.5 * (std::f64::consts::TAU * 440.0 * n as f64 / sr as f64).sin() * 32767.0) as i16
+        })
+        .collect();
+    std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::None,
+        format: OutputFormat::Flac24,
+        limiter_enabled: false,
+        ..RenderSettings::default()
+    };
+    let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    assert!((report.duration_seconds - n_samples as f64 / sr as f64).abs() < 1e-6);
+
+    // Decode with an independent decoder (claxon) and compare sample-exact
+    // against the expected mix output (source × centre pan 1/√2, 24-bit).
+    let mut reader = claxon::FlacReader::open(&out_path).unwrap();
+    let info = reader.streaminfo();
+    assert_eq!(info.sample_rate, sr);
+    assert_eq!(info.channels, 2);
+    assert_eq!(info.bits_per_sample, 24);
+    let decoded: Vec<i32> = reader.samples().map(|s| s.unwrap()).collect();
+    assert_eq!(decoded.len() / 2, n_samples);
+    let pan = std::f64::consts::FRAC_1_SQRT_2;
+    for &i in &[0usize, 1, 12_345, 40_000, n_samples - 1] {
+        let expected = ((samples[i] as f64 / 32768.0) * pan * 8_388_607.0).round() as i32;
+        assert!(
+            (decoded[2 * i] - expected).abs() <= 1,
+            "sample {i}: {} vs {expected}",
+            decoded[2 * i]
+        );
+        assert_eq!(decoded[2 * i], decoded[2 * i + 1]); // centre pan: L == R
+    }
+}
+
+#[test]
+fn mp3_export_produces_valid_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.mp3");
+
+    let sr = 44_100u32;
+    let samples: Vec<i16> = (0..sr as usize * 2)
+        .map(|n| {
+            (0.5 * (std::f64::consts::TAU * 440.0 * n as f64 / sr as f64).sin() * 32767.0) as i16
+        })
+        .collect();
+    std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::PeakDbfs(-1.0),
+        format: OutputFormat::Mp3,
+        ..RenderSettings::default()
+    };
+    render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+
+    let bytes = std::fs::read(&out_path).unwrap();
+    // 2 s at 320 kbps CBR ≈ 80 KB; require a sane ballpark.
+    assert!(bytes.len() > 60_000, "suspiciously small: {}", bytes.len());
+    assert!(bytes.len() < 120_000, "suspiciously large: {}", bytes.len());
+    // Stream must begin with an MPEG frame sync (0xFF Ex) or an ID3 tag.
+    let starts_ok = bytes.starts_with(b"ID3") || (bytes[0] == 0xFF && bytes[1] & 0xE0 == 0xE0);
+    assert!(
+        starts_ok,
+        "no MP3 header: {:02X} {:02X}",
+        bytes[0], bytes[1]
     );
 }
 

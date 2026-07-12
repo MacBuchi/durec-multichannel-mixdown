@@ -6,7 +6,7 @@
 //! with the −1 dBTP limiter; otherwise peak-normalised to −1 dBFS.
 
 use durecmix_engine::ixml;
-use durecmix_engine::render::{render_to_wav, LoudnessMode, OutputFormat, RenderSettings};
+use durecmix_engine::render::{render_to_file, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
 use durecmix_engine::wav::WavReader;
 
@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
         format: OutputFormat::Wav24,
         ..RenderSettings::default()
     };
-    let report = render_to_wav(&input, &session.tracks, &settings, &output, |_| {})?;
+    let report = render_to_file(&input, &session.tracks, &settings, &output, |_| {})?;
     println!(
         "rendered {output}: raw peak {:.2} dBFS, applied {:+.2} dB, {:.2} s @ {} Hz",
         report.peak_dbfs_before,

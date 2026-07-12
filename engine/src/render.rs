@@ -14,6 +14,7 @@ use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use crate::dsp::linear_to_db;
 use crate::error::{EngineError, Result};
 use crate::mix::{MixBus, TrackParams};
+use crate::sink::StereoSink;
 use crate::wav::WavReader;
 
 /// Frames per streamed block (~1.4 s at 48 kHz, ~16 MB for 32 channels f64).
@@ -36,6 +37,25 @@ pub enum OutputFormat {
     Wav16,
     Wav24,
     Wav32Float,
+    Flac16,
+    Flac24,
+    /// MP3, CBR 320 kbps (LAME) — parity with the Python tool's exports.
+    Mp3,
+}
+
+impl OutputFormat {
+    pub fn extension(&self) -> &'static str {
+        match self {
+            OutputFormat::Flac16 | OutputFormat::Flac24 => "flac",
+            OutputFormat::Mp3 => "mp3",
+            _ => "wav",
+        }
+    }
+
+    /// Whether TPDF dither applies (16-bit integer quantisation).
+    pub fn is_16_bit_int(&self) -> bool {
+        matches!(self, OutputFormat::Wav16 | OutputFormat::Flac16)
+    }
 }
 
 fn default_limiter_enabled() -> bool {
@@ -113,10 +133,11 @@ pub fn measure_mix_peak<R: Read + Seek>(reader: &mut WavReader<R>, bus: &MixBus)
     Ok(peak)
 }
 
-/// Render the mix of `input_path` to a stereo WAV at `out_path`.
+/// Render the mix of `input_path` to a stereo file at `out_path` in the
+/// format given by `settings.format` (WAV, FLAC or MP3).
 ///
 /// `progress` receives values in 0.0..=1.0 across both passes.
-pub fn render_to_wav<P: AsRef<Path>>(
+pub fn render_to_file<P: AsRef<Path>>(
     input_path: P,
     tracks: &[TrackParams],
     settings: &RenderSettings,
@@ -178,24 +199,8 @@ pub fn render_to_wav<P: AsRef<Path>>(
         }
     };
 
-    // Pass 2: render.
-    let hound_spec = hound::WavSpec {
-        channels: 2,
-        sample_rate: spec.sample_rate,
-        bits_per_sample: match settings.format {
-            OutputFormat::Wav16 => 16,
-            OutputFormat::Wav24 => 24,
-            OutputFormat::Wav32Float => 32,
-        },
-        sample_format: match settings.format {
-            OutputFormat::Wav32Float => hound::SampleFormat::Float,
-            _ => hound::SampleFormat::Int,
-        },
-    };
-    let mut writer = hound::WavWriter::create(&out_path, hound_spec)
-        .map_err(|e| EngineError::Encode(e.to_string()))?;
-
-    // Pass 2: mix → normalisation gain → limiter → measure → quantise.
+    // Pass 2: mix → normalisation gain → limiter → measure → encode.
+    let mut sink = StereoSink::create(out_path.as_ref(), settings.format, spec.sample_rate)?;
     let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
     let mut limiter = settings.limiter_enabled.then(|| {
         TruePeakLimiter::new(
@@ -212,8 +217,7 @@ pub fn render_to_wav<P: AsRef<Path>>(
         ebur128::Mode::I | ebur128::Mode::LRA | ebur128::Mode::TRUE_PEAK,
     )
     .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
-    let mut dither =
-        (settings.dither && settings.format == OutputFormat::Wav16).then(TpdfDither::default);
+    let mut dither = (settings.dither && settings.format.is_16_bit_int()).then(TpdfDither::default);
     let mut limited = Vec::new();
     reader.seek_to_frame(0)?;
     loop {
@@ -234,18 +238,16 @@ pub fn render_to_wav<P: AsRef<Path>>(
             None => &stereo,
         };
         let _ = ebu_out.add_frames_f64(block);
-        write_block(&mut writer, block, settings.format, dither.as_mut())?;
+        sink.write_block(block, dither.as_mut())?;
         progress((0.5 + reader.pos_frames() as f64 / total_frames * 0.5) as f32);
     }
     if let Some(lim) = &mut limiter {
         limited.clear();
         lim.flush(&mut limited);
         let _ = ebu_out.add_frames_f64(&limited);
-        write_block(&mut writer, &limited, settings.format, dither.as_mut())?;
+        sink.write_block(&limited, dither.as_mut())?;
     }
-    writer
-        .finalize()
-        .map_err(|e| EngineError::Encode(e.to_string()))?;
+    sink.finalize()?;
     progress(1.0);
 
     let true_peak = ebu_out
@@ -262,39 +264,4 @@ pub fn render_to_wav<P: AsRef<Path>>(
         lra_lu: ebu_out.loudness_range().unwrap_or(0.0),
         source_integrated_lufs: source_lufs,
     })
-}
-
-fn write_block<W: std::io::Write + Seek>(
-    writer: &mut hound::WavWriter<W>,
-    stereo: &[f64],
-    format: OutputFormat,
-    mut dither: Option<&mut TpdfDither>,
-) -> Result<()> {
-    let enc = |e: hound::Error| EngineError::Encode(e.to_string());
-    match format {
-        OutputFormat::Wav16 => {
-            for &s in stereo {
-                let v = s.clamp(-1.0, 1.0) * 32767.0;
-                let v = match &mut dither {
-                    Some(d) => v + d.sample(),
-                    None => v,
-                };
-                let q = v.round().clamp(-32768.0, 32767.0) as i16;
-                writer.write_sample(q).map_err(enc)?;
-            }
-        }
-        OutputFormat::Wav24 => {
-            for &s in stereo {
-                let v = s.clamp(-1.0, 1.0);
-                let q = (v * 8_388_607.0).round() as i32;
-                writer.write_sample(q).map_err(enc)?;
-            }
-        }
-        OutputFormat::Wav32Float => {
-            for &s in stereo {
-                writer.write_sample(s as f32).map_err(enc)?;
-            }
-        }
-    }
-    Ok(())
 }

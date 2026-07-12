@@ -61,6 +61,10 @@ pub enum ApiFormat {
     Wav16,
     Wav24,
     Wav32Float,
+    Flac16,
+    Flac24,
+    /// MP3 CBR 320 kbps (LAME).
+    Mp3,
 }
 
 pub enum ApiLoudnessMode {
@@ -201,6 +205,9 @@ fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
             ApiFormat::Wav16 => OutputFormat::Wav16,
             ApiFormat::Wav24 => OutputFormat::Wav24,
             ApiFormat::Wav32Float => OutputFormat::Wav32Float,
+            ApiFormat::Flac16 => OutputFormat::Flac16,
+            ApiFormat::Flac24 => OutputFormat::Flac24,
+            ApiFormat::Mp3 => OutputFormat::Mp3,
         },
         limiter_enabled: m.limiter_enabled,
         ceiling_dbtp: m.ceiling_dbtp,
@@ -228,6 +235,9 @@ fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
             OutputFormat::Wav16 => ApiFormat::Wav16,
             OutputFormat::Wav24 => ApiFormat::Wav24,
             OutputFormat::Wav32Float => ApiFormat::Wav32Float,
+            OutputFormat::Flac16 => ApiFormat::Flac16,
+            OutputFormat::Flac24 => ApiFormat::Flac24,
+            OutputFormat::Mp3 => ApiFormat::Mp3,
         },
         limiter_enabled: s.limiter_enabled,
         ceiling_dbtp: s.ceiling_dbtp,
@@ -308,7 +318,7 @@ pub fn render_mix(
 ) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
     let settings = to_engine_settings(&master);
-    let report = render::render_to_wav(&wav_path, &engine_tracks, &settings, &out_path, |p| {
+    let report = render::render_to_file(&wav_path, &engine_tracks, &settings, &out_path, |p| {
         if p < 1.0 {
             let _ = events.add(RenderEvent {
                 progress: p,

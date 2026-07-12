@@ -35,11 +35,11 @@ class _MixerScreenState extends State<MixerScreen> {
   Future<void> _export() async {
     final rec = state.recording;
     if (rec == null) return;
-    final ext = state.format == rust.ApiFormat.wav16 ||
-            state.format == rust.ApiFormat.wav24 ||
-            state.format == rust.ApiFormat.wav32Float
-        ? 'wav'
-        : 'wav';
+    final ext = switch (state.format) {
+      rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'flac',
+      rust.ApiFormat.mp3 => 'mp3',
+      _ => 'wav',
+    };
     final base = rec.path.split('/').last.replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
     final location = await getSaveLocation(suggestedName: '${base}_mix.$ext');
     if (location != null) {
@@ -300,6 +300,9 @@ class _MixerScreenState extends State<MixerScreen> {
       rust.ApiFormat.wav16: 'WAV 16',
       rust.ApiFormat.wav24: 'WAV 24',
       rust.ApiFormat.wav32Float: 'WAV 32f',
+      rust.ApiFormat.flac16: 'FLAC 16',
+      rust.ApiFormat.flac24: 'FLAC 24',
+      rust.ApiFormat.mp3: 'MP3 320',
     };
     return DropdownButton<rust.ApiFormat>(
       value: state.format,
