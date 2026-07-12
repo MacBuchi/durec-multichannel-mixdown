@@ -5,11 +5,72 @@ import 'package:flutter/foundation.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'session_paths.dart';
 
+/// Mutable UI-side copy of one EQ band.
+class EqBandUi {
+  EqBandUi({
+    required this.enabled,
+    required this.freq,
+    required this.gainDb,
+    required this.q,
+  });
+
+  factory EqBandUi.fromApi(rust.ApiEqBand b) =>
+      EqBandUi(enabled: b.enabled, freq: b.freq, gainDb: b.gainDb, q: b.q);
+
+  bool enabled;
+  double freq;
+  double gainDb;
+  double q;
+
+  rust.ApiEqBand toApi() =>
+      rust.ApiEqBand(enabled: enabled, freq: freq, gainDb: gainDb, q: q);
+}
+
+/// Mutable UI-side copy of one track's HPF + 3-band EQ.
+class TrackEqUi {
+  TrackEqUi({
+    required this.hpfEnabled,
+    required this.hpfFreq,
+    required this.hpfSlope,
+    required this.low,
+    required this.mid,
+    required this.high,
+  });
+
+  factory TrackEqUi.fromApi(rust.ApiTrackEq eq) => TrackEqUi(
+    hpfEnabled: eq.hpfEnabled,
+    hpfFreq: eq.hpfFreq,
+    hpfSlope: eq.hpfSlope,
+    low: EqBandUi.fromApi(eq.low),
+    mid: EqBandUi.fromApi(eq.mid),
+    high: EqBandUi.fromApi(eq.high),
+  );
+
+  bool hpfEnabled;
+  double hpfFreq;
+  rust.ApiHpfSlope hpfSlope;
+  final EqBandUi low;
+  final EqBandUi mid;
+  final EqBandUi high;
+
+  bool get isActive => hpfEnabled || low.enabled || mid.enabled || high.enabled;
+
+  rust.ApiTrackEq toApi() => rust.ApiTrackEq(
+    hpfEnabled: hpfEnabled,
+    hpfFreq: hpfFreq,
+    hpfSlope: hpfSlope,
+    low: low.toApi(),
+    mid: mid.toApi(),
+    high: high.toApi(),
+  );
+}
+
 /// Mutable UI-side copy of one track's mix parameters.
 class TrackUi {
   TrackUi({
     required this.index,
     required this.name,
+    required this.eq,
     this.gainDb = 0.0,
     this.pan = 0.0,
     this.polarityInvert = false,
@@ -21,6 +82,7 @@ class TrackUi {
   factory TrackUi.fromApi(rust.ApiTrack t) => TrackUi(
     index: t.index,
     name: t.name,
+    eq: TrackEqUi.fromApi(t.eq),
     gainDb: t.gainDb,
     pan: t.pan,
     polarityInvert: t.polarityInvert,
@@ -31,6 +93,7 @@ class TrackUi {
 
   final int index;
   final String name;
+  final TrackEqUi eq;
   double gainDb;
   double pan;
   bool polarityInvert;
@@ -47,16 +110,20 @@ class TrackUi {
     muted: muted,
     solo: solo,
     inMix: inMix,
+    eq: eq.toApi(),
   );
 }
 
 enum LoudnessChoice {
-  none('none', null),
-  peakMinus1('-1 dBFS', -1.0);
+  none('none'),
+  peakMinus1('-1 dBFS'),
+  lufs14('-14 LUFS'),
+  lufs16('-16 LUFS'),
+  lufs23('-23 LUFS (R128)'),
+  lufsCustom('custom LUFS');
 
-  const LoudnessChoice(this.label, this.peakDbfs);
+  const LoudnessChoice(this.label);
   final String label;
-  final double? peakDbfs;
 }
 
 /// Central app state: recording, tracks, playback, meters, export.
@@ -71,10 +138,16 @@ class MixerState extends ChangeNotifier {
   double peakL = 0; // linear 0..1+
   double peakR = 0;
   double lufsMomentary = -70;
+  double lufsIntegrated = -70;
+  double truePeak = 0; // linear, running max since start/seek
   double correlation = 0;
 
   LoudnessChoice loudness = LoudnessChoice.peakMinus1;
+  double customLufs = -17.0;
   rust.ApiFormat format = rust.ApiFormat.wav24;
+
+  /// Track indices whose EQ panel is expanded.
+  final Set<int> expandedEq = {};
 
   bool rendering = false;
   double renderProgress = 0;
@@ -102,8 +175,10 @@ class MixerState extends ChangeNotifier {
       _sessionPath = await sessionPathFor(path);
       recording = await rust.loadRecording(path: path, sessionPath: _sessionPath!);
       tracks = recording!.tracks.map(TrackUi.fromApi).toList();
+      _restoreMaster(recording!.master);
       positionSeconds = 0;
       lastReport = null;
+      expandedEq.clear();
       notifyListeners();
       // Persist immediately so a session migrated from a legacy sibling file
       // lands in the app container even if the user changes nothing.
@@ -142,9 +217,62 @@ class MixerState extends ChangeNotifier {
       updateTrack(t, (t) => t.polarityInvert = !t.polarityInvert);
   void toggleInMix(TrackUi t) => updateTrack(t, (t) => t.inMix = !t.inMix);
 
+  void toggleEqPanel(TrackUi t) {
+    if (!expandedEq.remove(t.index)) {
+      expandedEq.add(t.index);
+    }
+    notifyListeners();
+  }
+
+  /// Master settings sent to the engine. Preview and export share the same
+  /// limiter/ceiling; loudness gain is export-only (see the engine docs).
+  rust.ApiMaster get master => rust.ApiMaster(
+    loudness: switch (loudness) {
+      LoudnessChoice.none =>
+          const rust.ApiLoudness(mode: rust.ApiLoudnessMode.none, value: 0),
+      LoudnessChoice.peakMinus1 =>
+          const rust.ApiLoudness(mode: rust.ApiLoudnessMode.peakDbfs, value: -1),
+      LoudnessChoice.lufs14 => const rust.ApiLoudness(
+          mode: rust.ApiLoudnessMode.lufsIntegrated, value: -14),
+      LoudnessChoice.lufs16 => const rust.ApiLoudness(
+          mode: rust.ApiLoudnessMode.lufsIntegrated, value: -16),
+      LoudnessChoice.lufs23 => const rust.ApiLoudness(
+          mode: rust.ApiLoudnessMode.lufsIntegrated, value: -23),
+      LoudnessChoice.lufsCustom => rust.ApiLoudness(
+          mode: rust.ApiLoudnessMode.lufsIntegrated, value: customLufs),
+    },
+    format: format,
+    limiterEnabled: true,
+    ceilingDbtp: -1.0,
+    dither: true,
+  );
+
+  void _restoreMaster(rust.ApiMaster m) {
+    format = m.format;
+    switch (m.loudness.mode) {
+      case rust.ApiLoudnessMode.none:
+        loudness = LoudnessChoice.none;
+      case rust.ApiLoudnessMode.peakDbfs:
+        loudness = LoudnessChoice.peakMinus1;
+      case rust.ApiLoudnessMode.lufsIntegrated:
+        loudness = switch (m.loudness.value) {
+          -14.0 => LoudnessChoice.lufs14,
+          -16.0 => LoudnessChoice.lufs16,
+          -23.0 => LoudnessChoice.lufs23,
+          _ => LoudnessChoice.lufsCustom,
+        };
+        if (loudness == LoudnessChoice.lufsCustom) {
+          customLufs = m.loudness.value;
+        }
+    }
+  }
+
   void _pushLiveParams() {
     if (playing) {
-      rust.playerUpdateTracks(tracks: tracks.map((t) => t.toApi()).toList());
+      rust.playerUpdateParams(
+        tracks: tracks.map((t) => t.toApi()).toList(),
+        master: master,
+      );
     }
   }
 
@@ -160,8 +288,7 @@ class MixerState extends ChangeNotifier {
       await rust.saveSession(
         sessionPath: sessionPath,
         tracks: tracks.map((t) => t.toApi()).toList(),
-        peakDbfs: loudness.peakDbfs,
-        format: format,
+        master: master,
       );
     } catch (e) {
       error = 'Session save failed: $e';
@@ -188,6 +315,7 @@ class MixerState extends ChangeNotifier {
       await rust.playerStart(
         path: rec.path,
         tracks: tracks.map((t) => t.toApi()).toList(),
+        master: master,
         startFrame: startFrame,
       );
       playing = true;
@@ -214,6 +342,8 @@ class MixerState extends ChangeNotifier {
       peakL = s.peakL;
       peakR = s.peakR;
       lufsMomentary = s.lufsMomentary;
+      lufsIntegrated = s.lufsIntegrated;
+      truePeak = s.truePeak;
       correlation = s.correlation;
       if (!s.playing && playing) {
         playing = false;
@@ -245,8 +375,7 @@ class MixerState extends ChangeNotifier {
         wavPath: rec.path,
         outPath: outPath,
         tracks: tracks.map((t) => t.toApi()).toList(),
-        peakDbfs: loudness.peakDbfs,
-        format: format,
+        master: master,
       )) {
         renderProgress = ev.progress;
         if (ev.report != null) {

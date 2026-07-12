@@ -25,6 +25,7 @@ class TrackStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final eqOpen = state.expandedEq.contains(track.index);
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Padding(
@@ -32,7 +33,11 @@ class TrackStrip extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 700;
-            return wide ? _wideRow(context) : _narrowCard(context);
+            final row = wide ? _wideRow(context) : _narrowCard(context);
+            if (!eqOpen) return row;
+            return Column(
+              children: [row, _eqPanel(context)],
+            );
           },
         ),
       ),
@@ -106,6 +111,142 @@ class TrackStrip extends StatelessWidget {
             () => state.toggleSolo(track), 'Solo'),
         _toggleChip('mix', track.inMix, Colors.greenAccent,
             () => state.toggleInMix(track), 'Include in mixdown'),
+        _toggleChip('EQ', track.eq.isActive, Colors.lightBlueAccent,
+            () => state.toggleEqPanel(track), 'HPF + 3-band EQ'),
+      ],
+    );
+  }
+
+  // ── EQ panel ──────────────────────────────────────────────────────────────
+
+  /// Log-frequency slider mapping.
+  static double _toLog(double f, double lo, double hi) =>
+      (math.log(f / lo) / math.log(hi / lo)).clamp(0.0, 1.0);
+  static double _fromLog(double v, double lo, double hi) =>
+      lo * math.pow(hi / lo, v).toDouble();
+
+  Widget _eqPanel(BuildContext context) {
+    final eq = track.eq;
+    return Padding(
+      padding: const EdgeInsets.only(left: 28, top: 2, bottom: 4),
+      child: Column(
+        children: [
+          _eqRow(
+            context,
+            label: 'HPF',
+            enabled: eq.hpfEnabled,
+            onEnabled: (v) =>
+                state.updateTrack(track, (t) => t.eq.hpfEnabled = v),
+            freq: eq.hpfFreq,
+            freqLo: 20,
+            freqHi: 500,
+            onFreq: (v) => state.updateTrack(track, (t) => t.eq.hpfFreq = v),
+            trailing: SegmentedButton<rust.ApiHpfSlope>(
+              style: const ButtonStyle(
+                visualDensity: VisualDensity(horizontal: -4, vertical: -4),
+              ),
+              segments: const [
+                ButtonSegment(
+                    value: rust.ApiHpfSlope.db12, label: Text('12')),
+                ButtonSegment(
+                    value: rust.ApiHpfSlope.db24, label: Text('24')),
+              ],
+              selected: {eq.hpfSlope},
+              onSelectionChanged: (s) =>
+                  state.updateTrack(track, (t) => t.eq.hpfSlope = s.first),
+            ),
+          ),
+          _bandRow(context, 'Low', eq.low, 40, 500),
+          _bandRow(context, 'Mid', eq.mid, 200, 8000),
+          _bandRow(context, 'High', eq.high, 1500, 16000),
+        ],
+      ),
+    );
+  }
+
+  Widget _bandRow(
+      BuildContext context, String label, EqBandUi band, double lo, double hi) {
+    return _eqRow(
+      context,
+      label: label,
+      enabled: band.enabled,
+      onEnabled: (v) => state.updateTrack(track, (_) => band.enabled = v),
+      freq: band.freq,
+      freqLo: lo,
+      freqHi: hi,
+      onFreq: (v) => state.updateTrack(track, (_) => band.freq = v),
+      gainDb: band.gainDb,
+      onGain: (v) => state.updateTrack(track, (_) => band.gainDb = v),
+    );
+  }
+
+  Widget _eqRow(
+    BuildContext context, {
+    required String label,
+    required bool enabled,
+    required ValueChanged<bool> onEnabled,
+    required double freq,
+    required double freqLo,
+    required double freqHi,
+    required ValueChanged<double> onFreq,
+    double? gainDb,
+    ValueChanged<double>? onGain,
+    Widget? trailing,
+  }) {
+    final freqLabel = freq >= 1000
+        ? '${(freq / 1000).toStringAsFixed(1)}k'
+        : freq.round().toString();
+    return Row(
+      children: [
+        SizedBox(
+          width: 44,
+          child: InkWell(
+            onTap: () => onEnabled(!enabled),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: enabled ? Colors.lightBlueAccent : Colors.white38,
+              ),
+            ),
+          ),
+        ),
+        Switch(
+          value: enabled,
+          onChanged: onEnabled,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        Expanded(
+          child: Slider(
+            value: _toLog(freq, freqLo, freqHi),
+            onChanged:
+                enabled ? (v) => onFreq(_fromLog(v, freqLo, freqHi)) : null,
+          ),
+        ),
+        SizedBox(
+            width: 44, child: Text('$freqLabel Hz', style: _dim(context))),
+        if (gainDb != null && onGain != null) ...[
+          Expanded(
+            child: GestureDetector(
+              onDoubleTap: () => onGain(0),
+              child: Slider(
+                value: gainDb.clamp(-15, 15),
+                min: -15,
+                max: 15,
+                onChanged: enabled ? onGain : null,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              '${gainDb >= 0 ? '+' : ''}${gainDb.toStringAsFixed(1)} dB',
+              style: _dim(context),
+            ),
+          ),
+        ],
+        if (trailing != null) ...[trailing, const SizedBox(width: 8)],
       ],
     );
   }

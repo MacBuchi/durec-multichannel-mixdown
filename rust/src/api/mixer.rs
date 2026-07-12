@@ -8,8 +8,9 @@ use std::sync::{Mutex, OnceLock};
 
 use anyhow::Context;
 use durecmix_engine::analysis;
+use durecmix_engine::chain::MasterParams;
 use durecmix_engine::ixml;
-use durecmix_engine::mix::TrackParams;
+use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
 use durecmix_engine::playback::Player;
 use durecmix_engine::render::{self, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
@@ -23,6 +24,27 @@ fn player_slot() -> &'static Mutex<Option<Player>> {
     PLAYER.get_or_init(|| Mutex::new(None))
 }
 
+pub struct ApiEqBand {
+    pub enabled: bool,
+    pub freq: f64,
+    pub gain_db: f64,
+    pub q: f64,
+}
+
+pub enum ApiHpfSlope {
+    Db12,
+    Db24,
+}
+
+pub struct ApiTrackEq {
+    pub hpf_enabled: bool,
+    pub hpf_freq: f64,
+    pub hpf_slope: ApiHpfSlope,
+    pub low: ApiEqBand,
+    pub mid: ApiEqBand,
+    pub high: ApiEqBand,
+}
+
 pub struct ApiTrack {
     pub index: u32,
     pub name: String,
@@ -32,12 +54,36 @@ pub struct ApiTrack {
     pub muted: bool,
     pub solo: bool,
     pub in_mix: bool,
+    pub eq: ApiTrackEq,
 }
 
 pub enum ApiFormat {
     Wav16,
     Wav24,
     Wav32Float,
+}
+
+pub enum ApiLoudnessMode {
+    None,
+    PeakDbfs,
+    LufsIntegrated,
+}
+
+/// Loudness target: `value` is dBFS for `PeakDbfs`, LUFS for
+/// `LufsIntegrated`, ignored for `None`. (A plain struct instead of an enum
+/// with payload — FRB would need freezed for the latter.)
+pub struct ApiLoudness {
+    pub mode: ApiLoudnessMode,
+    pub value: f64,
+}
+
+/// Master-bus settings: loudness target, output format, limiter, dither.
+pub struct ApiMaster {
+    pub loudness: ApiLoudness,
+    pub format: ApiFormat,
+    pub limiter_enabled: bool,
+    pub ceiling_dbtp: f64,
+    pub dither: bool,
 }
 
 pub struct RecordingInfo {
@@ -48,6 +94,8 @@ pub struct RecordingInfo {
     pub num_frames: u64,
     pub duration_seconds: f64,
     pub tracks: Vec<ApiTrack>,
+    /// Master settings restored from the session (defaults for a fresh take).
+    pub master: ApiMaster,
 }
 
 pub struct ApiRenderReport {
@@ -55,6 +103,10 @@ pub struct ApiRenderReport {
     pub gain_applied_db: f64,
     pub duration_seconds: f64,
     pub sample_rate: u32,
+    pub integrated_lufs: f64,
+    pub true_peak_dbtp: f64,
+    pub lra_lu: f64,
+    pub source_integrated_lufs: f64,
 }
 
 /// One event of the render stream: progress ticks while rendering, and the
@@ -62,6 +114,52 @@ pub struct ApiRenderReport {
 pub struct RenderEvent {
     pub progress: f32,
     pub report: Option<ApiRenderReport>,
+}
+
+fn to_engine_band(b: &ApiEqBand) -> EqBand {
+    EqBand {
+        enabled: b.enabled,
+        freq: b.freq,
+        gain_db: b.gain_db,
+        q: b.q,
+    }
+}
+
+fn from_engine_band(b: &EqBand) -> ApiEqBand {
+    ApiEqBand {
+        enabled: b.enabled,
+        freq: b.freq,
+        gain_db: b.gain_db,
+        q: b.q,
+    }
+}
+
+fn to_engine_eq(eq: &ApiTrackEq) -> TrackEq {
+    TrackEq {
+        hpf_enabled: eq.hpf_enabled,
+        hpf_freq: eq.hpf_freq,
+        hpf_slope: match eq.hpf_slope {
+            ApiHpfSlope::Db12 => HpfSlope::Db12,
+            ApiHpfSlope::Db24 => HpfSlope::Db24,
+        },
+        low: to_engine_band(&eq.low),
+        mid: to_engine_band(&eq.mid),
+        high: to_engine_band(&eq.high),
+    }
+}
+
+fn from_engine_eq(eq: &TrackEq) -> ApiTrackEq {
+    ApiTrackEq {
+        hpf_enabled: eq.hpf_enabled,
+        hpf_freq: eq.hpf_freq,
+        hpf_slope: match eq.hpf_slope {
+            HpfSlope::Db12 => ApiHpfSlope::Db12,
+            HpfSlope::Db24 => ApiHpfSlope::Db24,
+        },
+        low: from_engine_band(&eq.low),
+        mid: from_engine_band(&eq.mid),
+        high: from_engine_band(&eq.high),
+    }
 }
 
 fn to_engine_track(t: &ApiTrack) -> TrackParams {
@@ -74,8 +172,7 @@ fn to_engine_track(t: &ApiTrack) -> TrackParams {
         muted: t.muted,
         solo: t.solo,
         in_mix: t.in_mix,
-        // EQ is not exposed over the bridge yet (M3a UI commit adds it).
-        eq: Default::default(),
+        eq: to_engine_eq(&t.eq),
     }
 }
 
@@ -89,22 +186,59 @@ fn from_engine_track(t: &TrackParams) -> ApiTrack {
         muted: t.muted,
         solo: t.solo,
         in_mix: t.in_mix,
+        eq: from_engine_eq(&t.eq),
     }
 }
 
-/// `peak_dbfs`: `Some(target)` normalises the mix peak to that dBFS value,
-/// `None` leaves levels untouched (clip-protected only).
-fn to_engine_settings(peak_dbfs: Option<f64>, format: &ApiFormat) -> RenderSettings {
+fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
     RenderSettings {
-        loudness: match peak_dbfs {
-            None => LoudnessMode::None,
-            Some(db) => LoudnessMode::PeakDbfs(db),
+        loudness: match m.loudness.mode {
+            ApiLoudnessMode::None => LoudnessMode::None,
+            ApiLoudnessMode::PeakDbfs => LoudnessMode::PeakDbfs(m.loudness.value),
+            ApiLoudnessMode::LufsIntegrated => LoudnessMode::LufsIntegrated(m.loudness.value),
         },
-        format: match format {
+        format: match m.format {
             ApiFormat::Wav16 => OutputFormat::Wav16,
             ApiFormat::Wav24 => OutputFormat::Wav24,
             ApiFormat::Wav32Float => OutputFormat::Wav32Float,
         },
+        limiter_enabled: m.limiter_enabled,
+        ceiling_dbtp: m.ceiling_dbtp,
+        dither: m.dither,
+    }
+}
+
+fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
+    ApiMaster {
+        loudness: match s.loudness {
+            LoudnessMode::None => ApiLoudness {
+                mode: ApiLoudnessMode::None,
+                value: 0.0,
+            },
+            LoudnessMode::PeakDbfs(db) => ApiLoudness {
+                mode: ApiLoudnessMode::PeakDbfs,
+                value: db,
+            },
+            LoudnessMode::LufsIntegrated(lufs) => ApiLoudness {
+                mode: ApiLoudnessMode::LufsIntegrated,
+                value: lufs,
+            },
+        },
+        format: match s.format {
+            OutputFormat::Wav16 => ApiFormat::Wav16,
+            OutputFormat::Wav24 => ApiFormat::Wav24,
+            OutputFormat::Wav32Float => ApiFormat::Wav32Float,
+        },
+        limiter_enabled: s.limiter_enabled,
+        ceiling_dbtp: s.ceiling_dbtp,
+        dither: s.dither,
+    }
+}
+
+fn to_master_params(m: &ApiMaster) -> MasterParams {
+    MasterParams {
+        limiter_enabled: m.limiter_enabled,
+        ceiling_dbtp: m.ceiling_dbtp,
     }
 }
 
@@ -141,6 +275,7 @@ pub fn load_recording(path: String, session_path: String) -> anyhow::Result<Reco
         num_frames: reader.num_frames(),
         duration_seconds: reader.duration_seconds(),
         tracks: session.tracks.iter().map(from_engine_track).collect(),
+        master: from_engine_settings(&session.settings),
     })
 }
 
@@ -149,12 +284,11 @@ pub fn load_recording(path: String, session_path: String) -> anyhow::Result<Reco
 pub fn save_session(
     session_path: String,
     tracks: Vec<ApiTrack>,
-    peak_dbfs: Option<f64>,
-    format: ApiFormat,
+    master: ApiMaster,
 ) -> anyhow::Result<()> {
     let session = Session {
         tracks: tracks.iter().map(to_engine_track).collect(),
-        settings: to_engine_settings(peak_dbfs, &format),
+        settings: to_engine_settings(&master),
         ..Session::default()
     };
     session
@@ -169,12 +303,11 @@ pub fn render_mix(
     wav_path: String,
     out_path: String,
     tracks: Vec<ApiTrack>,
-    peak_dbfs: Option<f64>,
-    format: ApiFormat,
+    master: ApiMaster,
     events: StreamSink<RenderEvent>,
 ) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
-    let settings = to_engine_settings(peak_dbfs, &format);
+    let settings = to_engine_settings(&master);
     let report = render::render_to_wav(&wav_path, &engine_tracks, &settings, &out_path, |p| {
         if p < 1.0 {
             let _ = events.add(RenderEvent {
@@ -191,6 +324,10 @@ pub fn render_mix(
             gain_applied_db: report.gain_applied_db,
             duration_seconds: report.duration_seconds,
             sample_rate: report.sample_rate,
+            integrated_lufs: report.integrated_lufs,
+            true_peak_dbtp: report.true_peak_dbtp,
+            lra_lu: report.lra_lu,
+            source_integrated_lufs: report.source_integrated_lufs,
         }),
     });
     Ok(())
@@ -226,13 +363,22 @@ pub struct ApiPlayerState {
     pub peak_l: f32,
     pub peak_r: f32,
     pub lufs_momentary: f32,
+    /// Integrated loudness since start/seek — pre-normalisation preview.
+    pub lufs_integrated: f32,
+    /// Running true-peak max since start/seek (linear).
+    pub true_peak: f32,
     pub correlation: f32,
 }
 
 /// Start (or restart) live playback of the mix at `start_frame`.
-pub fn player_start(path: String, tracks: Vec<ApiTrack>, start_frame: u64) -> anyhow::Result<()> {
+pub fn player_start(
+    path: String,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    start_frame: u64,
+) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
-    let new_player = Player::start(&path, engine_tracks, start_frame)
+    let new_player = Player::start(&path, engine_tracks, to_master_params(&master), start_frame)
         .with_context(|| format!("start playback of {path}"))?;
     let mut slot = player_slot().lock().unwrap();
     if let Some(old) = slot.take() {
@@ -255,10 +401,13 @@ pub fn player_seek(frame: u64) {
     }
 }
 
-/// Push updated mix parameters to the running player (audible in ~0.2 s).
-pub fn player_update_tracks(tracks: Vec<ApiTrack>) {
+/// Push updated mix/master parameters to the running player (~0.2 s).
+pub fn player_update_params(tracks: Vec<ApiTrack>, master: ApiMaster) {
     if let Some(p) = player_slot().lock().unwrap().as_ref() {
-        p.update_tracks(tracks.iter().map(to_engine_track).collect());
+        p.update_params(
+            tracks.iter().map(to_engine_track).collect(),
+            to_master_params(&master),
+        );
     }
 }
 
@@ -275,6 +424,8 @@ pub fn player_state() -> ApiPlayerState {
                 peak_l: s.peak_l,
                 peak_r: s.peak_r,
                 lufs_momentary: s.lufs_momentary,
+                lufs_integrated: s.lufs_integrated,
+                true_peak: s.true_peak,
                 correlation: s.correlation,
             }
         }
@@ -284,6 +435,8 @@ pub fn player_state() -> ApiPlayerState {
             peak_l: 0.0,
             peak_r: 0.0,
             lufs_momentary: -70.0,
+            lufs_integrated: -70.0,
+            true_peak: 0.0,
             correlation: 0.0,
         },
     }

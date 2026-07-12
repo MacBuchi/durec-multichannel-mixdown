@@ -34,7 +34,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiChannelWaveform dco_decode_api_channel_waveform(dynamic raw);
 
   @protected
+  ApiEqBand dco_decode_api_eq_band(dynamic raw);
+
+  @protected
   ApiFormat dco_decode_api_format(dynamic raw);
+
+  @protected
+  ApiHpfSlope dco_decode_api_hpf_slope(dynamic raw);
+
+  @protected
+  ApiLoudness dco_decode_api_loudness(dynamic raw);
+
+  @protected
+  ApiLoudnessMode dco_decode_api_loudness_mode(dynamic raw);
+
+  @protected
+  ApiMaster dco_decode_api_master(dynamic raw);
 
   @protected
   ApiPlayerState dco_decode_api_player_state(dynamic raw);
@@ -46,13 +61,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiTrack dco_decode_api_track(dynamic raw);
 
   @protected
+  ApiTrackEq dco_decode_api_track_eq(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
-  ApiRenderReport dco_decode_box_autoadd_api_render_report(dynamic raw);
+  ApiMaster dco_decode_box_autoadd_api_master(dynamic raw);
 
   @protected
-  double dco_decode_box_autoadd_f_64(dynamic raw);
+  ApiRenderReport dco_decode_box_autoadd_api_render_report(dynamic raw);
 
   @protected
   double dco_decode_f_32(dynamic raw);
@@ -77,9 +95,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiRenderReport? dco_decode_opt_box_autoadd_api_render_report(dynamic raw);
-
-  @protected
-  double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
 
   @protected
   RecordingInfo dco_decode_recording_info(dynamic raw);
@@ -122,7 +137,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ApiEqBand sse_decode_api_eq_band(SseDeserializer deserializer);
+
+  @protected
   ApiFormat sse_decode_api_format(SseDeserializer deserializer);
+
+  @protected
+  ApiHpfSlope sse_decode_api_hpf_slope(SseDeserializer deserializer);
+
+  @protected
+  ApiLoudness sse_decode_api_loudness(SseDeserializer deserializer);
+
+  @protected
+  ApiLoudnessMode sse_decode_api_loudness_mode(SseDeserializer deserializer);
+
+  @protected
+  ApiMaster sse_decode_api_master(SseDeserializer deserializer);
 
   @protected
   ApiPlayerState sse_decode_api_player_state(SseDeserializer deserializer);
@@ -134,15 +164,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiTrack sse_decode_api_track(SseDeserializer deserializer);
 
   @protected
+  ApiTrackEq sse_decode_api_track_eq(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  ApiMaster sse_decode_box_autoadd_api_master(SseDeserializer deserializer);
 
   @protected
   ApiRenderReport sse_decode_box_autoadd_api_render_report(
     SseDeserializer deserializer,
   );
-
-  @protected
-  double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_32(SseDeserializer deserializer);
@@ -171,9 +204,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiRenderReport? sse_decode_opt_box_autoadd_api_render_report(
     SseDeserializer deserializer,
   );
-
-  @protected
-  double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
   RecordingInfo sse_decode_recording_info(SseDeserializer deserializer);
@@ -221,7 +251,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_api_eq_band(ApiEqBand self, SseSerializer serializer);
+
+  @protected
   void sse_encode_api_format(ApiFormat self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_api_hpf_slope(ApiHpfSlope self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_api_loudness(ApiLoudness self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_api_loudness_mode(
+    ApiLoudnessMode self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_api_master(ApiMaster self, SseSerializer serializer);
 
   @protected
   void sse_encode_api_player_state(
@@ -239,16 +287,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_api_track(ApiTrack self, SseSerializer serializer);
 
   @protected
+  void sse_encode_api_track_eq(ApiTrackEq self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_api_master(
+    ApiMaster self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_api_render_report(
     ApiRenderReport self,
     SseSerializer serializer,
   );
-
-  @protected
-  void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_f_32(double self, SseSerializer serializer);
@@ -285,9 +339,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ApiRenderReport? self,
     SseSerializer serializer,
   );
-
-  @protected
-  void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
   void sse_encode_recording_info(RecordingInfo self, SseSerializer serializer);

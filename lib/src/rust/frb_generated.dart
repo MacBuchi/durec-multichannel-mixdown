@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1398740320;
+  int get rustContentHash => 1193205938;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -98,6 +98,7 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiMixerPlayerStart({
     required String path,
     required List<ApiTrack> tracks,
+    required ApiMaster master,
     required BigInt startFrame,
   });
 
@@ -105,23 +106,22 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiMixerPlayerStop();
 
-  Future<void> crateApiMixerPlayerUpdateTracks({
+  Future<void> crateApiMixerPlayerUpdateParams({
     required List<ApiTrack> tracks,
+    required ApiMaster master,
   });
 
   Stream<RenderEvent> crateApiMixerRenderMix({
     required String wavPath,
     required String outPath,
     required List<ApiTrack> tracks,
-    double? peakDbfs,
-    required ApiFormat format,
+    required ApiMaster master,
   });
 
   Future<void> crateApiMixerSaveSession({
     required String sessionPath,
     required List<ApiTrack> tracks,
-    double? peakDbfs,
-    required ApiFormat format,
+    required ApiMaster master,
   });
 }
 
@@ -284,6 +284,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<void> crateApiMixerPlayerStart({
     required String path,
     required List<ApiTrack> tracks,
+    required ApiMaster master,
     required BigInt startFrame,
   }) {
     return handler.executeNormal(
@@ -292,6 +293,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
           sse_encode_list_api_track(tracks, serializer);
+          sse_encode_box_autoadd_api_master(master, serializer);
           sse_encode_u_64(startFrame, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -305,7 +307,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerPlayerStartConstMeta,
-        argValues: [path, tracks, startFrame],
+        argValues: [path, tracks, master, startFrame],
         apiImpl: this,
       ),
     );
@@ -313,7 +315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerPlayerStartConstMeta => const TaskConstMeta(
     debugName: "player_start",
-    argNames: ["path", "tracks", "startFrame"],
+    argNames: ["path", "tracks", "master", "startFrame"],
   );
 
   @override
@@ -366,14 +368,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "player_stop", argNames: []);
 
   @override
-  Future<void> crateApiMixerPlayerUpdateTracks({
+  Future<void> crateApiMixerPlayerUpdateParams({
     required List<ApiTrack> tracks,
+    required ApiMaster master,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_api_track(tracks, serializer);
+          sse_encode_box_autoadd_api_master(master, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -385,17 +389,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiMixerPlayerUpdateTracksConstMeta,
-        argValues: [tracks],
+        constMeta: kCrateApiMixerPlayerUpdateParamsConstMeta,
+        argValues: [tracks, master],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiMixerPlayerUpdateTracksConstMeta =>
+  TaskConstMeta get kCrateApiMixerPlayerUpdateParamsConstMeta =>
       const TaskConstMeta(
-        debugName: "player_update_tracks",
-        argNames: ["tracks"],
+        debugName: "player_update_params",
+        argNames: ["tracks", "master"],
       );
 
   @override
@@ -403,8 +407,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String wavPath,
     required String outPath,
     required List<ApiTrack> tracks,
-    double? peakDbfs,
-    required ApiFormat format,
+    required ApiMaster master,
   }) {
     final events = RustStreamSink<RenderEvent>();
     unawaited(
@@ -415,8 +418,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             sse_encode_String(wavPath, serializer);
             sse_encode_String(outPath, serializer);
             sse_encode_list_api_track(tracks, serializer);
-            sse_encode_opt_box_autoadd_f_64(peakDbfs, serializer);
-            sse_encode_api_format(format, serializer);
+            sse_encode_box_autoadd_api_master(master, serializer);
             sse_encode_StreamSink_render_event_Sse(events, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
@@ -430,7 +432,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: sse_decode_AnyhowException,
           ),
           constMeta: kCrateApiMixerRenderMixConstMeta,
-          argValues: [wavPath, outPath, tracks, peakDbfs, format, events],
+          argValues: [wavPath, outPath, tracks, master, events],
           apiImpl: this,
         ),
       ),
@@ -440,15 +442,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerRenderMixConstMeta => const TaskConstMeta(
     debugName: "render_mix",
-    argNames: ["wavPath", "outPath", "tracks", "peakDbfs", "format", "events"],
+    argNames: ["wavPath", "outPath", "tracks", "master", "events"],
   );
 
   @override
   Future<void> crateApiMixerSaveSession({
     required String sessionPath,
     required List<ApiTrack> tracks,
-    double? peakDbfs,
-    required ApiFormat format,
+    required ApiMaster master,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -456,8 +457,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(sessionPath, serializer);
           sse_encode_list_api_track(tracks, serializer);
-          sse_encode_opt_box_autoadd_f_64(peakDbfs, serializer);
-          sse_encode_api_format(format, serializer);
+          sse_encode_box_autoadd_api_master(master, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -470,7 +470,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerSaveSessionConstMeta,
-        argValues: [sessionPath, tracks, peakDbfs, format],
+        argValues: [sessionPath, tracks, master],
         apiImpl: this,
       ),
     );
@@ -478,7 +478,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerSaveSessionConstMeta => const TaskConstMeta(
     debugName: "save_session",
-    argNames: ["sessionPath", "tracks", "peakDbfs", "format"],
+    argNames: ["sessionPath", "tracks", "master"],
   );
 
   @protected
@@ -515,24 +515,79 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ApiEqBand dco_decode_api_eq_band(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return ApiEqBand(
+      enabled: dco_decode_bool(arr[0]),
+      freq: dco_decode_f_64(arr[1]),
+      gainDb: dco_decode_f_64(arr[2]),
+      q: dco_decode_f_64(arr[3]),
+    );
+  }
+
+  @protected
   ApiFormat dco_decode_api_format(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return ApiFormat.values[raw as int];
   }
 
   @protected
+  ApiHpfSlope dco_decode_api_hpf_slope(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ApiHpfSlope.values[raw as int];
+  }
+
+  @protected
+  ApiLoudness dco_decode_api_loudness(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ApiLoudness(
+      mode: dco_decode_api_loudness_mode(arr[0]),
+      value: dco_decode_f_64(arr[1]),
+    );
+  }
+
+  @protected
+  ApiLoudnessMode dco_decode_api_loudness_mode(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ApiLoudnessMode.values[raw as int];
+  }
+
+  @protected
+  ApiMaster dco_decode_api_master(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return ApiMaster(
+      loudness: dco_decode_api_loudness(arr[0]),
+      format: dco_decode_api_format(arr[1]),
+      limiterEnabled: dco_decode_bool(arr[2]),
+      ceilingDbtp: dco_decode_f_64(arr[3]),
+      dither: dco_decode_bool(arr[4]),
+    );
+  }
+
+  @protected
   ApiPlayerState dco_decode_api_player_state(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return ApiPlayerState(
       playing: dco_decode_bool(arr[0]),
       positionFrames: dco_decode_u_64(arr[1]),
       peakL: dco_decode_f_32(arr[2]),
       peakR: dco_decode_f_32(arr[3]),
       lufsMomentary: dco_decode_f_32(arr[4]),
-      correlation: dco_decode_f_32(arr[5]),
+      lufsIntegrated: dco_decode_f_32(arr[5]),
+      truePeak: dco_decode_f_32(arr[6]),
+      correlation: dco_decode_f_32(arr[7]),
     );
   }
 
@@ -540,13 +595,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ApiRenderReport dco_decode_api_render_report(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return ApiRenderReport(
       peakDbfsBefore: dco_decode_f_64(arr[0]),
       gainAppliedDb: dco_decode_f_64(arr[1]),
       durationSeconds: dco_decode_f_64(arr[2]),
       sampleRate: dco_decode_u_32(arr[3]),
+      integratedLufs: dco_decode_f_64(arr[4]),
+      truePeakDbtp: dco_decode_f_64(arr[5]),
+      lraLu: dco_decode_f_64(arr[6]),
+      sourceIntegratedLufs: dco_decode_f_64(arr[7]),
     );
   }
 
@@ -554,8 +613,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ApiTrack dco_decode_api_track(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return ApiTrack(
       index: dco_decode_u_32(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -565,6 +624,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       muted: dco_decode_bool(arr[5]),
       solo: dco_decode_bool(arr[6]),
       inMix: dco_decode_bool(arr[7]),
+      eq: dco_decode_api_track_eq(arr[8]),
+    );
+  }
+
+  @protected
+  ApiTrackEq dco_decode_api_track_eq(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return ApiTrackEq(
+      hpfEnabled: dco_decode_bool(arr[0]),
+      hpfFreq: dco_decode_f_64(arr[1]),
+      hpfSlope: dco_decode_api_hpf_slope(arr[2]),
+      low: dco_decode_api_eq_band(arr[3]),
+      mid: dco_decode_api_eq_band(arr[4]),
+      high: dco_decode_api_eq_band(arr[5]),
     );
   }
 
@@ -575,15 +651,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ApiRenderReport dco_decode_box_autoadd_api_render_report(dynamic raw) {
+  ApiMaster dco_decode_box_autoadd_api_master(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_api_render_report(raw);
+    return dco_decode_api_master(raw);
   }
 
   @protected
-  double dco_decode_box_autoadd_f_64(dynamic raw) {
+  ApiRenderReport dco_decode_box_autoadd_api_render_report(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw as double;
+    return dco_decode_api_render_report(raw);
   }
 
   @protected
@@ -635,17 +711,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  double? dco_decode_opt_box_autoadd_f_64(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_f_64(raw);
-  }
-
-  @protected
   RecordingInfo dco_decode_recording_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return RecordingInfo(
       path: dco_decode_String(arr[0]),
       sampleRate: dco_decode_u_32(arr[1]),
@@ -654,6 +724,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       numFrames: dco_decode_u_64(arr[4]),
       durationSeconds: dco_decode_f_64(arr[5]),
       tracks: dco_decode_list_api_track(arr[6]),
+      master: dco_decode_api_master(arr[7]),
     );
   }
 
@@ -743,10 +814,64 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ApiEqBand sse_decode_api_eq_band(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_enabled = sse_decode_bool(deserializer);
+    var var_freq = sse_decode_f_64(deserializer);
+    var var_gainDb = sse_decode_f_64(deserializer);
+    var var_q = sse_decode_f_64(deserializer);
+    return ApiEqBand(
+      enabled: var_enabled,
+      freq: var_freq,
+      gainDb: var_gainDb,
+      q: var_q,
+    );
+  }
+
+  @protected
   ApiFormat sse_decode_api_format(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return ApiFormat.values[inner];
+  }
+
+  @protected
+  ApiHpfSlope sse_decode_api_hpf_slope(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ApiHpfSlope.values[inner];
+  }
+
+  @protected
+  ApiLoudness sse_decode_api_loudness(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_mode = sse_decode_api_loudness_mode(deserializer);
+    var var_value = sse_decode_f_64(deserializer);
+    return ApiLoudness(mode: var_mode, value: var_value);
+  }
+
+  @protected
+  ApiLoudnessMode sse_decode_api_loudness_mode(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ApiLoudnessMode.values[inner];
+  }
+
+  @protected
+  ApiMaster sse_decode_api_master(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_loudness = sse_decode_api_loudness(deserializer);
+    var var_format = sse_decode_api_format(deserializer);
+    var var_limiterEnabled = sse_decode_bool(deserializer);
+    var var_ceilingDbtp = sse_decode_f_64(deserializer);
+    var var_dither = sse_decode_bool(deserializer);
+    return ApiMaster(
+      loudness: var_loudness,
+      format: var_format,
+      limiterEnabled: var_limiterEnabled,
+      ceilingDbtp: var_ceilingDbtp,
+      dither: var_dither,
+    );
   }
 
   @protected
@@ -757,6 +882,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_peakL = sse_decode_f_32(deserializer);
     var var_peakR = sse_decode_f_32(deserializer);
     var var_lufsMomentary = sse_decode_f_32(deserializer);
+    var var_lufsIntegrated = sse_decode_f_32(deserializer);
+    var var_truePeak = sse_decode_f_32(deserializer);
     var var_correlation = sse_decode_f_32(deserializer);
     return ApiPlayerState(
       playing: var_playing,
@@ -764,6 +891,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       peakL: var_peakL,
       peakR: var_peakR,
       lufsMomentary: var_lufsMomentary,
+      lufsIntegrated: var_lufsIntegrated,
+      truePeak: var_truePeak,
       correlation: var_correlation,
     );
   }
@@ -775,11 +904,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_gainAppliedDb = sse_decode_f_64(deserializer);
     var var_durationSeconds = sse_decode_f_64(deserializer);
     var var_sampleRate = sse_decode_u_32(deserializer);
+    var var_integratedLufs = sse_decode_f_64(deserializer);
+    var var_truePeakDbtp = sse_decode_f_64(deserializer);
+    var var_lraLu = sse_decode_f_64(deserializer);
+    var var_sourceIntegratedLufs = sse_decode_f_64(deserializer);
     return ApiRenderReport(
       peakDbfsBefore: var_peakDbfsBefore,
       gainAppliedDb: var_gainAppliedDb,
       durationSeconds: var_durationSeconds,
       sampleRate: var_sampleRate,
+      integratedLufs: var_integratedLufs,
+      truePeakDbtp: var_truePeakDbtp,
+      lraLu: var_lraLu,
+      sourceIntegratedLufs: var_sourceIntegratedLufs,
     );
   }
 
@@ -794,6 +931,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_muted = sse_decode_bool(deserializer);
     var var_solo = sse_decode_bool(deserializer);
     var var_inMix = sse_decode_bool(deserializer);
+    var var_eq = sse_decode_api_track_eq(deserializer);
     return ApiTrack(
       index: var_index,
       name: var_name,
@@ -803,6 +941,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       muted: var_muted,
       solo: var_solo,
       inMix: var_inMix,
+      eq: var_eq,
+    );
+  }
+
+  @protected
+  ApiTrackEq sse_decode_api_track_eq(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_hpfEnabled = sse_decode_bool(deserializer);
+    var var_hpfFreq = sse_decode_f_64(deserializer);
+    var var_hpfSlope = sse_decode_api_hpf_slope(deserializer);
+    var var_low = sse_decode_api_eq_band(deserializer);
+    var var_mid = sse_decode_api_eq_band(deserializer);
+    var var_high = sse_decode_api_eq_band(deserializer);
+    return ApiTrackEq(
+      hpfEnabled: var_hpfEnabled,
+      hpfFreq: var_hpfFreq,
+      hpfSlope: var_hpfSlope,
+      low: var_low,
+      mid: var_mid,
+      high: var_high,
     );
   }
 
@@ -813,17 +971,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ApiMaster sse_decode_box_autoadd_api_master(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_api_master(deserializer));
+  }
+
+  @protected
   ApiRenderReport sse_decode_box_autoadd_api_render_report(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_api_render_report(deserializer));
-  }
-
-  @protected
-  double sse_decode_box_autoadd_f_64(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_f_64(deserializer));
   }
 
   @protected
@@ -898,17 +1056,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_f_64(deserializer));
-    } else {
-      return null;
-    }
-  }
-
-  @protected
   RecordingInfo sse_decode_recording_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_path = sse_decode_String(deserializer);
@@ -918,6 +1065,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_numFrames = sse_decode_u_64(deserializer);
     var var_durationSeconds = sse_decode_f_64(deserializer);
     var var_tracks = sse_decode_list_api_track(deserializer);
+    var var_master = sse_decode_api_master(deserializer);
     return RecordingInfo(
       path: var_path,
       sampleRate: var_sampleRate,
@@ -926,6 +1074,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       numFrames: var_numFrames,
       durationSeconds: var_durationSeconds,
       tracks: var_tracks,
+      master: var_master,
     );
   }
 
@@ -1016,9 +1165,50 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_api_eq_band(ApiEqBand self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.enabled, serializer);
+    sse_encode_f_64(self.freq, serializer);
+    sse_encode_f_64(self.gainDb, serializer);
+    sse_encode_f_64(self.q, serializer);
+  }
+
+  @protected
   void sse_encode_api_format(ApiFormat self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_api_hpf_slope(ApiHpfSlope self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_api_loudness(ApiLoudness self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_api_loudness_mode(self.mode, serializer);
+    sse_encode_f_64(self.value, serializer);
+  }
+
+  @protected
+  void sse_encode_api_loudness_mode(
+    ApiLoudnessMode self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_api_master(ApiMaster self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_api_loudness(self.loudness, serializer);
+    sse_encode_api_format(self.format, serializer);
+    sse_encode_bool(self.limiterEnabled, serializer);
+    sse_encode_f_64(self.ceilingDbtp, serializer);
+    sse_encode_bool(self.dither, serializer);
   }
 
   @protected
@@ -1032,6 +1222,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_32(self.peakL, serializer);
     sse_encode_f_32(self.peakR, serializer);
     sse_encode_f_32(self.lufsMomentary, serializer);
+    sse_encode_f_32(self.lufsIntegrated, serializer);
+    sse_encode_f_32(self.truePeak, serializer);
     sse_encode_f_32(self.correlation, serializer);
   }
 
@@ -1045,6 +1237,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_64(self.gainAppliedDb, serializer);
     sse_encode_f_64(self.durationSeconds, serializer);
     sse_encode_u_32(self.sampleRate, serializer);
+    sse_encode_f_64(self.integratedLufs, serializer);
+    sse_encode_f_64(self.truePeakDbtp, serializer);
+    sse_encode_f_64(self.lraLu, serializer);
+    sse_encode_f_64(self.sourceIntegratedLufs, serializer);
   }
 
   @protected
@@ -1058,6 +1254,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.muted, serializer);
     sse_encode_bool(self.solo, serializer);
     sse_encode_bool(self.inMix, serializer);
+    sse_encode_api_track_eq(self.eq, serializer);
+  }
+
+  @protected
+  void sse_encode_api_track_eq(ApiTrackEq self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.hpfEnabled, serializer);
+    sse_encode_f_64(self.hpfFreq, serializer);
+    sse_encode_api_hpf_slope(self.hpfSlope, serializer);
+    sse_encode_api_eq_band(self.low, serializer);
+    sse_encode_api_eq_band(self.mid, serializer);
+    sse_encode_api_eq_band(self.high, serializer);
   }
 
   @protected
@@ -1067,18 +1275,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_api_master(
+    ApiMaster self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_api_master(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_api_render_report(
     ApiRenderReport self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_api_render_report(self, serializer);
-  }
-
-  @protected
-  void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_f_64(self, serializer);
   }
 
   @protected
@@ -1157,16 +1368,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    sse_encode_bool(self != null, serializer);
-    if (self != null) {
-      sse_encode_box_autoadd_f_64(self, serializer);
-    }
-  }
-
-  @protected
   void sse_encode_recording_info(RecordingInfo self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.path, serializer);
@@ -1176,6 +1377,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.numFrames, serializer);
     sse_encode_f_64(self.durationSeconds, serializer);
     sse_encode_list_api_track(self.tracks, serializer);
+    sse_encode_api_master(self.master, serializer);
   }
 
   @protected

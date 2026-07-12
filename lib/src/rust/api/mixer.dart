@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_track`, `player_slot`, `to_engine_settings`, `to_engine_track`
+// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_settings`, `from_engine_track`, `player_slot`, `to_engine_band`, `to_engine_eq`, `to_engine_settings`, `to_engine_track`, `to_master_params`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -24,13 +24,11 @@ Future<RecordingInfo> loadRecording({
 Future<void> saveSession({
   required String sessionPath,
   required List<ApiTrack> tracks,
-  double? peakDbfs,
-  required ApiFormat format,
+  required ApiMaster master,
 }) => RustLib.instance.api.crateApiMixerSaveSession(
   sessionPath: sessionPath,
   tracks: tracks,
-  peakDbfs: peakDbfs,
-  format: format,
+  master: master,
 );
 
 /// Render the stereo mixdown. Streams `RenderEvent`s to Dart: progress in
@@ -39,14 +37,12 @@ Stream<RenderEvent> renderMix({
   required String wavPath,
   required String outPath,
   required List<ApiTrack> tracks,
-  double? peakDbfs,
-  required ApiFormat format,
+  required ApiMaster master,
 }) => RustLib.instance.api.crateApiMixerRenderMix(
   wavPath: wavPath,
   outPath: outPath,
   tracks: tracks,
-  peakDbfs: peakDbfs,
-  format: format,
+  master: master,
 );
 
 /// Streamed min/max envelope of every channel, `buckets` values per channel.
@@ -62,10 +58,12 @@ Future<List<ApiChannelWaveform>> analyzeWaveforms({
 Future<void> playerStart({
   required String path,
   required List<ApiTrack> tracks,
+  required ApiMaster master,
   required BigInt startFrame,
 }) => RustLib.instance.api.crateApiMixerPlayerStart(
   path: path,
   tracks: tracks,
+  master: master,
   startFrame: startFrame,
 );
 
@@ -74,9 +72,14 @@ Future<void> playerStop() => RustLib.instance.api.crateApiMixerPlayerStop();
 Future<void> playerSeek({required BigInt frame}) =>
     RustLib.instance.api.crateApiMixerPlayerSeek(frame: frame);
 
-/// Push updated mix parameters to the running player (audible in ~0.2 s).
-Future<void> playerUpdateTracks({required List<ApiTrack> tracks}) =>
-    RustLib.instance.api.crateApiMixerPlayerUpdateTracks(tracks: tracks);
+/// Push updated mix/master parameters to the running player (~0.2 s).
+Future<void> playerUpdateParams({
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+}) => RustLib.instance.api.crateApiMixerPlayerUpdateParams(
+  tracks: tracks,
+  master: master,
+);
 
 /// Poll playback position and meters (call at UI frame rate).
 ApiPlayerState playerState() => RustLib.instance.api.crateApiMixerPlayerState();
@@ -105,7 +108,96 @@ class ApiChannelWaveform {
           peakDbfs == other.peakDbfs;
 }
 
+class ApiEqBand {
+  final bool enabled;
+  final double freq;
+  final double gainDb;
+  final double q;
+
+  const ApiEqBand({
+    required this.enabled,
+    required this.freq,
+    required this.gainDb,
+    required this.q,
+  });
+
+  @override
+  int get hashCode =>
+      enabled.hashCode ^ freq.hashCode ^ gainDb.hashCode ^ q.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiEqBand &&
+          runtimeType == other.runtimeType &&
+          enabled == other.enabled &&
+          freq == other.freq &&
+          gainDb == other.gainDb &&
+          q == other.q;
+}
+
 enum ApiFormat { wav16, wav24, wav32Float }
+
+enum ApiHpfSlope { db12, db24 }
+
+/// Loudness target: `value` is dBFS for `PeakDbfs`, LUFS for
+/// `LufsIntegrated`, ignored for `None`. (A plain struct instead of an enum
+/// with payload — FRB would need freezed for the latter.)
+class ApiLoudness {
+  final ApiLoudnessMode mode;
+  final double value;
+
+  const ApiLoudness({required this.mode, required this.value});
+
+  @override
+  int get hashCode => mode.hashCode ^ value.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiLoudness &&
+          runtimeType == other.runtimeType &&
+          mode == other.mode &&
+          value == other.value;
+}
+
+enum ApiLoudnessMode { none, peakDbfs, lufsIntegrated }
+
+/// Master-bus settings: loudness target, output format, limiter, dither.
+class ApiMaster {
+  final ApiLoudness loudness;
+  final ApiFormat format;
+  final bool limiterEnabled;
+  final double ceilingDbtp;
+  final bool dither;
+
+  const ApiMaster({
+    required this.loudness,
+    required this.format,
+    required this.limiterEnabled,
+    required this.ceilingDbtp,
+    required this.dither,
+  });
+
+  @override
+  int get hashCode =>
+      loudness.hashCode ^
+      format.hashCode ^
+      limiterEnabled.hashCode ^
+      ceilingDbtp.hashCode ^
+      dither.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiMaster &&
+          runtimeType == other.runtimeType &&
+          loudness == other.loudness &&
+          format == other.format &&
+          limiterEnabled == other.limiterEnabled &&
+          ceilingDbtp == other.ceilingDbtp &&
+          dither == other.dither;
+}
 
 class ApiPlayerState {
   final bool playing;
@@ -113,6 +205,12 @@ class ApiPlayerState {
   final double peakL;
   final double peakR;
   final double lufsMomentary;
+
+  /// Integrated loudness since start/seek — pre-normalisation preview.
+  final double lufsIntegrated;
+
+  /// Running true-peak max since start/seek (linear).
+  final double truePeak;
   final double correlation;
 
   const ApiPlayerState({
@@ -121,6 +219,8 @@ class ApiPlayerState {
     required this.peakL,
     required this.peakR,
     required this.lufsMomentary,
+    required this.lufsIntegrated,
+    required this.truePeak,
     required this.correlation,
   });
 
@@ -131,6 +231,8 @@ class ApiPlayerState {
       peakL.hashCode ^
       peakR.hashCode ^
       lufsMomentary.hashCode ^
+      lufsIntegrated.hashCode ^
+      truePeak.hashCode ^
       correlation.hashCode;
 
   @override
@@ -143,6 +245,8 @@ class ApiPlayerState {
           peakL == other.peakL &&
           peakR == other.peakR &&
           lufsMomentary == other.lufsMomentary &&
+          lufsIntegrated == other.lufsIntegrated &&
+          truePeak == other.truePeak &&
           correlation == other.correlation;
 }
 
@@ -151,12 +255,20 @@ class ApiRenderReport {
   final double gainAppliedDb;
   final double durationSeconds;
   final int sampleRate;
+  final double integratedLufs;
+  final double truePeakDbtp;
+  final double lraLu;
+  final double sourceIntegratedLufs;
 
   const ApiRenderReport({
     required this.peakDbfsBefore,
     required this.gainAppliedDb,
     required this.durationSeconds,
     required this.sampleRate,
+    required this.integratedLufs,
+    required this.truePeakDbtp,
+    required this.lraLu,
+    required this.sourceIntegratedLufs,
   });
 
   @override
@@ -164,7 +276,11 @@ class ApiRenderReport {
       peakDbfsBefore.hashCode ^
       gainAppliedDb.hashCode ^
       durationSeconds.hashCode ^
-      sampleRate.hashCode;
+      sampleRate.hashCode ^
+      integratedLufs.hashCode ^
+      truePeakDbtp.hashCode ^
+      lraLu.hashCode ^
+      sourceIntegratedLufs.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -174,7 +290,11 @@ class ApiRenderReport {
           peakDbfsBefore == other.peakDbfsBefore &&
           gainAppliedDb == other.gainAppliedDb &&
           durationSeconds == other.durationSeconds &&
-          sampleRate == other.sampleRate;
+          sampleRate == other.sampleRate &&
+          integratedLufs == other.integratedLufs &&
+          truePeakDbtp == other.truePeakDbtp &&
+          lraLu == other.lraLu &&
+          sourceIntegratedLufs == other.sourceIntegratedLufs;
 }
 
 class ApiTrack {
@@ -186,6 +306,7 @@ class ApiTrack {
   final bool muted;
   final bool solo;
   final bool inMix;
+  final ApiTrackEq eq;
 
   const ApiTrack({
     required this.index,
@@ -196,6 +317,7 @@ class ApiTrack {
     required this.muted,
     required this.solo,
     required this.inMix,
+    required this.eq,
   });
 
   @override
@@ -207,7 +329,8 @@ class ApiTrack {
       polarityInvert.hashCode ^
       muted.hashCode ^
       solo.hashCode ^
-      inMix.hashCode;
+      inMix.hashCode ^
+      eq.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -221,7 +344,47 @@ class ApiTrack {
           polarityInvert == other.polarityInvert &&
           muted == other.muted &&
           solo == other.solo &&
-          inMix == other.inMix;
+          inMix == other.inMix &&
+          eq == other.eq;
+}
+
+class ApiTrackEq {
+  final bool hpfEnabled;
+  final double hpfFreq;
+  final ApiHpfSlope hpfSlope;
+  final ApiEqBand low;
+  final ApiEqBand mid;
+  final ApiEqBand high;
+
+  const ApiTrackEq({
+    required this.hpfEnabled,
+    required this.hpfFreq,
+    required this.hpfSlope,
+    required this.low,
+    required this.mid,
+    required this.high,
+  });
+
+  @override
+  int get hashCode =>
+      hpfEnabled.hashCode ^
+      hpfFreq.hashCode ^
+      hpfSlope.hashCode ^
+      low.hashCode ^
+      mid.hashCode ^
+      high.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiTrackEq &&
+          runtimeType == other.runtimeType &&
+          hpfEnabled == other.hpfEnabled &&
+          hpfFreq == other.hpfFreq &&
+          hpfSlope == other.hpfSlope &&
+          low == other.low &&
+          mid == other.mid &&
+          high == other.high;
 }
 
 class RecordingInfo {
@@ -233,6 +396,9 @@ class RecordingInfo {
   final double durationSeconds;
   final List<ApiTrack> tracks;
 
+  /// Master settings restored from the session (defaults for a fresh take).
+  final ApiMaster master;
+
   const RecordingInfo({
     required this.path,
     required this.sampleRate,
@@ -241,6 +407,7 @@ class RecordingInfo {
     required this.numFrames,
     required this.durationSeconds,
     required this.tracks,
+    required this.master,
   });
 
   @override
@@ -251,7 +418,8 @@ class RecordingInfo {
       bitsPerSample.hashCode ^
       numFrames.hashCode ^
       durationSeconds.hashCode ^
-      tracks.hashCode;
+      tracks.hashCode ^
+      master.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -264,7 +432,8 @@ class RecordingInfo {
           bitsPerSample == other.bitsPerSample &&
           numFrames == other.numFrames &&
           durationSeconds == other.durationSeconds &&
-          tracks == other.tracks;
+          tracks == other.tracks &&
+          master == other.master;
 }
 
 /// One event of the render stream: progress ticks while rendering, and the

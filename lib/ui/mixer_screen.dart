@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
@@ -180,7 +182,9 @@ class _MixerScreenState extends State<MixerScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    'Exported: raw peak ${report.peakDbfsBefore.toStringAsFixed(1)} dBFS, '
+                    'Exported: ${_fmtLufs(report.integratedLufs)} LUFS-I · '
+                    'TP ${report.truePeakDbtp.toStringAsFixed(1)} dBTP · '
+                    'LRA ${report.lraLu.toStringAsFixed(1)} LU · '
                     'gain ${report.gainAppliedDb >= 0 ? '+' : ''}${report.gainAppliedDb.toStringAsFixed(1)} dB '
                     '→ ${state.lastOutputPath ?? ''}',
                     style: const TextStyle(fontSize: 11, color: Colors.white54),
@@ -213,11 +217,11 @@ class _MixerScreenState extends State<MixerScreen> {
                   StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
                   const SizedBox(width: 12),
                   SizedBox(
-                    width: 110,
+                    width: 170,
                     child: Text(
                       state.playing
-                          ? '${state.lufsMomentary <= -70 ? '−∞' : state.lufsMomentary.toStringAsFixed(1)} LUFS-M\n'
-                              'corr ${state.correlation.toStringAsFixed(2)}'
+                          ? '${_fmtLufs(state.lufsMomentary)} LUFS-M · ${_fmtLufs(state.lufsIntegrated)} LUFS-I\n'
+                              'TP ${state.truePeak > 0 ? (20 * math.log(state.truePeak) / math.ln10).toStringAsFixed(1) : '−∞'} dBTP · corr ${state.correlation.toStringAsFixed(2)}'
                           : '',
                       style: const TextStyle(fontSize: 10, color: Colors.white54),
                     ),
@@ -232,13 +236,62 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Widget _loudnessSelector() {
-    return DropdownButton<LoudnessChoice>(
-      value: state.loudness,
-      underline: const SizedBox.shrink(),
-      items: LoudnessChoice.values
-          .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
-          .toList(),
-      onChanged: (c) => c != null ? state.setLoudness(c) : null,
+    return Tooltip(
+      message: 'Applied on export; preview plays pre-normalisation',
+      child: DropdownButton<LoudnessChoice>(
+        value: state.loudness,
+        underline: const SizedBox.shrink(),
+        items: LoudnessChoice.values
+            .map((c) => DropdownMenuItem(
+                value: c,
+                child: Text(c == LoudnessChoice.lufsCustom &&
+                        state.loudness == LoudnessChoice.lufsCustom
+                    ? '${state.customLufs.toStringAsFixed(1)} LUFS'
+                    : c.label)))
+            .toList(),
+        onChanged: (c) async {
+          if (c == null) return;
+          if (c == LoudnessChoice.lufsCustom) {
+            final v = await _askCustomLufs();
+            if (v == null) return;
+            state.customLufs = v;
+          }
+          state.setLoudness(c);
+        },
+      ),
+    );
+  }
+
+  Future<double?> _askCustomLufs() async {
+    final controller =
+        TextEditingController(text: state.customLufs.toStringAsFixed(1));
+    return showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Custom LUFS target'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType:
+              const TextInputType.numberWithOptions(signed: true, decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Integrated loudness (−30 … −6 LUFS)',
+          ),
+          onSubmitted: (_) => Navigator.of(context)
+              .pop(double.tryParse(controller.text)?.clamp(-30.0, -6.0)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context)
+                .pop(double.tryParse(controller.text)?.clamp(-30.0, -6.0)),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -258,6 +311,8 @@ class _MixerScreenState extends State<MixerScreen> {
     );
   }
 }
+
+String _fmtLufs(double v) => v <= -70 ? '−∞' : v.toStringAsFixed(1);
 
 String _fmtTime(double seconds) {
   final s = seconds.clamp(0, double.infinity);
