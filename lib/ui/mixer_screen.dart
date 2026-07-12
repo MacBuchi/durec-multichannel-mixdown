@@ -245,20 +245,28 @@ class _MixerScreenState extends State<MixerScreen> {
                 for (final slot in ['A', 'B'])
                   Tooltip(
                     message: state.hasSnapshot(slot)
-                        ? 'Recall mix snapshot $slot (long-press to overwrite)'
+                        ? 'Recall mix snapshot $slot — long-press or '
+                            'right-click to overwrite'
                         : 'Store current mix as snapshot $slot',
-                    child: InkWell(
-                      onTap: () => state.recallOrStoreSnapshot(slot),
-                      onLongPress: () => state.storeSnapshot(slot),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: Text(slot,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: state.hasSnapshot(slot)
-                                  ? Colors.lightBlueAccent
-                                  : Colors.white38,
-                            )),
+                    // Manual trigger: the default long-press trigger steals
+                    // the gesture from onLongPress below, making overwrite
+                    // impossible. Hover still shows the tooltip.
+                    triggerMode: TooltipTriggerMode.manual,
+                    child: GestureDetector(
+                      onSecondaryTap: () => _storeSnapshot(slot),
+                      child: InkWell(
+                        onTap: () => _tapSnapshot(slot),
+                        onLongPress: () => _storeSnapshot(slot),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Text(slot,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: state.hasSnapshot(slot)
+                                    ? Colors.lightBlueAccent
+                                    : Colors.white38,
+                              )),
+                        ),
                       ),
                     ),
                   ),
@@ -316,9 +324,13 @@ class _MixerScreenState extends State<MixerScreen> {
               case 'batch':
                 await _batchExport();
               case 'snapA':
-                state.recallOrStoreSnapshot('A');
+                _tapSnapshot('A');
               case 'snapB':
-                state.recallOrStoreSnapshot('B');
+                _tapSnapshot('B');
+              case 'storeA':
+                _storeSnapshot('A');
+              case 'storeB':
+                _storeSnapshot('B');
               case 'link':
                 state.toggleLinkPairs();
             }
@@ -332,16 +344,17 @@ class _MixerScreenState extends State<MixerScreen> {
                 child: Text('Format: ${_formatLabels[state.format]}')),
             if (_batchAvailable)
               const PopupMenuItem(value: 'batch', child: Text('Batch export…')),
-            PopupMenuItem(
-                value: 'snapA',
-                child: Text(state.hasSnapshot('A')
-                    ? 'Recall mix snapshot A'
-                    : 'Store mix snapshot A')),
-            PopupMenuItem(
-                value: 'snapB',
-                child: Text(state.hasSnapshot('B')
-                    ? 'Recall mix snapshot B'
-                    : 'Store mix snapshot B')),
+            for (final slot in ['A', 'B']) ...[
+              PopupMenuItem(
+                  value: 'snap$slot',
+                  child: Text(state.hasSnapshot(slot)
+                      ? 'Recall mix snapshot $slot'
+                      : 'Store mix snapshot $slot')),
+              if (state.hasSnapshot(slot))
+                PopupMenuItem(
+                    value: 'store$slot',
+                    child: Text('Overwrite mix snapshot $slot')),
+            ],
             CheckedPopupMenuItem(
                 value: 'link',
                 checked: state.linkPairs,
@@ -349,6 +362,31 @@ class _MixerScreenState extends State<MixerScreen> {
           ],
         ),
     ];
+  }
+
+  /// Tap: store into an empty slot, recall from a filled one. The absence of
+  /// visible feedback made storing look broken, hence the snack bar.
+  void _tapSnapshot(String slot) {
+    final existed = state.hasSnapshot(slot);
+    state.recallOrStoreSnapshot(slot);
+    _snack(existed ? 'Mix snapshot $slot recalled' : 'Mix snapshot $slot stored');
+  }
+
+  /// Overwrite unconditionally (long-press / right-click / menu entry).
+  void _storeSnapshot(String slot) {
+    state.storeSnapshot(slot);
+    _snack('Mix snapshot $slot stored');
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        width: 280,
+      ));
   }
 
   Future<void> _pickLoudnessDialog() async {
