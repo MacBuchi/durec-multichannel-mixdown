@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import '../state/mixer_state.dart';
@@ -35,6 +37,15 @@ class _MixerScreenState extends State<MixerScreen> {
       }
       return;
     }
+    if (IosFiles.isAvailable) {
+      // iOS: picked in place under a session-long security scope — the
+      // engine then reads the file by path, again without copying.
+      final path = await IosFiles.pickWav();
+      if (path != null) {
+        await state.open(path);
+      }
+      return;
+    }
     const group = XTypeGroup(label: 'WAV recordings', extensions: ['wav', 'WAV']);
     final file = await openFile(acceptedTypeGroups: [group]);
     if (file != null) {
@@ -53,6 +64,22 @@ class _MixerScreenState extends State<MixerScreen> {
       final uri = await Saf.createDocument(state.suggestedName(), mime);
       if (uri != null) {
         await state.export(uri);
+      }
+      return;
+    }
+    if (IosFiles.isAvailable) {
+      // iOS: render into tmp, then let the export picker move the finished
+      // file wherever the user chooses (Files, iCloud, USB drive).
+      final tempPath = '${Directory.systemTemp.path}/${state.suggestedName()}';
+      await state.export(tempPath);
+      if (state.error == null) {
+        final dest = await IosFiles.exportMove(tempPath);
+        if (dest == null) {
+          // Cancelled: don't leave a multi-GB orphan in tmp.
+          try {
+            File(tempPath).deleteSync();
+          } catch (_) {}
+        }
       }
       return;
     }
