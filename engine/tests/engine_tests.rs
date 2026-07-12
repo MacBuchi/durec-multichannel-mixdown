@@ -1213,6 +1213,29 @@ fn session_roundtrip_and_merge() {
 }
 
 #[test]
+fn fresh_session_excludes_monitor_feeds() {
+    let info: Vec<TrackInfo> = [
+        "Vocals",
+        "In Ear 2 R",
+        "Phones L",
+        "Bass_Out", // console stem — stays in
+        "Line Out 1",
+        "Talkback",
+        "Kick",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, n)| TrackInfo {
+        index: i as u32 + 1,
+        name: (*n).into(),
+    })
+    .collect();
+    let session = Session::from_track_info(&info);
+    let in_mix: Vec<bool> = session.tracks.iter().map(|t| t.in_mix).collect();
+    assert_eq!(in_mix, vec![true, false, false, true, false, false, true]);
+}
+
+#[test]
 fn session_legacy_sibling_path_derivation() {
     let p = Session::legacy_sibling_path(std::path::Path::new("/x/Take 01.wav"));
     assert_eq!(p, std::path::PathBuf::from("/x/Take 01.durecmix.json"));

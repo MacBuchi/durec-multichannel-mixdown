@@ -117,6 +117,17 @@ class _MixerScreenState extends State<MixerScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
+              if (rec != null)
+                IconButton(
+                  tooltip: 'Link stereo pairs (·L/·R): mirrored pans, shared '
+                      'gain/mute/solo/EQ',
+                  onPressed: state.toggleLinkPairs,
+                  icon: Icon(Icons.link,
+                      size: 20,
+                      color: state.linkPairs
+                          ? Colors.lightBlueAccent
+                          : Colors.white38),
+                ),
               IconButton(
                 tooltip: 'Open multichannel WAV',
                 onPressed: _openFile,

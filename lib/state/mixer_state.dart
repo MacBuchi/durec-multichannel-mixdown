@@ -238,10 +238,61 @@ class MixerState extends ChangeNotifier {
 
   // ── track parameter changes ───────────────────────────────────────────────
 
+  /// Mirror changes across " L"/" R" stereo pairs (iXML naming convention);
+  /// pans mirror inverted. Toggleable from the app bar.
+  bool linkPairs = true;
+
+  static String? _pairBase(String name) =>
+      name.endsWith(' L') || name.endsWith(' R')
+          ? name.substring(0, name.length - 2)
+          : null;
+
+  TrackUi? _pairPartner(TrackUi t) {
+    final base = _pairBase(t.name);
+    if (base == null) return null;
+    final other = t.name.endsWith(' L') ? '$base R' : '$base L';
+    for (final candidate in tracks) {
+      if (candidate.name == other) return candidate;
+    }
+    return null;
+  }
+
+  void _syncPair(TrackUi from) {
+    final partner = _pairPartner(from);
+    if (partner == null) return;
+    partner.gainDb = from.gainDb;
+    partner.pan = -from.pan; // mirrored
+    partner.muted = from.muted;
+    partner.solo = from.solo;
+    partner.inMix = from.inMix;
+    partner.polarityInvert = from.polarityInvert;
+    partner.eq
+      ..hpfEnabled = from.eq.hpfEnabled
+      ..hpfFreq = from.eq.hpfFreq
+      ..hpfSlope = from.eq.hpfSlope;
+    for (final (a, b) in [
+      (partner.eq.low, from.eq.low),
+      (partner.eq.mid, from.eq.mid),
+      (partner.eq.high, from.eq.high),
+    ]) {
+      a
+        ..enabled = b.enabled
+        ..freq = b.freq
+        ..gainDb = b.gainDb
+        ..q = b.q;
+    }
+  }
+
   void updateTrack(TrackUi track, void Function(TrackUi) change) {
     change(track);
+    if (linkPairs) _syncPair(track);
     _pushLiveParams();
     _scheduleSave();
+    notifyListeners();
+  }
+
+  void toggleLinkPairs() {
+    linkPairs = !linkPairs;
     notifyListeners();
   }
 
