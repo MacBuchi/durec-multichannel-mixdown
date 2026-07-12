@@ -201,8 +201,13 @@ class _MixerScreenState extends State<MixerScreen> {
     );
   }
 
+  /// Batch export needs a directory picker, which file_selector only
+  /// implements on desktop; phones export one file at a time.
+  bool get _batchAvailable => !Platform.isAndroid && !Platform.isIOS;
+
   @override
   Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 640;
     return ListenableBuilder(
       listenable: state,
       builder: (context, _) {
@@ -213,7 +218,7 @@ class _MixerScreenState extends State<MixerScreen> {
               rec == null ? 'DurecMix' : (state.displayName ?? rec.path.split('/').last),
               style: const TextStyle(fontSize: 16),
             ),
-            actions: [
+            actions: narrow ? _narrowActions(rec) : [
               if (rec != null) ...[
                 _loudnessSelector(),
                 const SizedBox(width: 8),
@@ -227,7 +232,7 @@ class _MixerScreenState extends State<MixerScreen> {
                           '${(state.renderProgress * 100).round()} %'
                       : 'Export'),
                 ),
-                if (!Saf.isAvailable)
+                if (_batchAvailable)
                   IconButton(
                     tooltip: 'Batch export: render several targets/formats '
                         'into one folder',
@@ -281,6 +286,124 @@ class _MixerScreenState extends State<MixerScreen> {
         );
       },
     );
+  }
+
+  /// Phone app bar: Export + open stay visible, everything else moves into
+  /// an overflow menu (the wide bar's selectors don't fit a phone width).
+  List<Widget> _narrowActions(rust.RecordingInfo? rec) {
+    return [
+      if (rec != null)
+        FilledButton(
+          onPressed: state.rendering ? null : _export,
+          child: Text(state.rendering
+              ? '${state.batchRunning ? '${state.batchCurrent}/${state.batchTotal} · ' : ''}'
+                  '${(state.renderProgress * 100).round()} %'
+              : 'Export'),
+        ),
+      IconButton(
+        tooltip: 'Open multichannel WAV',
+        onPressed: _openFile,
+        icon: const Icon(Icons.folder_open),
+      ),
+      if (rec != null)
+        PopupMenuButton<String>(
+          onSelected: (v) async {
+            switch (v) {
+              case 'loudness':
+                await _pickLoudnessDialog();
+              case 'format':
+                await _pickFormatDialog();
+              case 'batch':
+                await _batchExport();
+              case 'snapA':
+                state.recallOrStoreSnapshot('A');
+              case 'snapB':
+                state.recallOrStoreSnapshot('B');
+              case 'link':
+                state.toggleLinkPairs();
+            }
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem(
+                value: 'loudness',
+                child: Text('Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}')),
+            PopupMenuItem(
+                value: 'format',
+                child: Text('Format: ${_formatLabels[state.format]}')),
+            if (_batchAvailable)
+              const PopupMenuItem(value: 'batch', child: Text('Batch export…')),
+            PopupMenuItem(
+                value: 'snapA',
+                child: Text(state.hasSnapshot('A')
+                    ? 'Recall mix snapshot A'
+                    : 'Store mix snapshot A')),
+            PopupMenuItem(
+                value: 'snapB',
+                child: Text(state.hasSnapshot('B')
+                    ? 'Recall mix snapshot B'
+                    : 'Store mix snapshot B')),
+            CheckedPopupMenuItem(
+                value: 'link',
+                checked: state.linkPairs,
+                child: const Text('Link stereo pairs')),
+          ],
+        ),
+    ];
+  }
+
+  Future<void> _pickLoudnessDialog() async {
+    final choice = await showDialog<LoudnessChoice>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Loudness target'),
+        children: [
+          for (final c in LoudnessChoice.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(c),
+              child: Text(
+                c == LoudnessChoice.lufsCustom &&
+                        state.loudness == LoudnessChoice.lufsCustom
+                    ? '${state.customLufs.toStringAsFixed(1)} LUFS'
+                    : c.label,
+                style: TextStyle(
+                  fontWeight:
+                      c == state.loudness ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice == LoudnessChoice.lufsCustom) {
+      final v = await _askCustomLufs();
+      if (v == null) return;
+      state.customLufs = v;
+    }
+    state.setLoudness(choice);
+  }
+
+  Future<void> _pickFormatDialog() async {
+    final choice = await showDialog<rust.ApiFormat>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Export format'),
+        children: [
+          for (final f in rust.ApiFormat.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(f),
+              child: Text(
+                _formatLabels[f]!,
+                style: TextStyle(
+                  fontWeight:
+                      f == state.format ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (choice != null) state.setFormat(choice);
   }
 
   Widget _emptyView() {
@@ -387,71 +510,94 @@ class _MixerScreenState extends State<MixerScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              Row(
-                children: [
-                  IconButton.filled(
-                    onPressed: state.togglePlay,
-                    icon: Icon(state.playing ? Icons.stop : Icons.play_arrow),
+              // Phones get the meters on their own line; the single wide row
+              // otherwise overflows and squeezes the seek slider unusably.
+              if (MediaQuery.sizeOf(context).width < 640) ...[
+                Row(children: _transportControls(rec)),
+                if (state.playing)
+                  Row(
+                    children: [
+                      StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
+                      const SizedBox(width: 12),
+                      Expanded(child: _meterText(oneLine: true)),
+                    ],
                   ),
-                  IconButton(
-                    tooltip: 'Set trim-in at playhead (long-press to clear)',
-                    onPressed: () => state.setTrimStart(state.positionSeconds),
-                    icon: GestureDetector(
-                      onLongPress: () => state.setTrimStart(null),
-                      child: Icon(Icons.first_page,
-                          size: 18,
-                          color: state.trimStartSeconds != null
-                              ? Colors.lightBlueAccent
-                              : Colors.white38),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Set trim-out at playhead (long-press to clear)',
-                    onPressed: () => state.setTrimEnd(state.positionSeconds),
-                    icon: GestureDetector(
-                      onLongPress: () => state.setTrimEnd(null),
-                      child: Icon(Icons.last_page,
-                          size: 18,
-                          color: state.trimEndSeconds != null
-                              ? Colors.lightBlueAccent
-                              : Colors.white38),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(_fmtTime(state.positionSeconds),
-                      style: const TextStyle(
-                          fontFeatures: [FontFeature.tabularFigures()])),
-                  Expanded(
-                    child: Slider(
-                      value: state.positionSeconds
-                          .clamp(0, rec.durationSeconds)
-                          .toDouble(),
-                      max: rec.durationSeconds,
-                      onChanged: state.seek,
-                    ),
-                  ),
-                  Text(_fmtTime(rec.durationSeconds),
-                      style: const TextStyle(
-                          fontFeatures: [FontFeature.tabularFigures()])),
-                  const SizedBox(width: 16),
-                  StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 170,
-                    child: Text(
-                      state.playing
-                          ? '${_fmtLufs(state.lufsMomentary)} LUFS-M · ${_fmtLufs(state.lufsIntegrated)} LUFS-I\n'
-                              'TP ${state.truePeak > 0 ? (20 * math.log(state.truePeak) / math.ln10).toStringAsFixed(1) : '−∞'} dBTP · corr ${state.correlation.toStringAsFixed(2)}'
-                          : '',
-                      style: const TextStyle(fontSize: 10, color: Colors.white54),
-                    ),
-                  ),
-                ],
-              ),
+              ] else
+                Row(
+                  children: [
+                    ..._transportControls(rec),
+                    const SizedBox(width: 16),
+                    StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 170, child: _meterText()),
+                  ],
+                ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  List<Widget> _transportControls(rust.RecordingInfo rec) {
+    return [
+      IconButton.filled(
+        onPressed: state.togglePlay,
+        icon: Icon(state.playing ? Icons.stop : Icons.play_arrow),
+      ),
+      IconButton(
+        tooltip: 'Set trim-in at playhead (long-press to clear)',
+        onPressed: () => state.setTrimStart(state.positionSeconds),
+        icon: GestureDetector(
+          onLongPress: () => state.setTrimStart(null),
+          child: Icon(Icons.first_page,
+              size: 18,
+              color: state.trimStartSeconds != null
+                  ? Colors.lightBlueAccent
+                  : Colors.white38),
+        ),
+      ),
+      IconButton(
+        tooltip: 'Set trim-out at playhead (long-press to clear)',
+        onPressed: () => state.setTrimEnd(state.positionSeconds),
+        icon: GestureDetector(
+          onLongPress: () => state.setTrimEnd(null),
+          child: Icon(Icons.last_page,
+              size: 18,
+              color: state.trimEndSeconds != null
+                  ? Colors.lightBlueAccent
+                  : Colors.white38),
+        ),
+      ),
+      const SizedBox(width: 4),
+      Text(_fmtTime(state.positionSeconds),
+          style:
+              const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+      Expanded(
+        child: Slider(
+          value:
+              state.positionSeconds.clamp(0, rec.durationSeconds).toDouble(),
+          max: rec.durationSeconds,
+          onChanged: state.seek,
+        ),
+      ),
+      Text(_fmtTime(rec.durationSeconds),
+          style:
+              const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+    ];
+  }
+
+  Widget _meterText({bool oneLine = false}) {
+    final tp = state.truePeak > 0
+        ? (20 * math.log(state.truePeak) / math.ln10).toStringAsFixed(1)
+        : '−∞';
+    final separator = oneLine ? ' · ' : '\n';
+    return Text(
+      state.playing
+          ? '${_fmtLufs(state.lufsMomentary)} LUFS-M · ${_fmtLufs(state.lufsIntegrated)} LUFS-I$separator'
+              'TP $tp dBTP · corr ${state.correlation.toStringAsFixed(2)}'
+          : '',
+      style: const TextStyle(fontSize: 10, color: Colors.white54),
     );
   }
 

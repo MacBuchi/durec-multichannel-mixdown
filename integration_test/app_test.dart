@@ -152,6 +152,16 @@ void main() {
     expect(state.tracks[0].eq.hpfEnabled, isTrue);
     expect(state.loudness, LoudnessChoice.lufsCustom);
     expect(state.customLufs, -17.5);
+
+    // Phone layout: a narrow window collapses the app-bar selectors into
+    // the overflow menu (Export stays a direct button).
+    tester.view.physicalSize = const Size(480, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuButton<String>), findsOneWidget);
+    expect(find.byType(DropdownButton<LoudnessChoice>), findsNothing);
+    expect(find.text('Export'), findsOneWidget);
   });
 }
 
