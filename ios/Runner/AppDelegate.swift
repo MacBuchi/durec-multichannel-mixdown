@@ -52,6 +52,16 @@ class DocumentFiles: NSObject, UIDocumentPickerDelegate {
         return
       }
       present(mode: .export, urls: [URL(fileURLWithPath: path)], result: result)
+    case "beginBackgroundTask":
+      // Extra runtime so a render survives the app being backgrounded;
+      // iOS decides how much (typically ~30 s, more while on charge).
+      let id = UIApplication.shared.beginBackgroundTask(withName: "export", expirationHandler: nil)
+      result(Int(id.rawValue))
+    case "endBackgroundTask":
+      if let args = call.arguments as? [String: Any], let raw = args["id"] as? Int {
+        UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: raw))
+      }
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }

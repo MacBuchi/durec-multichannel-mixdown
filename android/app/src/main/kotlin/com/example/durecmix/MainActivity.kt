@@ -64,6 +64,32 @@ class MainActivity : FlutterActivity() {
                             result.error("open_failed", e.message, null)
                         }
                     }
+                    // Foreground service around a render so Android keeps the
+                    // process alive when the app is backgrounded mid-export.
+                    "exportStarted", "exportProgress" -> {
+                        val intent = Intent(this, ExportService::class.java).apply {
+                            action = if (call.method == "exportStarted") {
+                                ExportService.ACTION_START
+                            } else {
+                                ExportService.ACTION_UPDATE
+                            }
+                            putExtra(
+                                ExportService.EXTRA_PROGRESS,
+                                call.argument<Int>("progress") ?: 0,
+                            )
+                            putExtra(ExportService.EXTRA_NAME, call.argument<String>("name"))
+                        }
+                        startForegroundService(intent)
+                        result.success(null)
+                    }
+                    "exportStopped" -> {
+                        startService(
+                            Intent(this, ExportService::class.java).apply {
+                                action = ExportService.ACTION_STOP
+                            },
+                        )
+                        result.success(null)
+                    }
                     "displayName" -> {
                         var name: String? = null
                         try {

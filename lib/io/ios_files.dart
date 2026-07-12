@@ -19,4 +19,12 @@ class IosFiles {
   /// Returns the destination path, or null if the user cancelled.
   static Future<String?> exportMove(String tempPath) =>
       _channel.invokeMethod<String>('exportMove', {'path': tempPath});
+
+  /// Ask iOS for extra background runtime while a render finishes
+  /// (~30 s–minutes at the system's discretion). Returns a task id.
+  static Future<int?> beginBackgroundTask() =>
+      _channel.invokeMethod<int>('beginBackgroundTask');
+
+  static Future<void> endBackgroundTask(int id) =>
+      _channel.invokeMethod('endBackgroundTask', {'id': id});
 }

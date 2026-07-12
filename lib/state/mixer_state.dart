@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'session_paths.dart';
@@ -557,10 +558,18 @@ class MixerState extends ChangeNotifier {
     lastReport = null;
     error = null;
     notifyListeners();
+    // Keep the render alive if the app is backgrounded mid-export: Android
+    // gets a foreground service with a progress notification, iOS a
+    // background-task grant. Desktop needs neither.
+    final exportName = displayName ?? outTarget.split('/').last;
+    int? iosBgTask;
     try {
+      if (Saf.isAvailable) await Saf.exportStarted(exportName);
+      if (IosFiles.isAvailable) iosBgTask = await IosFiles.beginBackgroundTask();
       final outputFd = Saf.isContentUri(outTarget)
           ? await Saf.openFd(outTarget, mode: 'rwt')
           : null;
+      var lastPct = -1;
       await for (final ev in rust.renderMix(
         wavPath: rec.path,
         outPath: outTarget,
@@ -570,6 +579,13 @@ class MixerState extends ChangeNotifier {
         outputFd: outputFd,
       )) {
         renderProgress = ev.progress;
+        if (Saf.isAvailable) {
+          final pct = (ev.progress * 100).round();
+          if (pct != lastPct) {
+            lastPct = pct;
+            unawaited(Saf.exportProgress(exportName, pct));
+          }
+        }
         if (ev.report != null) {
           lastReport = ev.report;
           lastOutputPath = outTarget;
@@ -579,6 +595,9 @@ class MixerState extends ChangeNotifier {
       await saveSession();
     } catch (e) {
       error = e.toString();
+    } finally {
+      if (Saf.isAvailable) unawaited(Saf.exportStopped());
+      if (iosBgTask != null) unawaited(IosFiles.endBackgroundTask(iosBgTask));
     }
     rendering = false;
     notifyListeners();
