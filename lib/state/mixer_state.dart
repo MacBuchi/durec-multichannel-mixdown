@@ -296,6 +296,38 @@ class MixerState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── A/B mix snapshots ─────────────────────────────────────────────────────
+
+  final Map<String, _MixSnapshot> _snapshots = {};
+
+  bool hasSnapshot(String slot) => _snapshots.containsKey(slot);
+
+  void storeSnapshot(String slot) {
+    _snapshots[slot] = _MixSnapshot(
+      tracks: tracks.map((t) => t.toApi()).toList(),
+      loudness: loudness,
+      customLufs: customLufs,
+      format: format,
+    );
+    notifyListeners();
+  }
+
+  /// Recall `slot` if stored; otherwise store the current mix into it.
+  void recallOrStoreSnapshot(String slot) {
+    final snap = _snapshots[slot];
+    if (snap == null) {
+      storeSnapshot(slot);
+      return;
+    }
+    tracks = snap.tracks.map(TrackUi.fromApi).toList();
+    loudness = snap.loudness;
+    customLufs = snap.customLufs;
+    format = snap.format;
+    _pushLiveParams();
+    _scheduleSave();
+    notifyListeners();
+  }
+
   void toggleSolo(TrackUi t) => updateTrack(t, (t) => t.solo = !t.solo);
   void toggleMute(TrackUi t) => updateTrack(t, (t) => t.muted = !t.muted);
   void togglePolarity(TrackUi t) =>
@@ -525,4 +557,19 @@ class MixerState extends ChangeNotifier {
     if (playing) rust.playerStop();
     super.dispose();
   }
+}
+
+/// Immutable copy of the full mix for A/B comparison.
+class _MixSnapshot {
+  _MixSnapshot({
+    required this.tracks,
+    required this.loudness,
+    required this.customLufs,
+    required this.format,
+  });
+
+  final List<rust.ApiTrack> tracks;
+  final LoudnessChoice loudness;
+  final double customLufs;
+  final rust.ApiFormat format;
 }
