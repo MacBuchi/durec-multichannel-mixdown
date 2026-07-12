@@ -28,4 +28,17 @@ class Saf {
 
   static Future<String?> displayName(String uri) =>
       _channel.invokeMethod<String>('displayName', {'uri': uri});
+
+  // ── export foreground service ─────────────────────────────────────────────
+  // Renders take minutes on a phone; the service keeps the process alive
+  // when the app is backgrounded and mirrors progress as a notification.
+
+  static Future<void> exportStarted(String name) =>
+      _channel.invokeMethod('exportStarted', {'name': name, 'progress': 0});
+
+  static Future<void> exportProgress(String name, int progress) => _channel
+      .invokeMethod('exportProgress', {'name': name, 'progress': progress});
+
+  static Future<void> exportStopped() =>
+      _channel.invokeMethod('exportStopped');
 }

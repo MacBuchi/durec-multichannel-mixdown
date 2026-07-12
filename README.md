@@ -37,23 +37,26 @@ rust_builder/    cargokit glue that builds the Rust crate inside flutter build
 - `rust/` must stay logic-free; it only converts bridge DTOs ↔ engine types.
 - Audio is never fully loaded: the engine streams 64 Ki-frame blocks and renders in two passes (analysis → render).
 
-## Features (v0.5)
+## Features (v0.6)
 
 - **Streaming engine** — WAV/RF64/BW64 (16/24/32-bit PCM, 32/64-float), iXML track names, 64 Ki-frame blocks, two-pass render; multi-GB takes never load into RAM
-- **Mixing** — gain (−60…+6 dB), constant-power pan, polarity ø, solo/mute/in-mix, stereo-pair linking (`· L`/`· R`), monitor feeds auto-excluded on fresh sessions
+- **Mixing** — gain (−60…+6 dB), constant-power pan, polarity ø, solo/mute/in-mix, stereo-pair linking (`· L`/`· R`) with per-pair unlink, monitor feeds auto-excluded on fresh sessions, A/B mix snapshots
 - **Per-track DSP** — HPF (12/24 dB/oct Butterworth) + low shelf / mid peak / high shelf, click-free live tweaking, identical in preview and export
 - **Master** — true-peak lookahead limiter (8× oversampled detection, −1 dBTP), loudness targets −14/−16/−23/custom LUFS or peak −1 dBFS, TPDF dither on 16-bit
 - **Live preview** — cpal playback (~0.2 s latency), peak / LUFS-M / LUFS-I / true-peak / correlation meters, per-channel waveforms
-- **Export** — WAV 16/24/32f, FLAC 16/24 (streamed), MP3 320 (LAME); trim in/out with 80 ms fades; loudness report (LUFS-I · dBTP · LRA · gain); BPM detection; filenames like `Take_16LUFS_143BPM_20260712_183000.flac`
+- **Export** — WAV 16/24/32f, FLAC 16/24 (streamed), MP3 320 (LAME); trim in/out with 80 ms fades; loudness report (LUFS-I · dBTP · LRA · gain); BPM detection; filenames like `Take_16LUFS_143BPM_20260712_183000.flac`; batch queue renders several targets/formats into one folder (desktop)
 - **Sessions** — every mix auto-saves to the app container and restores on reopen
-- **Android** — Storage Access Framework: recordings open via file descriptors, zero copying
+- **Android** — Storage Access Framework: recordings open via file descriptors, zero copying; exports keep running in the background behind a progress notification
+- **iOS** — Files-app import in place (security-scoped, zero copying); exports land wherever Files can reach (iCloud, USB drive)
+- **Phone UI** — compact app bar and transport on narrow screens
 
 Binaries for macOS, Windows and Android are attached to each [GitHub Release](../../releases).
 
 ### Roadmap
 
-- **M4 (rest)** — iOS Files/USB import, phone layout polish, background export
-- **M5 (rest)** — A/B mix snapshots, batch export queue, signed store releases
+- On-device verification of Android/iOS file access (desktop is fully tested; phone builds are CI-verified only)
+- Signed store releases (needs an Apple Developer account)
+- Batch export on phones (SAF directory tree / Files folder access)
 
 ## Development
 
