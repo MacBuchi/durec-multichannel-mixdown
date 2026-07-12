@@ -24,7 +24,9 @@ android {
         applicationId = "com.example.durecmix"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // cpal live playback uses AAudio, which needs API 26+ (libaaudio is
+        // absent from NDK sysroots below that, breaking the Rust link).
+        minSdk = maxOf(26, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

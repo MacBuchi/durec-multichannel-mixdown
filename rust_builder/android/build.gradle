@@ -45,7 +45,9 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 19
+        // cpal live playback uses AAudio, which needs API 26+ (libaaudio is
+        // absent from NDK sysroots below that, breaking the Rust link).
+        minSdkVersion 26
     }
 }
 
