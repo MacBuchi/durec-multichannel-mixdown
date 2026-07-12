@@ -2,6 +2,8 @@ use std::io::Cursor;
 
 use durecmix_engine::chain::{ChainConfig, MixChain};
 use durecmix_engine::dsp::biquad::{Biquad, BiquadCoeffs, BUTTERWORTH_2ND_Q, BUTTERWORTH_4TH_Q};
+use durecmix_engine::dsp::dither::TpdfDither;
+use durecmix_engine::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use durecmix_engine::dsp::{db_to_linear, linear_to_db, pan_gains, GAIN_FLOOR_DB};
 use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
@@ -434,6 +436,138 @@ fn session_v1_json_loads_with_default_eq() {
     assert_eq!(session.tracks[0].gain_db, -3.0);
     assert!(!session.tracks[0].eq.is_active());
     assert_eq!(session.tracks[0].eq.hpf_freq, 80.0);
+}
+
+// ── dsp: limiter ────────────────────────────────────────────────────────────
+
+/// fs/4 sine sampled at 45° phase: every sample is ±(amp/√2), but the
+/// reconstructed waveform peaks at amp — the classic inter-sample peak.
+fn intersample_peak_signal(amp: f64, frames: usize) -> Vec<f64> {
+    let mut v = Vec::with_capacity(frames * 2);
+    for n in 0..frames {
+        let s = amp * (std::f64::consts::TAU * 0.25 * n as f64 + std::f64::consts::FRAC_PI_4).sin();
+        v.push(s);
+        v.push(s);
+    }
+    v
+}
+
+fn measure_true_peak_dbtp(stereo: &[f64], sr: u32) -> f64 {
+    let mut ebu = ebur128::EbuR128::new(2, sr, ebur128::Mode::TRUE_PEAK).expect("ebur128");
+    ebu.add_frames_f64(stereo).unwrap();
+    let tp = ebu.true_peak(0).unwrap().max(ebu.true_peak(1).unwrap());
+    linear_to_db(tp)
+}
+
+#[test]
+fn limiter_holds_true_peak_ceiling_on_intersample_peaks() {
+    let sr = 44_100;
+    // Sample peak −1.9 dBFS but true peak ≈ +1.1 dBTP.
+    let input = intersample_peak_signal(db_to_linear(1.1, -120.0), sr as usize);
+    let mut lim = TruePeakLimiter::new(LimiterParams::default(), sr);
+    let mut out = Vec::new();
+    lim.process(&input, &mut out);
+    lim.flush(&mut out);
+    assert_eq!(out.len(), input.len());
+    let tp = measure_true_peak_dbtp(&out, sr);
+    assert!(tp <= -1.0 + 1e-3, "ceiling violated: {tp} dBTP");
+    assert!(tp >= -1.6, "over-limiting: {tp} dBTP");
+    assert!(lim.max_gain_reduction_db() > 1.5);
+}
+
+#[test]
+fn limiter_is_transparent_below_ceiling() {
+    let sr = 44_100;
+    let frames = sr as usize / 2;
+    let mut input = Vec::with_capacity(frames * 2);
+    for n in 0..frames {
+        let s = 0.5 * (std::f64::consts::TAU * 440.0 * n as f64 / sr as f64).sin();
+        input.push(s);
+        input.push(s * 0.8);
+    }
+    let mut lim = TruePeakLimiter::new(LimiterParams::default(), sr);
+    let mut out = Vec::new();
+    // Odd block sizes exercise the priming/flush bookkeeping.
+    for chunk in input.chunks(2 * 733) {
+        lim.process(chunk, &mut out);
+    }
+    lim.flush(&mut out);
+    assert_eq!(out.len(), input.len());
+    for (i, (a, b)) in input.iter().zip(&out).enumerate() {
+        assert!((a - b).abs() < 1e-9, "sample {i} altered: {a} vs {b}");
+    }
+    assert!(lim.max_gain_reduction_db() < 1e-9);
+}
+
+#[test]
+fn limiter_output_is_sample_aligned_and_length_preserving() {
+    let sr = 44_100;
+    let frames = 10_000usize;
+    let k = 6321usize; // impulse position
+    let mut input = vec![0.0f64; frames * 2];
+    input[2 * k] = 0.5;
+    input[2 * k + 1] = -0.5;
+    let mut lim = TruePeakLimiter::new(LimiterParams::default(), sr);
+    let mut out = Vec::new();
+    for chunk in input.chunks(2 * 997) {
+        lim.process(chunk, &mut out);
+    }
+    lim.flush(&mut out);
+    assert_eq!(out.len(), input.len());
+    let (pos, _) = out
+        .chunks_exact(2)
+        .enumerate()
+        .max_by(|a, b| a.1[0].abs().partial_cmp(&b.1[0].abs()).unwrap())
+        .unwrap();
+    assert_eq!(pos, k, "impulse moved");
+    assert!(out[2 * k] > 0.4 && out[2 * k + 1] < -0.4);
+}
+
+#[test]
+fn limiter_release_recovers() {
+    let sr = 44_100;
+    let params = LimiterParams {
+        release_ms: 50.0,
+        ..LimiterParams::default()
+    };
+    // 100 ms burst at +3 dBTP demand, then 500 ms of −20 dBFS signal.
+    let mut input = intersample_peak_signal(db_to_linear(3.0, -120.0), sr as usize / 10);
+    for n in 0..sr as usize / 2 {
+        let s = 0.1 * (std::f64::consts::TAU * 440.0 * n as f64 / sr as f64).sin();
+        input.push(s);
+        input.push(s);
+    }
+    let mut lim = TruePeakLimiter::new(params, sr);
+    let mut out = Vec::new();
+    lim.process(&input, &mut out);
+    lim.flush(&mut out);
+    // Compare the very tail against the raw input: gain must be back to ~1.
+    let tail_in = &input[input.len() - 2000..];
+    let tail_out = &out[out.len() - 2000..];
+    for (a, b) in tail_in.iter().zip(tail_out) {
+        assert!((a - b).abs() < 1e-3, "release did not recover: {a} vs {b}");
+    }
+}
+
+// ── dsp: dither ─────────────────────────────────────────────────────────────
+
+#[test]
+fn tpdf_dither_statistics() {
+    let mut d = TpdfDither::default();
+    let n = 200_000;
+    let mut sum = 0.0;
+    let mut sum_sq = 0.0;
+    for _ in 0..n {
+        let v = d.next();
+        assert!(v > -1.0 && v < 1.0);
+        sum += v;
+        sum_sq += v * v;
+    }
+    let mean: f64 = sum / n as f64;
+    let var = sum_sq / n as f64 - mean * mean;
+    assert!(mean.abs() < 0.01, "mean {mean}");
+    // Triangular PDF on (−1,1): variance = 1/6.
+    assert!((var - 1.0 / 6.0).abs() < 1.0 / 60.0, "variance {var}");
 }
 
 // ── dsp: gain/pan basics ────────────────────────────────────────────────────

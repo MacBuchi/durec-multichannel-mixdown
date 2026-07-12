@@ -1,6 +1,8 @@
 //! DSP primitives: gain/pan math, biquad filters, limiter, dither.
 
 pub mod biquad;
+pub mod dither;
+pub mod limiter;
 
 /// Faders at or below this dB value are treated as silence.
 pub const GAIN_FLOOR_DB: f64 = -60.0;
