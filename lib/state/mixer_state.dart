@@ -207,6 +207,7 @@ class MixerState extends ChangeNotifier {
       lastReport = null;
       expandedEq.clear();
       unlinkedPairs.clear();
+      batchQueue.clear();
       notifyListeners();
       // Persist immediately so a session migrated from a legacy sibling file
       // lands in the app container even if the user changes nothing.
@@ -377,7 +378,17 @@ class MixerState extends ChangeNotifier {
 
   /// Master settings sent to the engine. Preview and export share the same
   /// limiter/ceiling; loudness gain is export-only (see the engine docs).
-  rust.ApiMaster get master => rust.ApiMaster(
+  rust.ApiMaster get master =>
+      masterFor(loudness: loudness, customLufs: customLufs, format: format);
+
+  /// Master settings for an arbitrary loudness/format combination — the
+  /// current mix (trim, fades, limiter) with only the output target swapped.
+  /// Used by [master] and by batch-export jobs.
+  rust.ApiMaster masterFor({
+    required LoudnessChoice loudness,
+    required double customLufs,
+    required rust.ApiFormat format,
+  }) => rust.ApiMaster(
     loudness: switch (loudness) {
       LoudnessChoice.none =>
           const rust.ApiLoudness(mode: rust.ApiLoudnessMode.none, value: 0),
@@ -536,8 +547,9 @@ class MixerState extends ChangeNotifier {
   // ── export ────────────────────────────────────────────────────────────────
 
   /// `outTarget` is a filesystem path, or a `content://` URI on Android
-  /// (SAF CREATE_DOCUMENT result) written through a raw fd.
-  Future<void> export(String outTarget) async {
+  /// (SAF CREATE_DOCUMENT result) written through a raw fd. `masterOverride`
+  /// lets batch jobs swap the loudness target / format per render.
+  Future<void> export(String outTarget, {rust.ApiMaster? masterOverride}) async {
     final rec = recording;
     if (rec == null || rendering) return;
     rendering = true;
@@ -553,7 +565,7 @@ class MixerState extends ChangeNotifier {
         wavPath: rec.path,
         outPath: outTarget,
         tracks: tracks.map((t) => t.toApi()).toList(),
-        master: master,
+        master: masterOverride ?? master,
         inputFd: _isSaf ? await _inputFd(rec.path) : null,
         outputFd: outputFd,
       )) {
@@ -570,6 +582,88 @@ class MixerState extends ChangeNotifier {
     }
     rendering = false;
     notifyListeners();
+  }
+
+  // ── batch export ──────────────────────────────────────────────────────────
+
+  /// One queued output: the current mix rendered at this loudness/format.
+  /// Starts as a copy of the app-bar selection; editable in the batch dialog.
+  final List<BatchJob> batchQueue = [];
+
+  int batchCurrent = 0; // 1-based job being rendered; 0 = no batch running
+  int batchTotal = 0;
+
+  bool get batchRunning => batchTotal > 0;
+
+  void addBatchJob() {
+    batchQueue.add(
+        BatchJob(loudness: loudness, customLufs: customLufs, format: format));
+    notifyListeners();
+  }
+
+  void removeBatchJob(BatchJob job) {
+    batchQueue.remove(job);
+    notifyListeners();
+  }
+
+  /// Render every queued job into `directory`, sequentially (the engine is
+  /// two-pass and I/O-bound — parallel renders of a multi-GB source would
+  /// just fight over the disk). Stops on the first failing job.
+  Future<void> exportBatch(String directory) async {
+    if (recording == null || rendering || batchQueue.isEmpty) return;
+    batchTotal = batchQueue.length;
+    for (var i = 0; i < batchQueue.length; i++) {
+      batchCurrent = i + 1;
+      notifyListeners();
+      final job = batchQueue[i];
+      final name = suggestedName(
+          loudness: job.loudness, customLufs: job.customLufs, format: job.format);
+      await export('$directory/$name',
+          masterOverride: masterFor(
+              loudness: job.loudness,
+              customLufs: job.customLufs,
+              format: job.format));
+      if (error != null) break;
+    }
+    lastOutputPath = directory;
+    batchCurrent = 0;
+    batchTotal = 0;
+    notifyListeners();
+  }
+
+  /// Suggested output name matching the Python tool's pattern:
+  /// `<take>_<target>_<bpm>BPM_<yyyyMMdd_HHmmss>.<ext>`. Defaults to the
+  /// current app-bar selection; batch jobs pass their own target/format.
+  String suggestedName({
+    LoudnessChoice? loudness,
+    double? customLufs,
+    rust.ApiFormat? format,
+  }) {
+    final l = loudness ?? this.loudness;
+    final cl = customLufs ?? this.customLufs;
+    final f = format ?? this.format;
+    final ext = switch (f) {
+      rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'flac',
+      rust.ApiFormat.mp3 => 'mp3',
+      _ => 'wav',
+    };
+    final base = (displayName ?? recording!.path.split('/').last)
+        .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
+    final target = switch (l) {
+      LoudnessChoice.none => 'raw',
+      LoudnessChoice.peakMinus1 => '1dBFS',
+      LoudnessChoice.lufs14 => '14LUFS',
+      LoudnessChoice.lufs16 => '16LUFS',
+      LoudnessChoice.lufs23 => '23LUFS',
+      LoudnessChoice.lufsCustom =>
+        '${cl.abs().toStringAsFixed(1).replaceAll('.0', '')}LUFS',
+    };
+    final bpmPart = bpm != null ? '_${bpm!.round()}BPM' : '';
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final stamp = '${now.year}${two(now.month)}${two(now.day)}'
+        '_${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    return '${base}_$target${bpmPart}_$stamp.$ext';
   }
 
   void setLoudness(LoudnessChoice c) {
@@ -591,6 +685,20 @@ class MixerState extends ChangeNotifier {
     if (playing) rust.playerStop();
     super.dispose();
   }
+}
+
+/// One batch-export output target; the mix itself always comes from the
+/// current state of the mixer at render time.
+class BatchJob {
+  BatchJob({
+    required this.loudness,
+    required this.customLufs,
+    required this.format,
+  });
+
+  LoudnessChoice loudness;
+  double customLufs;
+  rust.ApiFormat format;
 }
 
 /// Immutable copy of the full mix for A/B comparison.

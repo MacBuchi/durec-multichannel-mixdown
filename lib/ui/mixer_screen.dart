@@ -42,34 +42,6 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
-  /// Suggested file name matching the Python tool's pattern:
-  /// `<take>_<target>_<bpm>BPM_<yyyyMMdd_HHmmss>.<ext>`.
-  String _suggestedName() {
-    final rec = state.recording!;
-    final ext = switch (state.format) {
-      rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'flac',
-      rust.ApiFormat.mp3 => 'mp3',
-      _ => 'wav',
-    };
-    final base = (state.displayName ?? rec.path.split('/').last)
-        .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
-    final target = switch (state.loudness) {
-      LoudnessChoice.none => 'raw',
-      LoudnessChoice.peakMinus1 => '1dBFS',
-      LoudnessChoice.lufs14 => '14LUFS',
-      LoudnessChoice.lufs16 => '16LUFS',
-      LoudnessChoice.lufs23 => '23LUFS',
-      LoudnessChoice.lufsCustom =>
-        '${state.customLufs.abs().toStringAsFixed(1).replaceAll('.0', '')}LUFS',
-    };
-    final bpm = state.bpm != null ? '_${state.bpm!.round()}BPM' : '';
-    final now = DateTime.now();
-    String two(int v) => v.toString().padLeft(2, '0');
-    final stamp = '${now.year}${two(now.month)}${two(now.day)}'
-        '_${two(now.hour)}${two(now.minute)}${two(now.second)}';
-    return '${base}_$target${bpm}_$stamp.$ext';
-  }
-
   Future<void> _export() async {
     if (state.recording == null) return;
     if (Saf.isAvailable) {
@@ -78,16 +50,128 @@ class _MixerScreenState extends State<MixerScreen> {
         rust.ApiFormat.mp3 => 'audio/mpeg',
         _ => 'audio/x-wav',
       };
-      final uri = await Saf.createDocument(_suggestedName(), mime);
+      final uri = await Saf.createDocument(state.suggestedName(), mime);
       if (uri != null) {
         await state.export(uri);
       }
       return;
     }
-    final location = await getSaveLocation(suggestedName: _suggestedName());
+    final location = await getSaveLocation(suggestedName: state.suggestedName());
     if (location != null) {
       await state.export(location.path);
     }
+  }
+
+  /// Queue several loudness/format targets of the current mix, then render
+  /// them one after another into a single folder. Desktop only for now —
+  /// Android would need a SAF directory tree (planned with the phone work).
+  Future<void> _batchExport() async {
+    if (state.recording == null) return;
+    if (state.batchQueue.isEmpty) state.addBatchJob();
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Batch export'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Each job renders the current mix at its own loudness '
+                    'target and format, auto-named into one folder.',
+                    style: TextStyle(fontSize: 12, color: Colors.white54),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                for (final job in List.of(state.batchQueue))
+                  Row(
+                    children: [
+                      Expanded(child: _jobLoudnessDropdown(job, setDialogState)),
+                      const SizedBox(width: 8),
+                      _jobFormatDropdown(job, setDialogState),
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle_outline, size: 18),
+                        onPressed: () =>
+                            setDialogState(() => state.removeBatchJob(job)),
+                      ),
+                    ],
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setDialogState(state.addBatchJob),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add job'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: state.batchQueue.isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(true),
+              child: const Text('Export all…'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (proceed != true || state.batchQueue.isEmpty) return;
+    final directory = await getDirectoryPath();
+    if (directory != null) {
+      await state.exportBatch(directory);
+    }
+  }
+
+  Widget _jobLoudnessDropdown(BatchJob job, StateSetter setDialogState) {
+    return DropdownButton<LoudnessChoice>(
+      value: job.loudness,
+      isExpanded: true,
+      underline: const SizedBox.shrink(),
+      items: LoudnessChoice.values
+          .map((c) => DropdownMenuItem(
+              value: c,
+              child: Text(
+                  c == LoudnessChoice.lufsCustom && job.loudness == c
+                      ? '${job.customLufs.toStringAsFixed(1)} LUFS'
+                      : c.label,
+                  style: const TextStyle(fontSize: 13))))
+          .toList(),
+      onChanged: (c) async {
+        if (c == null) return;
+        if (c == LoudnessChoice.lufsCustom) {
+          final v = await _askCustomLufs();
+          if (v == null) return;
+          job.customLufs = v;
+        }
+        setDialogState(() => job.loudness = c);
+      },
+    );
+  }
+
+  Widget _jobFormatDropdown(BatchJob job, StateSetter setDialogState) {
+    return DropdownButton<rust.ApiFormat>(
+      value: job.format,
+      underline: const SizedBox.shrink(),
+      items: rust.ApiFormat.values
+          .map((f) => DropdownMenuItem(
+              value: f,
+              child:
+                  Text(_formatLabels[f]!, style: const TextStyle(fontSize: 13))))
+          .toList(),
+      onChanged: (f) =>
+          f != null ? setDialogState(() => job.format = f) : null,
+    );
   }
 
   @override
@@ -112,9 +196,17 @@ class _MixerScreenState extends State<MixerScreen> {
                   onPressed: state.rendering ? null : _export,
                   icon: const Icon(Icons.save_alt, size: 18),
                   label: Text(state.rendering
-                      ? '${(state.renderProgress * 100).round()} %'
+                      ? '${state.batchRunning ? '${state.batchCurrent}/${state.batchTotal} · ' : ''}'
+                          '${(state.renderProgress * 100).round()} %'
                       : 'Export'),
                 ),
+                if (!Saf.isAvailable)
+                  IconButton(
+                    tooltip: 'Batch export: render several targets/formats '
+                        'into one folder',
+                    onPressed: state.rendering ? null : _batchExport,
+                    icon: const Icon(Icons.playlist_add_check, size: 20),
+                  ),
                 const SizedBox(width: 8),
               ],
               if (rec != null)
@@ -397,24 +489,25 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Widget _formatSelector() {
-    const labels = {
-      rust.ApiFormat.wav16: 'WAV 16',
-      rust.ApiFormat.wav24: 'WAV 24',
-      rust.ApiFormat.wav32Float: 'WAV 32f',
-      rust.ApiFormat.flac16: 'FLAC 16',
-      rust.ApiFormat.flac24: 'FLAC 24',
-      rust.ApiFormat.mp3: 'MP3 320',
-    };
     return DropdownButton<rust.ApiFormat>(
       value: state.format,
       underline: const SizedBox.shrink(),
       items: rust.ApiFormat.values
-          .map((f) => DropdownMenuItem(value: f, child: Text(labels[f]!)))
+          .map((f) => DropdownMenuItem(value: f, child: Text(_formatLabels[f]!)))
           .toList(),
       onChanged: (f) => f != null ? state.setFormat(f) : null,
     );
   }
 }
+
+const _formatLabels = {
+  rust.ApiFormat.wav16: 'WAV 16',
+  rust.ApiFormat.wav24: 'WAV 24',
+  rust.ApiFormat.wav32Float: 'WAV 32f',
+  rust.ApiFormat.flac16: 'FLAC 16',
+  rust.ApiFormat.flac24: 'FLAC 24',
+  rust.ApiFormat.mp3: 'MP3 320',
+};
 
 String _fmtLufs(double v) => v <= -70 ? '−∞' : v.toStringAsFixed(1);
 
