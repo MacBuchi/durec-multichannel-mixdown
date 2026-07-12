@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon/icon_macos.png" alt="DurecMix logo" width="160">
+</p>
+
 # DurecMix
 
 Cross-platform, fully offline downmixer for multichannel WAV recordings from the **RME DUREC** recorder — the successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer), rebuilt with a Flutter UI and a Rust DSP engine.

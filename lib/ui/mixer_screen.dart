@@ -449,8 +449,8 @@ class _MixerScreenState extends State<MixerScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.graphic_eq, size: 64, color: Colors.white24),
-          const SizedBox(height: 16),
+          Image.asset('assets/icon/logo_mark.png', width: 140),
+          const SizedBox(height: 8),
           Text('Open a DUREC multichannel WAV to start mixing',
               style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
           const SizedBox(height: 16),
