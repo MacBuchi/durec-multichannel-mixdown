@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            build: flutter build macos --release
+            package: ditto -c -k --keepParent build/macos/Build/Products/Release/durecmix.app durecmix-${{ github.ref_name }}-macos.zip
+            artifact: durecmix-${{ github.ref_name }}-macos.zip
+          - name: Windows
+            os: windows-latest
+            build: flutter build windows --release
+            package: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath durecmix-${{ github.ref_name }}-windows.zip
+            artifact: durecmix-${{ github.ref_name }}-windows.zip
+          - name: Android
+            os: ubuntu-latest
+            build: flutter build apk --release
+            package: cp build/app/outputs/flutter-apk/app-release.apk durecmix-${{ github.ref_name }}-android.apk
+            artifact: durecmix-${{ github.ref_name }}-android.apk
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Set up Java (Android)
+        if: matrix.name == 'Android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: flutter pub get
+      - run: ${{ matrix.build }}
+      - run: ${{ matrix.package }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            durecmix-*.zip
+            durecmix-*.apk

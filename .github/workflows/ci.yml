@@ -72,3 +72,6 @@ jobs:
           java-version: "17"
       - run: flutter pub get
       - run: ${{ matrix.build }}
+      - name: Integration test (real engine, headless-driven GUI)
+        if: matrix.name == 'macOS'
+        run: flutter test integration_test -d macos
