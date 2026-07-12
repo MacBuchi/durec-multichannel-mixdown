@@ -113,7 +113,30 @@ class TrackStrip extends StatelessWidget {
             () => state.toggleInMix(track), 'Include in mixdown'),
         _toggleChip('EQ', track.eq.isActive, Colors.lightBlueAccent,
             () => state.toggleEqPanel(track), 'HPF + 3-band EQ'),
+        if (state.linkPairs && state.isPaired(track)) _pairLinkChip(),
       ],
+    );
+  }
+
+  /// Per-pair link toggle, shown only while global pair linking is on.
+  Widget _pairLinkChip() {
+    final linked = state.isPairLinked(track);
+    return Tooltip(
+      message: linked
+          ? 'Unlink this stereo pair (edit L/R independently)'
+          : 'Relink this stereo pair (copies this side to the partner)',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: () => state.togglePairLink(track),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Icon(
+            linked ? Icons.link : Icons.link_off,
+            size: 16,
+            color: linked ? Colors.lightBlueAccent : Colors.white38,
+          ),
+        ),
+      ),
     );
   }
 
