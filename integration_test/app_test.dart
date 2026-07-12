@@ -16,6 +16,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:durecmix/main.dart';
+import 'package:durecmix/src/rust/api/mixer.dart' as rust;
 import 'package:durecmix/state/mixer_state.dart';
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
@@ -126,12 +127,41 @@ void main() {
     expect(report.truePeakDbtp, lessThanOrEqualTo(-1.0 + 0.05));
     expect(find.textContaining('Exported:'), findsOneWidget);
 
+    // Batch export: two jobs (−14 LUFS MP3 + the current −17.5 LUFS WAV)
+    // rendered sequentially into one folder, auto-named per target/format.
+    final batchDir = Directory('${tempDir.path}/batch')..createSync();
+    state.addBatchJob();
+    state.batchQueue[0]
+      ..loudness = LoudnessChoice.lufs14
+      ..format = rust.ApiFormat.mp3;
+    state.addBatchJob(); // copies the current selection: custom LUFS, WAV 24
+    await state.exportBatch(batchDir.path);
+    await tester.pumpAndSettle();
+    expect(state.error, isNull);
+    expect(state.batchRunning, isFalse);
+    final batchFiles = batchDir.listSync().map((f) => f.path).toList();
+    expect(batchFiles, hasLength(2));
+    expect(batchFiles.any((p) => p.endsWith('.mp3') && p.contains('_14LUFS')),
+        isTrue);
+    expect(batchFiles.any((p) => p.endsWith('.wav') && p.contains('_17.5LUFS')),
+        isTrue);
+
     // Reopen: the EQ setting and loudness choice round-trip via the session.
     await state.open(fixturePath);
     await tester.pumpAndSettle();
     expect(state.tracks[0].eq.hpfEnabled, isTrue);
     expect(state.loudness, LoudnessChoice.lufsCustom);
     expect(state.customLufs, -17.5);
+
+    // Phone layout: a narrow window collapses the app-bar selectors into
+    // the overflow menu (Export stays a direct button).
+    tester.view.physicalSize = const Size(480, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuButton<String>), findsOneWidget);
+    expect(find.byType(DropdownButton<LoudnessChoice>), findsNothing);
+    expect(find.text('Export'), findsOneWidget);
   });
 }
 
