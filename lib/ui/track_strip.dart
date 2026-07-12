@@ -248,7 +248,7 @@ class TrackStrip extends StatelessWidget {
           ),
         ),
         SizedBox(
-            width: 44, child: Text('$freqLabel Hz', style: _dim(context))),
+            width: 54, child: Text('$freqLabel Hz', style: _dim(context))),
         if (gainDb != null && onGain != null) ...[
           Expanded(
             child: GestureDetector(
@@ -324,7 +324,7 @@ class TrackStrip extends StatelessWidget {
               ),
             ),
           ),
-          SizedBox(width: 26, child: Text(label, style: _dim(context))),
+          SizedBox(width: 34, child: Text(label, style: _dim(context))),
         ],
       ),
     );

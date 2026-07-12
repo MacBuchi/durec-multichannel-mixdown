@@ -24,6 +24,20 @@ The original Python/customtkinter tool ran on desktop only, loaded entire record
 | Formats | 16-bit WAV, MP3 | **WAV 16/24/32f, FLAC 16/24, MP3 320** |
 | USB-stick import on Android | – | **SAF fd handoff — no copying** |
 
+## Screenshots
+
+![Mixer — per-track fader, pan, polarity/mute/solo/mix toggles, waveforms, stereo-pair linking](docs/screenshots/mixer.png)
+
+| Per-track HPF + 3-band EQ | Batch export queue |
+|---|---|
+| ![EQ panel](docs/screenshots/eq.png) | ![Batch export dialog](docs/screenshots/batch.png) |
+
+<img src="docs/screenshots/phone.png" width="320" alt="Phone layout: compact app bar and two-line track cards"/>
+
+Screenshots are rendered reproducibly from a synthetic fixture:
+`flutter test integration_test -d macos --dart-define=SCREENSHOTS=true`
+(prints `SCREENSHOT_DIR=…`; copy the PNGs into `docs/screenshots/`).
+
 ## Architecture
 
 ```

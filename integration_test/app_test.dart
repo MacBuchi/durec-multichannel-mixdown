@@ -14,6 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:durecmix/main.dart';
 import 'package:durecmix/src/rust/api/mixer.dart' as rust;
@@ -22,8 +23,17 @@ import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
 import 'package:durecmix/ui/track_strip.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+
+/// `flutter test integration_test -d macos --dart-define=SCREENSHOTS=true`
+/// additionally renders the documentation screenshots (docs/screenshots/)
+/// from a richer fixture and prints SCREENSHOT_DIR=… with the output
+/// location. Never set in CI.
+const bool kScreenshots = bool.fromEnvironment('SCREENSHOTS');
+
+final GlobalKey _shotKey = GlobalKey();
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +54,8 @@ void main() {
 
   testWidgets('open → mix → EQ → export against the real engine',
       (tester) async {
-    await tester.pumpWidget(const DurecMixApp());
+    await tester.pumpWidget(
+        RepaintBoundary(key: _shotKey, child: const DurecMixApp()));
     await tester.pumpAndSettle();
     expect(find.text('Open recording'), findsOneWidget);
 
@@ -70,6 +81,28 @@ void main() {
     await tester.tap(find.text('M').first);
     await tester.pump();
     expect(state.tracks[0].muted, isFalse);
+
+    // A/B snapshots: tap stores an empty slot, tap recalls; regression:
+    // long-press must OVERWRITE — the chip's Tooltip used to win the
+    // long-press gesture (its mobile trigger), making overwrite impossible.
+    await tester.tap(find.text('A')); // store (slot empty)
+    await tester.pump();
+    state.updateTrack(state.tracks[0], (t) => t.gainDb = -12.0);
+    await tester.pump();
+    await tester.tap(find.text('A')); // recall
+    await tester.pump();
+    expect(state.tracks[0].gainDb, 0.0);
+    state.updateTrack(state.tracks[0], (t) => t.gainDb = -9.0);
+    await tester.pump();
+    await tester.longPress(find.text('A')); // overwrite with −9 dB
+    await tester.pump();
+    state.updateTrack(state.tracks[0], (t) => t.gainDb = 0.0);
+    await tester.pump();
+    await tester.tap(find.text('A')); // recall must yield the overwritten mix
+    await tester.pump();
+    expect(state.tracks[0].gainDb, -9.0);
+    state.updateTrack(state.tracks[0], (t) => t.gainDb = 0.0);
+    await tester.pump(const Duration(seconds: 3)); // let the snack bar retire
 
     // Stereo-pair linking: a gain edit on "Keys L" mirrors onto "Keys R"…
     state.updateTrack(state.tracks[2], (t) => t.gainDb = -6.0);
@@ -162,29 +195,121 @@ void main() {
     expect(find.byType(PopupMenuButton<String>), findsOneWidget);
     expect(find.byType(DropdownButton<LoudnessChoice>), findsNothing);
     expect(find.text('Export'), findsOneWidget);
+
+    if (kScreenshots) {
+      await _captureDocScreenshots(tester, state, tempDir);
+    }
   });
 }
 
-/// 4-channel, 16-bit, 44.1 kHz, 2 s WAV with a DUREC-style iXML track list —
-/// the same shape as `engine/examples/gen_fixture.rs`, small enough to build
-/// inline (the app sandbox cannot read files the test didn't create itself).
-Uint8List _buildFixtureWav() {
-  const sampleRate = 44100;
-  const seconds = 2;
-  const channels = 4;
-  const tracks = [
-    ('Vocals', 440.0, 0.25),
-    ('Kick', 55.0, 0.5),
-    ('Keys L', 330.0, 0.125),
-    ('Keys R', 331.0, 0.125),
+// ── documentation screenshots (only with --dart-define=SCREENSHOTS=true) ────
+
+/// Renders README screenshots from a musical-looking 8-track fixture:
+/// wide mixer, open EQ panel, batch-export dialog, phone layout. Captured
+/// through the root RepaintBoundary — real renderer, no OS interaction.
+Future<void> _captureDocScreenshots(
+    WidgetTester tester, MixerState state, Directory tempDir) async {
+  final shotsDir = Directory.systemTemp.createTempSync('durecmix_shots');
+
+  Future<void> waitForAnalysis() async {
+    while (state.analyzing) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> shot(String name) async {
+    await tester.pumpAndSettle();
+    final boundary =
+        tester.renderObject<RenderRepaintBoundary>(find.byKey(_shotKey));
+    late final Uint8List bytes;
+    await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 2);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      bytes = data!.buffer.asUint8List();
+    });
+    File('${shotsDir.path}/$name.png').writeAsBytesSync(bytes);
+  }
+
+  const docTracks = [
+    ('Kick', 55.0, 0.9, 2.0),
+    ('Snare', 220.0, 0.55, 1.0),
+    ('Bass', 82.0, 0.7, 0.5),
+    ('Gtr L', 330.0, 0.4, 0.25),
+    ('Gtr R', 333.0, 0.4, 0.25),
+    ('Keys L', 523.0, 0.35, 0.125),
+    ('Keys R', 527.0, 0.35, 0.125),
+    ('Vocals', 440.0, 0.5, 0.4),
   ];
+  final docsWav = '${tempDir.path}/UFX33_01_Demo.wav';
+  File(docsWav)
+      .writeAsBytesSync(_buildFixtureWav(tracks: docTracks, seconds: 8));
+
+  // Wide desktop mixer.
+  tester.view.physicalSize = const Size(1440, 900);
+  tester.view.devicePixelRatio = 1.0;
+  await state.open(docsWav);
+  await waitForAnalysis();
+  await shot('mixer');
+
+  // EQ panel expanded on the vocal track.
+  state.toggleEqPanel(state.tracks[7]);
+  state.updateTrack(state.tracks[7], (t) => t.eq.hpfEnabled = true);
+  await tester.pumpAndSettle();
+  await shot('eq');
+  state.toggleEqPanel(state.tracks[7]);
+  await tester.pumpAndSettle();
+
+  // Batch-export dialog with two differing jobs queued.
+  state.addBatchJob();
+  state.addBatchJob();
+  state.batchQueue[1]
+    ..loudness = LoudnessChoice.lufs14
+    ..format = rust.ApiFormat.mp3;
+  await tester.tap(find.byIcon(Icons.playlist_add_check));
+  await tester.pumpAndSettle();
+  await shot('batch');
+  await tester.tap(find.text('Cancel'));
+  await tester.pumpAndSettle();
+
+  // Phone layout.
+  tester.view.physicalSize = const Size(420, 860);
+  await tester.pumpAndSettle();
+  await shot('phone');
+  tester.view.reset();
+  await tester.pumpAndSettle();
+
+  // ignore: avoid_print
+  print('SCREENSHOT_DIR=${shotsDir.path}');
+}
+
+/// 16-bit 44.1 kHz WAV with a DUREC-style iXML track list — the same shape
+/// as `engine/examples/gen_fixture.rs`, small enough to build inline (the
+/// app sandbox cannot read files the test didn't create itself). Each track
+/// is `(name, freq, amp, pulseHz)`; a non-zero pulse rate applies a decaying
+/// envelope so waveforms look like played notes (used for doc screenshots).
+Uint8List _buildFixtureWav({
+  List<(String, double, double, double)> tracks = const [
+    ('Vocals', 440.0, 0.25, 0.0),
+    ('Kick', 55.0, 0.5, 0.0),
+    ('Keys L', 330.0, 0.125, 0.0),
+    ('Keys R', 331.0, 0.125, 0.0),
+  ],
+  int seconds = 2,
+}) {
+  const sampleRate = 44100;
+  final channels = tracks.length;
 
   final frames = sampleRate * seconds;
   final data = BytesBuilder();
   for (var n = 0; n < frames; n++) {
     final t = n / sampleRate;
-    for (final (_, freq, amp) in tracks) {
-      final v = (amp * math.sin(2 * math.pi * freq * t) * 32767).round();
+    for (final (_, freq, amp, pulseHz) in tracks) {
+      final envelope = pulseHz == 0.0
+          ? 1.0
+          : math.exp(-5.0 * ((t * pulseHz) - (t * pulseHz).floorToDouble()));
+      final v =
+          (amp * envelope * math.sin(2 * math.pi * freq * t) * 32767).round();
       data.add([v & 0xFF, (v >> 8) & 0xFF]);
     }
   }
@@ -208,7 +333,7 @@ Uint8List _buildFixtureWav() {
     return b.toBytes();
   }
 
-  const blockAlign = channels * 2;
+  final blockAlign = channels * 2;
   final fmt = BytesBuilder()
     ..add(_u16(1)) // PCM
     ..add(_u16(channels))
