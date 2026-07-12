@@ -118,6 +118,27 @@ class _MixerScreenState extends State<MixerScreen> {
                 const SizedBox(width: 8),
               ],
               if (rec != null)
+                for (final slot in ['A', 'B'])
+                  Tooltip(
+                    message: state.hasSnapshot(slot)
+                        ? 'Recall mix snapshot $slot (long-press to overwrite)'
+                        : 'Store current mix as snapshot $slot',
+                    child: InkWell(
+                      onTap: () => state.recallOrStoreSnapshot(slot),
+                      onLongPress: () => state.storeSnapshot(slot),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Text(slot,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: state.hasSnapshot(slot)
+                                  ? Colors.lightBlueAccent
+                                  : Colors.white38,
+                            )),
+                      ),
+                    ),
+                  ),
+              if (rec != null)
                 IconButton(
                   tooltip: 'Link stereo pairs (·L/·R): mirrored pans, shared '
                       'gain/mute/solo/EQ',
