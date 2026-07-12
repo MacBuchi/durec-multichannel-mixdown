@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../src/rust/api/mixer.dart' as rust;
+import 'session_paths.dart';
 
 /// Mutable UI-side copy of one track's mix parameters.
 class TrackUi {
@@ -83,6 +84,7 @@ class MixerState extends ChangeNotifier {
 
   Timer? _pollTimer;
   Timer? _saveDebounce;
+  String? _sessionPath;
 
   double get durationSeconds => recording?.durationSeconds ?? 0;
   int get sampleRate => recording?.sampleRate ?? 48000;
@@ -97,11 +99,15 @@ class MixerState extends ChangeNotifier {
     error = null;
     waveforms = null;
     try {
-      recording = await rust.loadRecording(path: path);
+      _sessionPath = await sessionPathFor(path);
+      recording = await rust.loadRecording(path: path, sessionPath: _sessionPath!);
       tracks = recording!.tracks.map(TrackUi.fromApi).toList();
       positionSeconds = 0;
       lastReport = null;
       notifyListeners();
+      // Persist immediately so a session migrated from a legacy sibling file
+      // lands in the app container even if the user changes nothing.
+      await saveSession();
       _analyze(path);
     } catch (e) {
       error = e.toString();
@@ -148,16 +154,19 @@ class MixerState extends ChangeNotifier {
   }
 
   Future<void> saveSession() async {
-    final rec = recording;
-    if (rec == null) return;
+    final sessionPath = _sessionPath;
+    if (recording == null || sessionPath == null) return;
     try {
       await rust.saveSession(
-        wavPath: rec.path,
+        sessionPath: sessionPath,
         tracks: tracks.map((t) => t.toApi()).toList(),
         peakDbfs: loudness.peakDbfs,
         format: format,
       );
-    } catch (_) {}
+    } catch (e) {
+      error = 'Session save failed: $e';
+      notifyListeners();
+    }
   }
 
   // ── playback ──────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ rust_builder/    cargokit glue (generated, don't touch)
 2. **`rust/` must stay logic-free** — it only converts bridge DTOs ↔ engine types.
 3. **Audio is never fully loaded into RAM** — stream in blocks (`BLOCK_FRAMES`), render in two passes. DUREC files are multi-GB; this must work on phones.
 4. After changing `rust/src/api/`, regenerate bindings: `flutter_rust_bridge_codegen generate` (tool is installed via cargo).
-5. Session files (`<take>.durecmix.json`) live next to the source WAV.
+5. Session files (`<take>_<pathhash>.durecmix.json`) live in the app container (`Application Support/sessions/`, path built by `lib/state/session_paths.dart`) — sandboxed platforms forbid writing next to the source WAV. A legacy sibling `<take>.durecmix.json` is read once as migration fallback.
 
 ## Commands
 

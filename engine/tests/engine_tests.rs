@@ -507,9 +507,46 @@ fn session_roundtrip_and_merge() {
 }
 
 #[test]
-fn session_path_derivation() {
-    let p = Session::session_path_for(std::path::Path::new("/x/Take 01.wav"));
+fn session_legacy_sibling_path_derivation() {
+    let p = Session::legacy_sibling_path(std::path::Path::new("/x/Take 01.wav"));
     assert_eq!(p, std::path::PathBuf::from("/x/Take 01.durecmix.json"));
+}
+
+#[test]
+fn session_migrates_from_legacy_sibling() {
+    let dir = tempfile::tempdir().unwrap();
+    let wav_path = dir.path().join("take1.wav");
+    let container_path = dir.path().join("container").join("take1.durecmix.json");
+
+    // Neither file exists: fresh recording.
+    assert!(Session::load_or_migrate(&container_path, &wav_path).is_none());
+
+    // Only the legacy sibling exists: it is picked up.
+    let mut legacy = Session::from_track_info(&[TrackInfo {
+        index: 1,
+        name: "Vocals".into(),
+    }]);
+    legacy.tracks[0].gain_db = -3.0;
+    legacy
+        .save(&Session::legacy_sibling_path(&wav_path))
+        .unwrap();
+    let migrated = Session::load_or_migrate(&container_path, &wav_path).unwrap();
+    assert_eq!(migrated.tracks[0].gain_db, -3.0);
+
+    // Once the container session exists, it wins over the legacy file.
+    let mut primary = migrated;
+    primary.tracks[0].gain_db = -9.0;
+    primary.save(&container_path).unwrap();
+    let loaded = Session::load_or_migrate(&container_path, &wav_path).unwrap();
+    assert_eq!(loaded.tracks[0].gain_db, -9.0);
+}
+
+#[test]
+fn session_save_creates_parent_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    let deep = dir.path().join("a").join("b").join("s.durecmix.json");
+    Session::default().save(&deep).unwrap();
+    assert!(deep.is_file());
 }
 
 // ── analysis ────────────────────────────────────────────────────────────────

@@ -170,11 +170,13 @@ fn wire__crate__api__mixer__load_recording_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_path = <String>::sse_decode(&mut deserializer);
+            let api_session_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::mixer::load_recording(api_path)?;
+                        let output_ok =
+                            crate::api::mixer::load_recording(api_path, api_session_path)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -425,7 +427,7 @@ fn wire__crate__api__mixer__save_session_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_wav_path = <String>::sse_decode(&mut deserializer);
+            let api_session_path = <String>::sse_decode(&mut deserializer);
             let api_tracks = <Vec<crate::api::mixer::ApiTrack>>::sse_decode(&mut deserializer);
             let api_peak_dbfs = <Option<f64>>::sse_decode(&mut deserializer);
             let api_format = <crate::api::mixer::ApiFormat>::sse_decode(&mut deserializer);
@@ -434,7 +436,7 @@ fn wire__crate__api__mixer__save_session_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
                         let output_ok = crate::api::mixer::save_session(
-                            api_wav_path,
+                            api_session_path,
                             api_tracks,
                             api_peak_dbfs,
                             api_format,

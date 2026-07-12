@@ -106,9 +106,10 @@ fn to_engine_settings(peak_dbfs: Option<f64>, format: &ApiFormat) -> RenderSetti
     }
 }
 
-/// Open a multichannel WAV/RF64, parse iXML track metadata and merge any
-/// existing session file next to it.
-pub fn load_recording(path: String) -> anyhow::Result<RecordingInfo> {
+/// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
+/// session at `session_path` (falling back once to a legacy sibling file
+/// next to the WAV, from before sessions moved into the app container).
+pub fn load_recording(path: String, session_path: String) -> anyhow::Result<RecordingInfo> {
     let reader = WavReader::open(&path).with_context(|| format!("open {path}"))?;
     let spec = reader.spec();
 
@@ -125,10 +126,9 @@ pub fn load_recording(path: String) -> anyhow::Result<RecordingInfo> {
         infos
     };
 
-    let session_path = Session::session_path_for(Path::new(&path));
-    let session = match Session::load(&session_path) {
-        Ok(saved) => saved.merged_with(&infos),
-        Err(_) => Session::from_track_info(&infos),
+    let session = match Session::load_or_migrate(Path::new(&session_path), Path::new(&path)) {
+        Some(saved) => saved.merged_with(&infos),
+        None => Session::from_track_info(&infos),
     };
 
     Ok(RecordingInfo {
@@ -142,9 +142,10 @@ pub fn load_recording(path: String) -> anyhow::Result<RecordingInfo> {
     })
 }
 
-/// Persist the current mix next to the source WAV (`<name>.durecmix.json`).
+/// Persist the current mix to `session_path` (an app-container location
+/// chosen by the UI layer; parent directories are created as needed).
 pub fn save_session(
-    wav_path: String,
+    session_path: String,
     tracks: Vec<ApiTrack>,
     peak_dbfs: Option<f64>,
     format: ApiFormat,
@@ -154,8 +155,9 @@ pub fn save_session(
         settings: to_engine_settings(peak_dbfs, &format),
         ..Session::default()
     };
-    let path = Session::session_path_for(Path::new(&wav_path));
-    session.save(&path).context("save session")?;
+    session
+        .save(Path::new(&session_path))
+        .context("save session")?;
     Ok(())
 }
 

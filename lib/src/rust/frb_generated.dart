@@ -88,7 +88,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiSimpleInitApp();
 
-  Future<RecordingInfo> crateApiMixerLoadRecording({required String path});
+  Future<RecordingInfo> crateApiMixerLoadRecording({
+    required String path,
+    required String sessionPath,
+  });
 
   Future<void> crateApiMixerPlayerSeek({required BigInt frame});
 
@@ -115,7 +118,7 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<void> crateApiMixerSaveSession({
-    required String wavPath,
+    required String sessionPath,
     required List<ApiTrack> tracks,
     double? peakDbfs,
     required ApiFormat format,
@@ -216,12 +219,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
-  Future<RecordingInfo> crateApiMixerLoadRecording({required String path}) {
+  Future<RecordingInfo> crateApiMixerLoadRecording({
+    required String path,
+    required String sessionPath,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
+          sse_encode_String(sessionPath, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -234,14 +241,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerLoadRecordingConstMeta,
-        argValues: [path],
+        argValues: [path, sessionPath],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiMixerLoadRecordingConstMeta =>
-      const TaskConstMeta(debugName: "load_recording", argNames: ["path"]);
+  TaskConstMeta get kCrateApiMixerLoadRecordingConstMeta => const TaskConstMeta(
+    debugName: "load_recording",
+    argNames: ["path", "sessionPath"],
+  );
 
   @override
   Future<void> crateApiMixerPlayerSeek({required BigInt frame}) {
@@ -436,7 +445,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<void> crateApiMixerSaveSession({
-    required String wavPath,
+    required String sessionPath,
     required List<ApiTrack> tracks,
     double? peakDbfs,
     required ApiFormat format,
@@ -445,7 +454,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(wavPath, serializer);
+          sse_encode_String(sessionPath, serializer);
           sse_encode_list_api_track(tracks, serializer);
           sse_encode_opt_box_autoadd_f_64(peakDbfs, serializer);
           sse_encode_api_format(format, serializer);
@@ -461,7 +470,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiMixerSaveSessionConstMeta,
-        argValues: [wavPath, tracks, peakDbfs, format],
+        argValues: [sessionPath, tracks, peakDbfs, format],
         apiImpl: this,
       ),
     );
@@ -469,7 +478,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMixerSaveSessionConstMeta => const TaskConstMeta(
     debugName: "save_session",
-    argNames: ["wavPath", "tracks", "peakDbfs", "format"],
+    argNames: ["sessionPath", "tracks", "peakDbfs", "format"],
   );
 
   @protected

@@ -1,8 +1,12 @@
 //! Per-recording session persistence (successor of MixConf.json).
 //!
-//! A session file lives next to the source WAV (`<name>.durecmix.json`) and
-//! stores every track's mix parameters plus master settings, so reopening a
-//! recording restores the mix exactly.
+//! A session file stores every track's mix parameters plus master settings,
+//! so reopening a recording restores the mix exactly. The caller (the app)
+//! decides where sessions live — sandboxed platforms (macOS App Sandbox,
+//! Android SAF) forbid writing next to the source WAV, so the app passes a
+//! path inside its own container. Legacy sessions that were written as a
+//! sibling of the WAV (`<name>.durecmix.json`) are still read as a one-time
+//! migration fallback.
 
 use std::path::Path;
 
@@ -80,7 +84,9 @@ impl Session {
         }
     }
 
-    pub fn session_path_for(wav_path: &Path) -> std::path::PathBuf {
+    /// Where pre-sandbox-fix versions stored the session: next to the WAV.
+    /// Only used as a read-only migration fallback in [`Session::load_or_migrate`].
+    pub fn legacy_sibling_path(wav_path: &Path) -> std::path::PathBuf {
         wav_path.with_extension("durecmix.json")
     }
 
@@ -89,7 +95,19 @@ impl Session {
         Ok(serde_json::from_str(&data)?)
     }
 
+    /// Load `session_path`; if it is absent or unreadable, fall back once to
+    /// the legacy sibling file next to the WAV. Returns `None` when neither
+    /// exists (fresh recording).
+    pub fn load_or_migrate(session_path: &Path, wav_path: &Path) -> Option<Session> {
+        Session::load(session_path)
+            .or_else(|_| Session::load(&Session::legacy_sibling_path(wav_path)))
+            .ok()
+    }
+
     pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let data = serde_json::to_string_pretty(self)?;
         std::fs::write(path, data)?;
         Ok(())

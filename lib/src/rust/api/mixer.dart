@@ -8,19 +8,26 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `from_engine_track`, `player_slot`, `to_engine_settings`, `to_engine_track`
 
-/// Open a multichannel WAV/RF64, parse iXML track metadata and merge any
-/// existing session file next to it.
-Future<RecordingInfo> loadRecording({required String path}) =>
-    RustLib.instance.api.crateApiMixerLoadRecording(path: path);
+/// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
+/// session at `session_path` (falling back once to a legacy sibling file
+/// next to the WAV, from before sessions moved into the app container).
+Future<RecordingInfo> loadRecording({
+  required String path,
+  required String sessionPath,
+}) => RustLib.instance.api.crateApiMixerLoadRecording(
+  path: path,
+  sessionPath: sessionPath,
+);
 
-/// Persist the current mix next to the source WAV (`<name>.durecmix.json`).
+/// Persist the current mix to `session_path` (an app-container location
+/// chosen by the UI layer; parent directories are created as needed).
 Future<void> saveSession({
-  required String wavPath,
+  required String sessionPath,
   required List<ApiTrack> tracks,
   double? peakDbfs,
   required ApiFormat format,
 }) => RustLib.instance.api.crateApiMixerSaveSession(
-  wavPath: wavPath,
+  sessionPath: sessionPath,
   tracks: tracks,
   peakDbfs: peakDbfs,
   format: format,
