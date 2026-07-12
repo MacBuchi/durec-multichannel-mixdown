@@ -558,7 +558,7 @@ fn tpdf_dither_statistics() {
     let mut sum = 0.0;
     let mut sum_sq = 0.0;
     for _ in 0..n {
-        let v = d.next();
+        let v = d.sample();
         assert!(v > -1.0 && v < 1.0);
         sum += v;
         sum_sq += v * v;

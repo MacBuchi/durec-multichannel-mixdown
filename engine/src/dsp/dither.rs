@@ -35,7 +35,7 @@ impl TpdfDither {
     /// Next triangular-PDF noise value in (−1, 1), in LSB units — add it to
     /// the scaled sample before rounding.
     #[inline]
-    pub fn next(&mut self) -> f64 {
+    pub fn sample(&mut self) -> f64 {
         self.uniform() - self.uniform()
     }
 }
