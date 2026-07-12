@@ -82,6 +82,18 @@ pub struct RenderSettings {
     /// TPDF dither on word-length reduction (only acts on 16-bit output).
     #[serde(default = "default_dither")]
     pub dither: bool,
+    /// First source frame to render (trim-in).
+    #[serde(default)]
+    pub trim_start_frame: u64,
+    /// One-past-last source frame to render (trim-out); `None` = EOF.
+    #[serde(default)]
+    pub trim_end_frame: Option<u64>,
+    /// Linear fade-in length at the trim-in point, in ms.
+    #[serde(default)]
+    pub fade_in_ms: f64,
+    /// Linear fade-out length up to the trim-out point, in ms.
+    #[serde(default)]
+    pub fade_out_ms: f64,
 }
 
 impl Default for RenderSettings {
@@ -92,6 +104,54 @@ impl Default for RenderSettings {
             limiter_enabled: default_limiter_enabled(),
             ceiling_dbtp: default_ceiling_dbtp(),
             dither: default_dither(),
+            trim_start_frame: 0,
+            trim_end_frame: None,
+            fade_in_ms: 0.0,
+            fade_out_ms: 0.0,
+        }
+    }
+}
+
+/// Linear fade envelope over a trimmed range, applied position-aware to
+/// streamed stereo blocks (post-chain, pre-limiter).
+struct FadeEnvelope {
+    fade_in_frames: u64,
+    fade_out_frames: u64,
+    total_frames: u64,
+}
+
+impl FadeEnvelope {
+    fn new(sample_rate: u32, total_frames: u64, fade_in_ms: f64, fade_out_ms: f64) -> Self {
+        let to_frames = |ms: f64| ((ms / 1000.0 * sample_rate as f64) as u64).min(total_frames);
+        Self {
+            fade_in_frames: to_frames(fade_in_ms.max(0.0)),
+            fade_out_frames: to_frames(fade_out_ms.max(0.0)),
+            total_frames,
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.fade_in_frames > 0 || self.fade_out_frames > 0
+    }
+
+    /// Applies the envelope to `stereo` given the block's first frame index
+    /// relative to the trimmed range.
+    fn apply(&self, stereo: &mut [f64], block_start: u64) {
+        if !self.is_active() {
+            return;
+        }
+        for (i, fr) in stereo.chunks_exact_mut(2).enumerate() {
+            let pos = block_start + i as u64;
+            let mut g = 1.0;
+            if pos < self.fade_in_frames {
+                g *= pos as f64 / self.fade_in_frames as f64;
+            }
+            let remaining = self.total_frames.saturating_sub(pos);
+            if remaining <= self.fade_out_frames {
+                g *= remaining.saturating_sub(1) as f64 / self.fade_out_frames as f64;
+            }
+            fr[0] *= g;
+            fr[1] *= g;
         }
     }
 }
@@ -149,28 +209,48 @@ pub fn render_to_file<P: AsRef<Path>>(
     let cfg = ChainConfig {
         sample_rate: spec.sample_rate,
     };
-    let total_frames = reader.num_frames().max(1) as f64;
+    let num_frames = reader.num_frames();
+    let start = settings.trim_start_frame.min(num_frames);
+    let end = settings
+        .trim_end_frame
+        .unwrap_or(num_frames)
+        .clamp(start, num_frames);
+    let range_frames = (end - start).max(1) as f64;
+    let fade = FadeEnvelope::new(
+        spec.sample_rate,
+        end - start,
+        settings.fade_in_ms,
+        settings.fade_out_ms,
+    );
 
-    // Pass 1: measure raw mix peak and integrated loudness. Fresh chain —
-    // filter state must not leak into pass 2.
+    // Pass 1: measure raw mix peak and integrated loudness (with fades, so
+    // the measurement describes the delivered signal). Fresh chain — filter
+    // state must not leak into pass 2.
     let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
     let mut ebu_src = ebur128::EbuR128::new(2, spec.sample_rate, ebur128::Mode::I)
         .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
-    reader.seek_to_frame(0)?;
+    reader.seek_to_frame(start)?;
     let mut input = Vec::new();
     let mut stereo = Vec::new();
     let mut peak = 0.0f64;
+    let mut done: u64 = 0;
     loop {
-        let n = reader.read_frames(&mut input, BLOCK_FRAMES)?;
+        let want = BLOCK_FRAMES.min((end - start - done) as usize);
+        if want == 0 {
+            break;
+        }
+        let n = reader.read_frames(&mut input, want)?;
         if n == 0 {
             break;
         }
         chain.process(&input, &mut stereo);
+        fade.apply(&mut stereo, done);
         for &s in &stereo {
             peak = peak.max(s.abs());
         }
         let _ = ebu_src.add_frames_f64(&stereo);
-        progress((reader.pos_frames() as f64 / total_frames * 0.5) as f32);
+        done += n as u64;
+        progress((done as f64 / range_frames * 0.5) as f32);
     }
     let source_lufs = ebu_src.loudness_global().unwrap_or(f64::NEG_INFINITY);
 
@@ -219,13 +299,19 @@ pub fn render_to_file<P: AsRef<Path>>(
     .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
     let mut dither = (settings.dither && settings.format.is_16_bit_int()).then(TpdfDither::default);
     let mut limited = Vec::new();
-    reader.seek_to_frame(0)?;
+    reader.seek_to_frame(start)?;
+    let mut done: u64 = 0;
     loop {
-        let n = reader.read_frames(&mut input, BLOCK_FRAMES)?;
+        let want = BLOCK_FRAMES.min((end - start - done) as usize);
+        if want == 0 {
+            break;
+        }
+        let n = reader.read_frames(&mut input, want)?;
         if n == 0 {
             break;
         }
         chain.process(&input, &mut stereo);
+        fade.apply(&mut stereo, done);
         for s in &mut stereo {
             *s *= norm_gain;
         }
@@ -239,7 +325,8 @@ pub fn render_to_file<P: AsRef<Path>>(
         };
         let _ = ebu_out.add_frames_f64(block);
         sink.write_block(block, dither.as_mut())?;
-        progress((0.5 + reader.pos_frames() as f64 / total_frames * 0.5) as f32);
+        done += n as u64;
+        progress((0.5 + done as f64 / range_frames * 0.5) as f32);
     }
     if let Some(lim) = &mut limiter {
         limited.clear();
@@ -257,7 +344,7 @@ pub fn render_to_file<P: AsRef<Path>>(
     Ok(RenderReport {
         peak_dbfs_before: linear_to_db(peak),
         gain_applied_db: linear_to_db(norm_gain),
-        duration_seconds: total_frames / spec.sample_rate as f64,
+        duration_seconds: (end - start) as f64 / spec.sample_rate as f64,
         sample_rate: spec.sample_rate,
         integrated_lufs: ebu_out.loudness_global().unwrap_or(f64::NEG_INFINITY),
         true_peak_dbtp: linear_to_db(true_peak),

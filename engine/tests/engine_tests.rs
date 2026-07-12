@@ -975,6 +975,109 @@ fn dithered_16bit_render_reaches_both_codes() {
     );
 }
 
+// ── trim / fade / bpm ───────────────────────────────────────────────────────
+
+#[test]
+fn trim_renders_exact_range_with_fades() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+
+    // 4 s ramp signal so positions are identifiable: sample n = n / N.
+    let sr = 44_100u32;
+    let n_total = sr as usize * 4;
+    let samples: Vec<i16> = (0..n_total)
+        .map(|n| ((n as f64 / n_total as f64) * 30000.0) as i16)
+        .collect();
+    std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+
+    let start = sr as u64; // 1 s
+    let end = 3 * sr as u64; // 3 s
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::None,
+        format: OutputFormat::Wav32Float,
+        limiter_enabled: false,
+        trim_start_frame: start,
+        trim_end_frame: Some(end),
+        fade_in_ms: 80.0,
+        fade_out_ms: 80.0,
+        ..RenderSettings::default()
+    };
+    let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    assert!((report.duration_seconds - 2.0).abs() < 1e-9);
+
+    let mut r = hound::WavReader::open(&out_path).unwrap();
+    let out: Vec<f32> = r.samples::<f32>().map(|s| s.unwrap()).collect();
+    assert_eq!(out.len() / 2, (end - start) as usize);
+
+    let fade_frames = (0.080 * sr as f64) as usize;
+    let pan = std::f64::consts::FRAC_1_SQRT_2;
+    let expected_mid = |i: usize| (samples[start as usize + i] as f64 / 32768.0) * pan;
+    // Edges faded to (near) zero.
+    assert!(out[0].abs() < 1e-6, "fade-in start not silent");
+    assert!(out[out.len() - 2].abs() < 1e-3, "fade-out end not silent");
+    // Middle untouched and taken from the right source position.
+    let mid = (end - start) as usize / 2;
+    assert!(
+        (out[2 * mid] as f64 - expected_mid(mid)).abs() < 1e-4,
+        "wrong content at middle"
+    );
+    // Just after the fade-in the signal is back at full level.
+    let post_fade = fade_frames + 10;
+    assert!(
+        (out[2 * post_fade] as f64 - expected_mid(post_fade)).abs() < 1e-4,
+        "fade-in extends too far"
+    );
+}
+
+#[test]
+fn bpm_detected_from_click_track() {
+    let dir = tempfile::tempdir().unwrap();
+    for &(bpm, name) in &[(120.0f64, "a.wav"), (143.0, "b.wav")] {
+        let in_path = dir.path().join(name);
+        let sr = 44_100u32;
+        let n_total = sr as usize * 12;
+        let beat_frames = (60.0 / bpm * sr as f64) as usize;
+        // Decaying click on every beat over 12 s.
+        let samples: Vec<i16> = (0..n_total)
+            .map(|n| {
+                let since = n % beat_frames;
+                if since < 800 {
+                    let env = 1.0 - since as f64 / 800.0;
+                    (env * 25000.0 * (std::f64::consts::TAU * 1000.0 * n as f64 / sr as f64).sin())
+                        as i16
+                } else {
+                    0
+                }
+            })
+            .collect();
+        std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+
+        let analysis = durecmix_engine::analysis::analyze(&in_path, 100).unwrap();
+        let detected = analysis.bpm.expect("no BPM detected");
+        assert!(
+            (detected - bpm).abs() <= 2.0,
+            "expected ~{bpm} BPM, got {detected}"
+        );
+    }
+}
+
+#[test]
+fn bpm_none_for_steady_tone() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("tone.wav");
+    let sr = 44_100u32;
+    let samples: Vec<i16> = (0..sr as usize * 12)
+        .map(|n| {
+            (0.5 * (std::f64::consts::TAU * 440.0 * n as f64 / sr as f64).sin() * 32767.0) as i16
+        })
+        .collect();
+    std::fs::write(&in_path, wav16(1, sr, &samples, None)).unwrap();
+    let analysis = durecmix_engine::analysis::analyze(&in_path, 100).unwrap();
+    assert_eq!(analysis.bpm, None);
+}
+
 // ── encoded formats ─────────────────────────────────────────────────────────
 
 #[test]

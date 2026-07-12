@@ -32,16 +32,36 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
-  Future<void> _export() async {
-    final rec = state.recording;
-    if (rec == null) return;
+  /// Suggested file name matching the Python tool's pattern:
+  /// `<take>_<target>_<bpm>BPM_<yyyyMMdd_HHmmss>.<ext>`.
+  String _suggestedName() {
+    final rec = state.recording!;
     final ext = switch (state.format) {
       rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'flac',
       rust.ApiFormat.mp3 => 'mp3',
       _ => 'wav',
     };
     final base = rec.path.split('/').last.replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
-    final location = await getSaveLocation(suggestedName: '${base}_mix.$ext');
+    final target = switch (state.loudness) {
+      LoudnessChoice.none => 'raw',
+      LoudnessChoice.peakMinus1 => '1dBFS',
+      LoudnessChoice.lufs14 => '14LUFS',
+      LoudnessChoice.lufs16 => '16LUFS',
+      LoudnessChoice.lufs23 => '23LUFS',
+      LoudnessChoice.lufsCustom =>
+        '${state.customLufs.abs().toStringAsFixed(1).replaceAll('.0', '')}LUFS',
+    };
+    final bpm = state.bpm != null ? '_${state.bpm!.round()}BPM' : '';
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final stamp = '${now.year}${two(now.month)}${two(now.day)}'
+        '_${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    return '${base}_$target${bpm}_$stamp.$ext';
+  }
+
+  Future<void> _export() async {
+    if (state.recording == null) return;
+    final location = await getSaveLocation(suggestedName: _suggestedName());
     if (location != null) {
       await state.export(location.path);
     }
@@ -122,7 +142,9 @@ class _MixerScreenState extends State<MixerScreen> {
             children: [
               Text(
                 '${rec.channels} ch · ${rec.sampleRate} Hz · ${rec.bitsPerSample}-bit · '
-                '${_fmtTime(rec.durationSeconds)}',
+                '${_fmtTime(rec.durationSeconds)}'
+                '${state.bpm != null ? ' · ${state.bpm!.round()} BPM' : ''}'
+                '${state.trimStartSeconds != null || state.trimEndSeconds != null ? ' · trim ${_fmtTime(state.trimStartSeconds ?? 0)}–${_fmtTime(state.trimEndSeconds ?? rec.durationSeconds)}' : ''}',
                 style: const TextStyle(fontSize: 12, color: Colors.white54),
               ),
               const Spacer(),
@@ -197,7 +219,31 @@ class _MixerScreenState extends State<MixerScreen> {
                     onPressed: state.togglePlay,
                     icon: Icon(state.playing ? Icons.stop : Icons.play_arrow),
                   ),
-                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Set trim-in at playhead (long-press to clear)',
+                    onPressed: () => state.setTrimStart(state.positionSeconds),
+                    icon: GestureDetector(
+                      onLongPress: () => state.setTrimStart(null),
+                      child: Icon(Icons.first_page,
+                          size: 18,
+                          color: state.trimStartSeconds != null
+                              ? Colors.lightBlueAccent
+                              : Colors.white38),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Set trim-out at playhead (long-press to clear)',
+                    onPressed: () => state.setTrimEnd(state.positionSeconds),
+                    icon: GestureDetector(
+                      onLongPress: () => state.setTrimEnd(null),
+                      child: Icon(Icons.last_page,
+                          size: 18,
+                          color: state.trimEndSeconds != null
+                              ? Colors.lightBlueAccent
+                              : Colors.white38),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   Text(_fmtTime(state.positionSeconds),
                       style: const TextStyle(
                           fontFeatures: [FontFeature.tabularFigures()])),
