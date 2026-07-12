@@ -136,7 +136,16 @@ class ApiEqBand {
           q == other.q;
 }
 
-enum ApiFormat { wav16, wav24, wav32Float }
+enum ApiFormat {
+  wav16,
+  wav24,
+  wav32Float,
+  flac16,
+  flac24,
+
+  /// MP3 CBR 320 kbps (LAME).
+  mp3,
+}
 
 enum ApiHpfSlope { db12, db24 }
 

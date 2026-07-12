@@ -517,6 +517,9 @@ impl SseDecode for crate::api::mixer::ApiFormat {
             0 => crate::api::mixer::ApiFormat::Wav16,
             1 => crate::api::mixer::ApiFormat::Wav24,
             2 => crate::api::mixer::ApiFormat::Wav32Float,
+            3 => crate::api::mixer::ApiFormat::Flac16,
+            4 => crate::api::mixer::ApiFormat::Flac24,
+            5 => crate::api::mixer::ApiFormat::Mp3,
             _ => unreachable!("Invalid variant for ApiFormat: {}", inner),
         };
     }
@@ -925,6 +928,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiFormat {
             Self::Wav16 => 0.into_dart(),
             Self::Wav24 => 1.into_dart(),
             Self::Wav32Float => 2.into_dart(),
+            Self::Flac16 => 3.into_dart(),
+            Self::Flac24 => 4.into_dart(),
+            Self::Mp3 => 5.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -1222,6 +1228,9 @@ impl SseEncode for crate::api::mixer::ApiFormat {
                 crate::api::mixer::ApiFormat::Wav16 => 0,
                 crate::api::mixer::ApiFormat::Wav24 => 1,
                 crate::api::mixer::ApiFormat::Wav32Float => 2,
+                crate::api::mixer::ApiFormat::Flac16 => 3,
+                crate::api::mixer::ApiFormat::Flac24 => 4,
+                crate::api::mixer::ApiFormat::Mp3 => 5,
                 _ => {
                     unimplemented!("");
                 }

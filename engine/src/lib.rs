@@ -13,6 +13,7 @@ pub mod mix;
 pub mod playback;
 pub mod render;
 pub mod session;
+pub mod sink;
 pub mod wav;
 
 pub use error::{EngineError, Result};
