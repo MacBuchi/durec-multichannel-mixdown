@@ -14,12 +14,15 @@ The original Python/customtkinter tool ran on desktop only, loaded entire record
 |---|---|---|
 | Platforms | macOS, Windows | macOS, Windows, Android, iOS |
 | Pan law | linear (−6 dB centre error) | **constant-power (−3 dB centre)** |
-| Peak handling | sample peak | **true peak (planned M3)** |
+| Peak handling | sample peak | **true-peak limiter (8× oversampled, −1 dBTP)** |
 | Phase | destructive auto-"fix" | **per-track polarity switch** |
 | Memory | whole file in RAM | **streamed blocks — multi-GB files on phones** |
 | >4 GB recordings | unsupported | **RF64/BW64 support** |
 | Solo / mute | – | ✔ |
-| USB-stick import on Android | – | planned (SAF, M4) |
+| Loudness targets | −12 LUFS only | **−14/−16/−23/custom LUFS (EBU R128)** |
+| EQ | – | **per-track HPF (12/24 dB/oct) + 3-band EQ** |
+| Formats | 16-bit WAV, MP3 | **WAV 16/24/32f, FLAC 16/24, MP3 320** |
+| USB-stick import on Android | – | **SAF fd handoff — no copying** |
 
 ## Architecture
 
@@ -34,20 +37,23 @@ rust_builder/    cargokit glue that builds the Rust crate inside flutter build
 - `rust/` must stay logic-free; it only converts bridge DTOs ↔ engine types.
 - Audio is never fully loaded: the engine streams 64 Ki-frame blocks and renders in two passes (analysis → render).
 
-### Engine status (M1)
+## Features (v0.5)
 
-- Streaming WAV/RF64/BW64 reader (16/24/32-bit PCM, 32/64-bit float), iXML track metadata (DUREC), seek + block reads
-- Mix bus: per-track gain (−60…+6 dB), constant-power pan, polarity invert, solo/mute/in-mix
-- Two-pass render to stereo WAV (16/24/32-float) with peak normalisation or clip protection
-- Session persistence next to the source file (`<take>.durecmix.json`), track-name-based merge across re-scans
-- 29 engine tests: `cargo test -p durecmix-engine`
+- **Streaming engine** — WAV/RF64/BW64 (16/24/32-bit PCM, 32/64-float), iXML track names, 64 Ki-frame blocks, two-pass render; multi-GB takes never load into RAM
+- **Mixing** — gain (−60…+6 dB), constant-power pan, polarity ø, solo/mute/in-mix, stereo-pair linking (`· L`/`· R`), monitor feeds auto-excluded on fresh sessions
+- **Per-track DSP** — HPF (12/24 dB/oct Butterworth) + low shelf / mid peak / high shelf, click-free live tweaking, identical in preview and export
+- **Master** — true-peak lookahead limiter (8× oversampled detection, −1 dBTP), loudness targets −14/−16/−23/custom LUFS or peak −1 dBFS, TPDF dither on 16-bit
+- **Live preview** — cpal playback (~0.2 s latency), peak / LUFS-M / LUFS-I / true-peak / correlation meters, per-channel waveforms
+- **Export** — WAV 16/24/32f, FLAC 16/24 (streamed), MP3 320 (LAME); trim in/out with 80 ms fades; loudness report (LUFS-I · dBTP · LRA · gain); BPM detection; filenames like `Take_16LUFS_143BPM_20260712_183000.flac`
+- **Sessions** — every mix auto-saves to the app container and restores on reopen
+- **Android** — Storage Access Framework: recordings open via file descriptors, zero copying
+
+Binaries for macOS, Windows and Android are attached to each [GitHub Release](../../releases).
 
 ### Roadmap
 
-- **M2** — live preview playback (cpal), waveforms, per-track + master meters (LUFS/true-peak/correlation)
-- **M3** — per-track HPF/EQ, true-peak limiter, LUFS targets, TPDF dither, FLAC/MP3, trim/fades, BPM
-- **M4** — Android SAF/USB-OTG import, iOS Files/USB import, phone layout, background export
-- **M5** — stereo-pair linking, A/B snapshots, presets, batch queue, store releases
+- **M4 (rest)** — iOS Files/USB import, phone layout polish, background export
+- **M5 (rest)** — A/B mix snapshots, batch export queue, signed store releases
 
 ## Development
 
@@ -55,10 +61,20 @@ Prerequisites: [Flutter](https://docs.flutter.dev/get-started/install) (stable) 
 
 ```sh
 flutter pub get
-cargo test --workspace          # engine + bridge tests
-cargo clippy --workspace --all-targets
+cargo test --workspace                    # 55 engine tests
+cargo clippy --workspace --all-targets -- -D warnings
 flutter analyze
-flutter run -d macos            # or: windows, an Android device, an iOS device
+flutter test integration_test -d macos    # real app + engine, headless-driven
+flutter run -d macos                      # or: windows, an Android/iOS device
+```
+
+Useful engine CLIs (`--release` recommended):
+
+```sh
+cargo run -p durecmix-engine --release --example render_demo  <in.wav> <out.wav> [lufs]
+cargo run -p durecmix-engine --release --example analyze_demo <in.wav>   # BPM etc.
+cargo run -p durecmix-engine --release --example play_demo    <in.wav> [start_s]
+cargo run -p durecmix-engine --example gen_fixture [out.wav]  # synthetic test WAV
 ```
 
 Rust bindings are generated — after changing `rust/src/api/`, run:
@@ -67,6 +83,6 @@ Rust bindings are generated — after changing `rust/src/api/`, run:
 flutter_rust_bridge_codegen generate
 ```
 
-## Commit convention
+## Workflow
 
-[Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `feat!:`, `chore:`, `ci:`, `docs:`, `test:`, `refactor:`), same rules as the predecessor project.
+[Conventional Commits](https://www.conventionalcommits.org/); feature branches with squash-merged PRs, merged only on a green CI matrix (macOS/Windows/Android/iOS). Releases are tag-driven: bump `pubspec.yaml`, push `vX.Y.Z`, and `release.yml` attaches macOS/Windows/Android artifacts to a GitHub Release. Details in `AGENTS.md` and `docs/PLAN.md`.
