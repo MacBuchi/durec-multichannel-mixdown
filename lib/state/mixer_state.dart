@@ -206,6 +206,7 @@ class MixerState extends ChangeNotifier {
       positionSeconds = 0;
       lastReport = null;
       expandedEq.clear();
+      unlinkedPairs.clear();
       notifyListeners();
       // Persist immediately so a session migrated from a legacy sibling file
       // lands in the app container even if the user changes nothing.
@@ -241,6 +242,10 @@ class MixerState extends ChangeNotifier {
   /// Mirror changes across " L"/" R" stereo pairs (iXML naming convention);
   /// pans mirror inverted. Toggleable from the app bar.
   bool linkPairs = true;
+
+  /// Pair base names the user has unlinked individually (chip on the strip).
+  /// Cleared when a new recording is opened.
+  final Set<String> unlinkedPairs = {};
 
   static String? _pairBase(String name) =>
       name.endsWith(' L') || name.endsWith(' R')
@@ -285,7 +290,7 @@ class MixerState extends ChangeNotifier {
 
   void updateTrack(TrackUi track, void Function(TrackUi) change) {
     change(track);
-    if (linkPairs) _syncPair(track);
+    if (isPairLinked(track)) _syncPair(track);
     _pushLiveParams();
     _scheduleSave();
     notifyListeners();
@@ -293,6 +298,35 @@ class MixerState extends ChangeNotifier {
 
   void toggleLinkPairs() {
     linkPairs = !linkPairs;
+    notifyListeners();
+  }
+
+  /// True when the track has a " L"/" R" partner in the current recording.
+  bool isPaired(TrackUi t) => _pairPartner(t) != null;
+
+  /// True when edits to this track currently mirror to its partner.
+  bool isPairLinked(TrackUi t) {
+    final base = _pairBase(t.name);
+    return linkPairs &&
+        base != null &&
+        !unlinkedPairs.contains(base) &&
+        _pairPartner(t) != null;
+  }
+
+  /// Unlink or relink one pair. Relinking copies the tapped side onto the
+  /// partner (pan mirrored), so both strips agree again immediately.
+  void togglePairLink(TrackUi t) {
+    final base = _pairBase(t.name);
+    if (base == null) return;
+    if (unlinkedPairs.remove(base)) {
+      if (linkPairs) {
+        _syncPair(t);
+        _pushLiveParams();
+        _scheduleSave();
+      }
+    } else {
+      unlinkedPairs.add(base);
+    }
     notifyListeners();
   }
 

@@ -19,6 +19,7 @@ import 'package:durecmix/main.dart';
 import 'package:durecmix/state/mixer_state.dart';
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
+import 'package:durecmix/ui/track_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -68,6 +69,30 @@ void main() {
     await tester.tap(find.text('M').first);
     await tester.pump();
     expect(state.tracks[0].muted, isFalse);
+
+    // Stereo-pair linking: a gain edit on "Keys L" mirrors onto "Keys R"…
+    state.updateTrack(state.tracks[2], (t) => t.gainDb = -6.0);
+    await tester.pump();
+    expect(state.tracks[3].gainDb, -6.0);
+
+    // …until the pair is unlinked via the link chip on its strip.
+    final pairChips = find.descendant(
+        of: find.byType(TrackStrip), matching: find.byIcon(Icons.link));
+    expect(pairChips, findsNWidgets(2)); // Keys L + Keys R
+    await tester.tap(pairChips.first);
+    await tester.pump();
+    expect(find.byIcon(Icons.link_off), findsNWidgets(2));
+    state.updateTrack(state.tracks[2], (t) => t.gainDb = -3.0);
+    await tester.pump();
+    expect(state.tracks[3].gainDb, -6.0); // partner no longer follows
+
+    // Relinking copies the tapped side back onto the partner.
+    await tester.tap(find
+        .descendant(
+            of: find.byType(TrackStrip), matching: find.byIcon(Icons.link_off))
+        .first);
+    await tester.pump();
+    expect(state.tracks[3].gainDb, -3.0);
 
     // EQ panel: expand via the EQ chip, enable the HPF via its switch.
     await tester.tap(find.text('EQ').first);
