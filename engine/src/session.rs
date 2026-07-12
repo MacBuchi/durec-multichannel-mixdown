@@ -38,14 +38,36 @@ impl Default for Session {
     }
 }
 
+/// True for channel names that are clearly monitor/cue feeds, which never
+/// belong in a fresh mixdown (they double the FOH signal and push a unity
+/// mix far over full scale). Conservative on purpose.
+pub fn is_monitor_feed(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.contains("in ear")
+        || n.contains("inear")
+        || n.contains("phones")
+        || n.contains("headphone")
+        || n.contains("talkback")
+        || n.contains("iem")
+        || n.contains("line out")
+        || n.contains("monitor")
+}
+
 impl Session {
     /// Build a fresh session from iXML track info, applying the L/R pan
-    /// heuristic for stereo pairs.
+    /// heuristic for stereo pairs and excluding obvious monitor feeds
+    /// (In Ear / Phones / Talkback etc.) from the mix. `*_Out` stems are
+    /// deliberately NOT excluded — engineers often mix from those.
     pub fn from_track_info(tracks: &[TrackInfo]) -> Self {
         Self {
             tracks: tracks
                 .iter()
-                .map(|t| TrackParams::new(t.index, t.name.clone(), default_pan_for_name(&t.name)))
+                .map(|t| {
+                    let mut p =
+                        TrackParams::new(t.index, t.name.clone(), default_pan_for_name(&t.name));
+                    p.in_mix = !is_monitor_feed(&t.name);
+                    p
+                })
                 .collect(),
             ..Self::default()
         }
