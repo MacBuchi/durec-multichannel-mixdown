@@ -11,7 +11,7 @@ use durecmix_engine::ixml::{
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
 use durecmix_engine::render::{render_to_file, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
-use durecmix_engine::wav::{SampleFormat, WavReader};
+use durecmix_engine::wav::{self, InputHandle, SampleFormat, WavReader};
 use durecmix_engine::EngineError;
 
 // ── test WAV builders ───────────────────────────────────────────────────────
@@ -1310,4 +1310,41 @@ fn waveform_bucket_count_smaller_than_frames() {
     // more buckets than frames must not panic; trailing buckets stay 0
     let waves = durecmix_engine::analysis::analyze_waveforms(&path, 8).unwrap();
     assert_eq!(waves[0].max.len(), 8);
+}
+
+// ── probe (browser metadata) ────────────────────────────────────────────────
+
+#[test]
+fn probe_reads_spec_duration_and_ixml_track_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("take.wav");
+    let samples: Vec<i16> = vec![0; 3 * 44100]; // 3 ch × 1 s
+    std::fs::write(&path, wav16(3, 44100, &samples, Some(DUREC_IXML))).unwrap();
+
+    let info = wav::probe(&InputHandle::Path(path.to_str().unwrap().into())).unwrap();
+    assert_eq!(info.channels, 3);
+    assert_eq!(info.sample_rate, 44100);
+    assert_eq!(info.bits_per_sample, 16);
+    assert_eq!(info.num_frames, 44100);
+    assert!((info.duration_seconds - 1.0).abs() < 1e-9);
+    assert_eq!(info.ixml_track_count, 3);
+}
+
+#[test]
+fn probe_without_ixml_reports_zero_tracks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plain.wav");
+    std::fs::write(&path, wav16(2, 48000, &[0i16; 96000], None)).unwrap();
+
+    let info = wav::probe(&InputHandle::Path(path.to_str().unwrap().into())).unwrap();
+    assert_eq!(info.channels, 2);
+    assert_eq!(info.ixml_track_count, 0);
+}
+
+#[test]
+fn probe_rejects_non_wav() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("not_audio.wav");
+    std::fs::write(&path, b"this is definitely not a RIFF file").unwrap();
+    assert!(wav::probe(&InputHandle::Path(path.to_str().unwrap().into())).is_err());
 }
