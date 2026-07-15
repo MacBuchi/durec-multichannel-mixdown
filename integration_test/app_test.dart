@@ -18,10 +18,12 @@ import 'dart:ui' as ui;
 
 import 'package:durecmix/main.dart';
 import 'package:durecmix/src/rust/api/mixer.dart' as rust;
+import 'package:durecmix/state/app_settings.dart';
 import 'package:durecmix/state/mixer_state.dart';
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
 import 'package:durecmix/ui/track_strip.dart';
+import 'package:durecmix/ui/wav_browser_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -146,7 +148,10 @@ void main() {
     // as `lufsCustom` rather than canonicalising to a preset).
     state.customLufs = -17.5;
     state.setLoudness(LoudnessChoice.lufsCustom);
-    final outPath = '${tempDir.path}/mix.wav';
+    // Exports land in a subfolder so the browser section below only sees
+    // the two fixtures (the browser lists direct children).
+    Directory('${tempDir.path}/out').createSync();
+    final outPath = '${tempDir.path}/out/mix.wav';
     await state.export(outPath);
     await tester.pumpAndSettle();
 
@@ -195,6 +200,67 @@ void main() {
     expect(find.byType(PopupMenuButton<String>), findsOneWidget);
     expect(find.byType(DropdownButton<LoudnessChoice>), findsNothing);
     expect(find.text('Export'), findsOneWidget);
+
+    // In-app WAV browser: seeded with the temp folder, opened by tapping
+    // the file name in the app bar; entries carry lazily probed metadata;
+    // tapping a row switches the recording without restarting.
+    final twoChPath = '${tempDir.path}/fixture_2ch.wav';
+    File(twoChPath)
+        .writeAsBytesSync(_buildFixtureWav(tracks: const [
+      ('Left', 220.0, 0.2, 0.0),
+      ('Right', 221.0, 0.2, 0.0),
+    ]));
+    final settings = await AppSettings.load();
+    settings.lastFolder = tempDir.path;
+    await settings.save();
+
+    await tester.tap(find.text('fixture_4ch.wav')); // app-bar title
+    await tester.pumpAndSettle();
+    expect(find.byType(WavBrowserPage), findsOneWidget);
+    final browser =
+        tester.widget<WavBrowserPage>(find.byType(WavBrowserPage)).browser;
+    // Wait for the listing + sequential probes to finish (real async I/O).
+    for (var i = 0;
+        i < 100 &&
+            (browser.loading ||
+                browser.entries.isEmpty ||
+                browser.entries
+                    .any((e) => e.probe == null && e.probeError == null));
+        i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(browser.error, isNull);
+    expect(browser.entries, hasLength(2));
+    final byName = {for (final e in browser.entries) e.name: e};
+    expect(byName['fixture_4ch.wav']!.probe!.channels, 4);
+    expect(byName['fixture_4ch.wav']!.probe!.ixmlTrackCount, 4);
+    expect(byName['fixture_2ch.wav']!.probe!.channels, 2);
+    expect(byName['fixture_2ch.wav']!.probe!.ixmlTrackCount, 2);
+
+    // Sort toggle: name order puts 2ch first, newest-first puts it first
+    // too (written later) — so assert the order flips back on re-toggle.
+    expect(browser.sortByDate, isFalse);
+    expect(browser.entries.first.name, 'fixture_2ch.wav');
+    await tester.tap(find.byIcon(Icons.sort_by_alpha));
+    await tester.pump();
+    expect(browser.sortByDate, isTrue);
+    expect(browser.entries.first.name, 'fixture_2ch.wav'); // newest first
+
+    // Switch to the 2-channel take by tapping its row.
+    await tester.tap(find.text('fixture_2ch.wav'));
+    await tester.pumpAndSettle();
+    expect(find.byType(WavBrowserPage), findsNothing);
+    expect(state.error, isNull);
+    expect(state.tracks, hasLength(2));
+    expect(find.text('fixture_2ch.wav'), findsOneWidget); // new title
+
+    // Reopen: the loaded take carries the check mark; close via row tap.
+    await tester.tap(find.text('fixture_2ch.wav'));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    await tester.tap(find.text('fixture_4ch.wav'));
+    await tester.pumpAndSettle();
+    expect(state.tracks, hasLength(4));
 
     if (kScreenshots) {
       await _captureDocScreenshots(tester, state, tempDir);
