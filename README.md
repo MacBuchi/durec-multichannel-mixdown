@@ -58,6 +58,7 @@ rust_builder/    cargokit glue that builds the Rust crate inside flutter build
 ## Features (v0.7)
 
 - **WAV browser** — pick a folder once (USB stick via SAF on Android), get a list of its .wav files annotated with channels · rate · bits · duration · iXML track count; tap the filename in the app bar to switch takes instantly. Saved mixes follow the file however it was opened.
+- **No start screen** — the app opens straight into the mixer; the empty track area carries the folder affordance, the app-bar folder icon switches the target folder, and while a recording loads the logo's channel lines swing like live audio.
 
 - **Streaming engine** — WAV/RF64/BW64 (16/24/32-bit PCM, 32/64-float), iXML track names, 64 Ki-frame blocks, two-pass render; multi-GB takes never load into RAM
 - **Mixing** — gain (−60…+6 dB), constant-power pan, polarity ø, solo/mute/in-mix, stereo-pair linking (`· L`/`· R`) with per-pair unlink, monitor feeds auto-excluded on fresh sessions, A/B mix snapshots

@@ -21,6 +21,7 @@ import 'package:durecmix/src/rust/api/mixer.dart' as rust;
 import 'package:durecmix/state/app_settings.dart';
 import 'package:durecmix/state/mixer_state.dart';
 import 'package:durecmix/src/rust/frb_generated.dart';
+import 'package:durecmix/ui/animated_logo.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
 import 'package:durecmix/ui/track_strip.dart';
 import 'package:durecmix/ui/wav_browser_page.dart';
@@ -59,7 +60,10 @@ void main() {
     await tester.pumpWidget(
         RepaintBoundary(key: _shotKey, child: const DurecMixApp()));
     await tester.pumpAndSettle();
-    expect(find.text('Open recording'), findsOneWidget);
+    // No separate start screen: the main window's empty track area carries
+    // the (idle, static) logo and the folder affordance.
+    expect(find.text('Choose folder'), findsOneWidget);
+    expect(find.byType(AnimatedLogo), findsOneWidget);
 
     // Open the fixture (the picker's target API; the native panel itself
     // cannot be driven headlessly).
@@ -210,8 +214,12 @@ void main() {
       ('Left', 220.0, 0.2, 0.0),
       ('Right', 221.0, 0.2, 0.0),
     ]));
+    // Seed BOTH persisted settings — they survive across test runs (that's
+    // the feature), so the test must not depend on a previous run's state.
     final settings = await AppSettings.load();
-    settings.lastFolder = tempDir.path;
+    settings
+      ..lastFolder = tempDir.path
+      ..sortByDate = false;
     await settings.save();
 
     await tester.tap(find.text('fixture_4ch.wav')); // app-bar title

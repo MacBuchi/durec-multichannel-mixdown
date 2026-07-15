@@ -11,6 +11,7 @@ import '../src/rust/api/mixer.dart' as rust;
 import '../state/app_settings.dart';
 import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
+import 'animated_logo.dart';
 import 'meters.dart';
 import 'track_strip.dart';
 import 'wav_browser_page.dart';
@@ -54,6 +55,25 @@ class _MixerScreenState extends State<MixerScreen> {
         unawaited(browser.openFolder(picked));
       }
     }
+    await _showBrowser(browser);
+  }
+
+  /// App-bar folder icon: switch the target folder directly, then browse it.
+  /// (The title tap keeps the current folder — that's "switch file".)
+  Future<void> _changeFolder() async {
+    if (IosFiles.isAvailable) {
+      await _openSystemPicker();
+      return;
+    }
+    final settings = await AppSettings.load();
+    final browser = _browser ??= WavBrowser(settings);
+    final picked = await browser.pickFolder();
+    if (picked == null) return;
+    unawaited(browser.openFolder(picked));
+    await _showBrowser(browser);
+  }
+
+  Future<void> _showBrowser(WavBrowser browser) async {
     if (!mounted) return;
     final result = await Navigator.of(context).push<Object>(
       MaterialPageRoute(
@@ -347,8 +367,8 @@ class _MixerScreenState extends State<MixerScreen> {
                           : Colors.white38),
                 ),
               IconButton(
-                tooltip: 'Open multichannel WAV',
-                onPressed: _openFile,
+                tooltip: 'Choose recordings folder',
+                onPressed: _changeFolder,
                 icon: const Icon(Icons.folder_open),
               ),
               const SizedBox(width: 8),
@@ -374,8 +394,8 @@ class _MixerScreenState extends State<MixerScreen> {
               : 'Export'),
         ),
       IconButton(
-        tooltip: 'Open multichannel WAV',
-        onPressed: _openFile,
+        tooltip: 'Choose recordings folder',
+        onPressed: _changeFolder,
         icon: const Icon(Icons.folder_open),
       ),
       if (rec != null)
@@ -509,21 +529,30 @@ class _MixerScreenState extends State<MixerScreen> {
     if (choice != null) state.setFormat(choice);
   }
 
+  /// The main window's empty track area doubles as the start screen: the
+  /// logo (animated while a file loads) and a tappable folder affordance.
   Widget _emptyView() {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Image.asset('assets/icon/logo_mark.png', width: 140),
+          AnimatedLogo(size: 160, animate: state.opening),
           const SizedBox(height: 8),
-          Text('Open a DUREC multichannel WAV to start mixing',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _openFile,
-            icon: const Icon(Icons.folder_open),
-            label: const Text('Open recording'),
-          ),
+          if (state.opening)
+            Text(
+              'Loading ${state.displayName ?? 'recording'}…',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+            )
+          else ...[
+            Text('Choose a folder with DUREC recordings',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _openFile,
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Choose folder'),
+            ),
+          ],
           if (state.error != null) ...[
             const SizedBox(height: 16),
             Text(state.error!, style: const TextStyle(color: Colors.redAccent)),
@@ -534,6 +563,35 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Widget _mixerView(rust.RecordingInfo rec) {
+    final content = _mixerContent(rec);
+    if (!state.opening) return content;
+    // Switching takes: dim the stale mix and swing the logo until the new
+    // file's tracks land (multi-GB over USB takes a moment).
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        content,
+        ColoredBox(
+          color: Colors.black.withValues(alpha: 0.55),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AnimatedLogo(size: 120, animate: true),
+                const SizedBox(height: 8),
+                Text(
+                  'Loading ${state.displayName ?? 'recording'}…',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mixerContent(rust.RecordingInfo rec) {
     return Column(
       children: [
         Padding(
