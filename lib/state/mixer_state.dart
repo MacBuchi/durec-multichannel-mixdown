@@ -186,6 +186,9 @@ class MixerState extends ChangeNotifier {
   /// `source` is a filesystem path, or a `content://` URI on Android (the
   /// engine then reads through per-call file descriptors — DUREC files are
   /// never copied).
+  /// True while a recording is being opened (drives the loading animation).
+  bool opening = false;
+
   Future<void> open(String source, {String? name}) async {
     _stopPolling();
     if (playing) {
@@ -195,6 +198,8 @@ class MixerState extends ChangeNotifier {
     error = null;
     waveforms = null;
     displayName = name;
+    opening = true;
+    notifyListeners();
     try {
       _sessionPath = await sessionPathFor(source, displayName: name);
       recording = await rust.loadRecording(
@@ -209,12 +214,14 @@ class MixerState extends ChangeNotifier {
       expandedEq.clear();
       unlinkedPairs.clear();
       batchQueue.clear();
+      opening = false;
       notifyListeners();
       // Persist immediately so a session migrated from a legacy sibling file
       // lands in the app container even if the user changes nothing.
       await saveSession();
       _analyze(source);
     } catch (e) {
+      opening = false;
       error = e.toString();
       notifyListeners();
     }
