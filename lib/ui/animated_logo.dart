@@ -7,10 +7,20 @@ import 'package:flutter/material.dart';
 /// ripples — audio flowing towards the mix — and the stereo terminals
 /// pulse gently; without it the painter renders the still logo mark.
 class AnimatedLogo extends StatefulWidget {
-  const AnimatedLogo({super.key, this.size = 160, this.animate = false});
+  const AnimatedLogo({
+    super.key,
+    this.size = 160,
+    this.animate = false,
+    this.amplitude = 26,
+  });
 
   final double size;
   final bool animate;
+
+  /// Ripple amplitude in the 1024-unit viewbox space. The default matches
+  /// the full-size look; small indicator sizes need more (the swing scales
+  /// with [size] and turns subpixel otherwise — ~90 works at 26 px).
+  final double amplitude;
 
   @override
   State<AnimatedLogo> createState() => _AnimatedLogoState();
@@ -52,7 +62,7 @@ class _AnimatedLogoState extends State<AnimatedLogo>
       width: widget.size,
       height: widget.size,
       child: CustomPaint(
-        painter: _LogoPainter(repaint: _controller),
+        painter: _LogoPainter(repaint: _controller, amplitude: widget.amplitude),
       ),
     );
   }
@@ -62,9 +72,11 @@ class _AnimatedLogoState extends State<AnimatedLogo>
 /// runs horizontally from x=140 to x=340, then a cubic bezier converges on
 /// one of the two stereo terminals at (866, 442/582).
 class _LogoPainter extends CustomPainter {
-  _LogoPainter({required this.repaint}) : super(repaint: repaint);
+  _LogoPainter({required this.repaint, required this.amplitude})
+      : super(repaint: repaint);
 
   final Animation<double> repaint;
+  final double amplitude;
 
   static const _channelYs = [252.0, 356.0, 460.0, 564.0, 668.0, 772.0];
   static const _terminalYs = [442.0, 442.0, 442.0, 582.0, 582.0, 582.0];
@@ -140,10 +152,10 @@ class _LogoPainter extends CustomPainter {
   }
 
   /// Travelling sine, anchored to zero at both ends of the line.
-  static double _ripple(int i, double u, double t) {
+  double _ripple(int i, double u, double t) {
     final envelope = math.sin(math.pi * u);
     final phase = 2 * math.pi * (_cycles[i] * t + i / 6.0 - 2.5 * u);
-    return 26.0 * envelope * math.sin(phase);
+    return amplitude * envelope * math.sin(phase);
   }
 
   /// Approximate parameter for a given x on the straight segment (the fader
@@ -160,5 +172,5 @@ class _LogoPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _LogoPainter old) => false;
+  bool shouldRepaint(covariant _LogoPainter old) => old.amplitude != amplitude;
 }
