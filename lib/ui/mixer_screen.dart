@@ -608,10 +608,10 @@ class _MixerScreenState extends State<MixerScreen> {
               const Spacer(),
               if (state.analyzing)
                 const Row(children: [
-                  SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 2)),
+                  // The analysis pass is the one reliably long wait — this
+                  // is where the swinging-logo animation actually lives
+                  // (opening a file is header-only and over in a blink).
+                  AnimatedLogo(size: 26, animate: true, amplitude: 90),
                   SizedBox(width: 6),
                   Text('analysing waveforms…',
                       style: TextStyle(fontSize: 12, color: Colors.white54)),
