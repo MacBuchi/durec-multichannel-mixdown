@@ -324,3 +324,33 @@ fn parse_fmt_chunk(buf: &[u8]) -> Result<WavSpec> {
         sample_format,
     })
 }
+
+/// Lightweight metadata of a recording, for file-browser listings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProbeInfo {
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub bits_per_sample: u16,
+    pub num_frames: u64,
+    pub duration_seconds: f64,
+    /// Number of iXML track entries; 0 when the file carries no iXML.
+    pub ixml_track_count: u32,
+}
+
+/// Probe a recording without touching audio data: [`WavReader::new`] parses
+/// only chunk headers (seeking past the payload) and reads iXML inline, so
+/// this stays fast even for multi-GB RF64 takes on slow USB media.
+pub fn probe(input: &InputHandle) -> Result<ProbeInfo> {
+    let reader = input.open()?;
+    let spec = reader.spec();
+    Ok(ProbeInfo {
+        channels: spec.channels,
+        sample_rate: spec.sample_rate,
+        bits_per_sample: spec.bits_per_sample,
+        num_frames: reader.num_frames(),
+        duration_seconds: reader.duration_seconds(),
+        ixml_track_count: reader
+            .ixml()
+            .map_or(0, |x| crate::ixml::parse_tracks(x).len() as u32),
+    })
+}

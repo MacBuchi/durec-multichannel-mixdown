@@ -3,6 +3,9 @@ package com.example.durecmix
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -16,6 +19,7 @@ class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private val pickRequest = 41001
     private val createRequest = 41002
+    private val pickTreeRequest = 41003
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -47,6 +51,30 @@ class MainActivity : FlutterActivity() {
                             putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "mix.wav")
                         }
                         startActivityForResult(intent, createRequest)
+                    }
+                    // Folder access for the in-app WAV browser: pick a tree
+                    // once (persisted grant, READ|WRITE — write is what phone
+                    // batch export will need), then list its .wav children.
+                    "pickDirectory" -> {
+                        pendingResult = result
+                        startActivityForResult(
+                            Intent(Intent.ACTION_OPEN_DOCUMENT_TREE),
+                            pickTreeRequest,
+                        )
+                    }
+                    "listDirectory" -> {
+                        val treeUri = Uri.parse(call.argument<String>("uri"))
+                        val main = Handler(Looper.getMainLooper())
+                        // USB-OTG providers can take a second to answer —
+                        // keep the platform thread free.
+                        Thread {
+                            try {
+                                val entries = listWavChildren(treeUri)
+                                main.post { result.success(entries) }
+                            } catch (e: Exception) {
+                                main.post { result.error("list_failed", e.message, null) }
+                            }
+                        }.start()
                     }
                     "openFd" -> {
                         try {
@@ -108,7 +136,11 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != pickRequest && requestCode != createRequest) return
+        if (requestCode != pickRequest && requestCode != createRequest &&
+            requestCode != pickTreeRequest
+        ) {
+            return
+        }
         val res = pendingResult ?: return
         pendingResult = null
         val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
@@ -121,6 +153,55 @@ class MainActivity : FlutterActivity() {
                 )
             } catch (_: Exception) {}
         }
+        if (uri != null && requestCode == pickTreeRequest) {
+            // Folder grant survives restarts; WRITE is included so the phone
+            // batch export can render into the same folder later.
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            } catch (_: Exception) {}
+        }
         res.success(uri?.toString())
+    }
+
+    // The tree's direct children that look like WAV files, by NAME — USB
+    // sticks report application/octet-stream, so MIME is useless here.
+    private fun listWavChildren(treeUri: Uri): List<Map<String, Any?>> {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri),
+        )
+        val entries = mutableListOf<Map<String, Any?>>()
+        contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            ),
+            null, null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val name = c.getString(1) ?: continue
+                if (!name.lowercase().endsWith(".wav")) continue
+                val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                    treeUri,
+                    c.getString(0),
+                )
+                entries.add(
+                    mapOf(
+                        "uri" to docUri.toString(),
+                        "name" to name,
+                        "size" to c.getLong(2),
+                        "modified" to c.getLong(3),
+                    ),
+                )
+            }
+        }
+        return entries
     }
 }

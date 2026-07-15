@@ -58,6 +58,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiPlayerState dco_decode_api_player_state(dynamic raw);
 
   @protected
+  ApiProbe dco_decode_api_probe(dynamic raw);
+
+  @protected
   ApiRenderReport dco_decode_api_render_report(dynamic raw);
 
   @protected
@@ -180,6 +183,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiPlayerState sse_decode_api_player_state(SseDeserializer deserializer);
+
+  @protected
+  ApiProbe sse_decode_api_probe(SseDeserializer deserializer);
 
   @protected
   ApiRenderReport sse_decode_api_render_report(SseDeserializer deserializer);
@@ -321,6 +327,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ApiPlayerState self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_api_probe(ApiProbe self, SseSerializer serializer);
 
   @protected
   void sse_encode_api_render_report(

@@ -29,6 +29,21 @@ class Saf {
   static Future<String?> displayName(String uri) =>
       _channel.invokeMethod<String>('displayName', {'uri': uri});
 
+  // ── folder access (in-app WAV browser) ───────────────────────────────────
+
+  /// Pick a folder via ACTION_OPEN_DOCUMENT_TREE; the grant persists across
+  /// app restarts. Returns the tree URI or null.
+  static Future<String?> pickDirectory() =>
+      _channel.invokeMethod<String>('pickDirectory');
+
+  /// The tree's direct children that end in .wav:
+  /// `{uri, name, size, modified}` maps (modified = epoch millis).
+  static Future<List<Map<Object?, Object?>>> listDirectory(String treeUri) async {
+    final raw = await _channel
+        .invokeListMethod<Map<Object?, Object?>>('listDirectory', {'uri': treeUri});
+    return raw ?? const [];
+  }
+
   // ── export foreground service ─────────────────────────────────────────────
   // Renders take minutes on a phone; the service keeps the process alive
   // when the app is backgrounded and mirrors progress as a notification.

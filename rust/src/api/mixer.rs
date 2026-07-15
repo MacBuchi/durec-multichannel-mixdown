@@ -15,7 +15,7 @@ use durecmix_engine::playback::Player;
 use durecmix_engine::render::{self, LoudnessMode, OutputFormat, RenderSettings};
 use durecmix_engine::session::Session;
 use durecmix_engine::sink::OutputHandle;
-use durecmix_engine::wav::InputHandle;
+use durecmix_engine::wav::{self, InputHandle};
 
 /// Prefer the raw fd when the platform provided one (Android SAF), else the
 /// path. The path is still passed for display/session purposes.
@@ -116,6 +116,18 @@ pub struct RecordingInfo {
     pub tracks: Vec<ApiTrack>,
     /// Master settings restored from the session (defaults for a fresh take).
     pub master: ApiMaster,
+}
+
+/// Lightweight file metadata for the in-app WAV browser: header parse only
+/// (no audio scan, no session I/O) — cheap even on slow USB media.
+pub struct ApiProbe {
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub bits_per_sample: u16,
+    pub num_frames: u64,
+    pub duration_seconds: f64,
+    /// Number of iXML track entries; 0 when the file carries no iXML.
+    pub ixml_track_count: u32,
 }
 
 pub struct ApiRenderReport {
@@ -279,6 +291,20 @@ fn to_master_params(m: &ApiMaster) -> MasterParams {
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
 /// next to the WAV, from before sessions moved into the app container).
+/// Probe a WAV without loading a session or scanning audio — used by the
+/// in-app browser to annotate directory listings.
+pub fn probe_recording(path: String, fd: Option<i32>) -> anyhow::Result<ApiProbe> {
+    let info = wav::probe(&input_handle(&path, fd)).with_context(|| format!("probe {path}"))?;
+    Ok(ApiProbe {
+        channels: info.channels,
+        sample_rate: info.sample_rate,
+        bits_per_sample: info.bits_per_sample,
+        num_frames: info.num_frames,
+        duration_seconds: info.duration_seconds,
+        ixml_track_count: info.ixml_track_count,
+    })
+}
+
 pub fn load_recording(
     path: String,
     session_path: String,

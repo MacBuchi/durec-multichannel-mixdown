@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1964675015;
+  int get rustContentHash => -293542678;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -113,6 +113,8 @@ abstract class RustLibApi extends BaseApi {
     required List<ApiTrack> tracks,
     required ApiMaster master,
   });
+
+  Future<ApiProbe> crateApiMixerProbeRecording({required String path, int? fd});
 
   Stream<RenderEvent> crateApiMixerRenderMix({
     required String wavPath,
@@ -414,6 +416,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<ApiProbe> crateApiMixerProbeRecording({
+    required String path,
+    int? fd,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          sse_encode_opt_box_autoadd_i_32(fd, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_api_probe,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMixerProbeRecordingConstMeta,
+        argValues: [path, fd],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerProbeRecordingConstMeta =>
+      const TaskConstMeta(
+        debugName: "probe_recording",
+        argNames: ["path", "fd"],
+      );
+
+  @override
   Stream<RenderEvent> crateApiMixerRenderMix({
     required String wavPath,
     required String outPath,
@@ -438,7 +475,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 10,
+              funcId: 11,
               port: port_,
             );
           },
@@ -492,7 +529,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -635,6 +672,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lufsIntegrated: dco_decode_f_32(arr[5]),
       truePeak: dco_decode_f_32(arr[6]),
       correlation: dco_decode_f_32(arr[7]),
+    );
+  }
+
+  @protected
+  ApiProbe dco_decode_api_probe(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return ApiProbe(
+      channels: dco_decode_u_16(arr[0]),
+      sampleRate: dco_decode_u_32(arr[1]),
+      bitsPerSample: dco_decode_u_16(arr[2]),
+      numFrames: dco_decode_u_64(arr[3]),
+      durationSeconds: dco_decode_f_64(arr[4]),
+      ixmlTrackCount: dco_decode_u_32(arr[5]),
     );
   }
 
@@ -993,6 +1046,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lufsIntegrated: var_lufsIntegrated,
       truePeak: var_truePeak,
       correlation: var_correlation,
+    );
+  }
+
+  @protected
+  ApiProbe sse_decode_api_probe(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_channels = sse_decode_u_16(deserializer);
+    var var_sampleRate = sse_decode_u_32(deserializer);
+    var var_bitsPerSample = sse_decode_u_16(deserializer);
+    var var_numFrames = sse_decode_u_64(deserializer);
+    var var_durationSeconds = sse_decode_f_64(deserializer);
+    var var_ixmlTrackCount = sse_decode_u_32(deserializer);
+    return ApiProbe(
+      channels: var_channels,
+      sampleRate: var_sampleRate,
+      bitsPerSample: var_bitsPerSample,
+      numFrames: var_numFrames,
+      durationSeconds: var_durationSeconds,
+      ixmlTrackCount: var_ixmlTrackCount,
     );
   }
 
@@ -1386,6 +1458,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_32(self.lufsIntegrated, serializer);
     sse_encode_f_32(self.truePeak, serializer);
     sse_encode_f_32(self.correlation, serializer);
+  }
+
+  @protected
+  void sse_encode_api_probe(ApiProbe self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.channels, serializer);
+    sse_encode_u_32(self.sampleRate, serializer);
+    sse_encode_u_16(self.bitsPerSample, serializer);
+    sse_encode_u_64(self.numFrames, serializer);
+    sse_encode_f_64(self.durationSeconds, serializer);
+    sse_encode_u_32(self.ixmlTrackCount, serializer);
   }
 
   @protected

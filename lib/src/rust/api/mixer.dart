@@ -11,6 +11,11 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
 /// next to the WAV, from before sessions moved into the app container).
+/// Probe a WAV without loading a session or scanning audio — used by the
+/// in-app browser to annotate directory listings.
+Future<ApiProbe> probeRecording({required String path, int? fd}) =>
+    RustLib.instance.api.crateApiMixerProbeRecording(path: path, fd: fd);
+
 Future<RecordingInfo> loadRecording({
   required String path,
   required String sessionPath,
@@ -307,6 +312,49 @@ class ApiPlayerState {
           lufsIntegrated == other.lufsIntegrated &&
           truePeak == other.truePeak &&
           correlation == other.correlation;
+}
+
+/// Lightweight file metadata for the in-app WAV browser: header parse only
+/// (no audio scan, no session I/O) — cheap even on slow USB media.
+class ApiProbe {
+  final int channels;
+  final int sampleRate;
+  final int bitsPerSample;
+  final BigInt numFrames;
+  final double durationSeconds;
+
+  /// Number of iXML track entries; 0 when the file carries no iXML.
+  final int ixmlTrackCount;
+
+  const ApiProbe({
+    required this.channels,
+    required this.sampleRate,
+    required this.bitsPerSample,
+    required this.numFrames,
+    required this.durationSeconds,
+    required this.ixmlTrackCount,
+  });
+
+  @override
+  int get hashCode =>
+      channels.hashCode ^
+      sampleRate.hashCode ^
+      bitsPerSample.hashCode ^
+      numFrames.hashCode ^
+      durationSeconds.hashCode ^
+      ixmlTrackCount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiProbe &&
+          runtimeType == other.runtimeType &&
+          channels == other.channels &&
+          sampleRate == other.sampleRate &&
+          bitsPerSample == other.bitsPerSample &&
+          numFrames == other.numFrames &&
+          durationSeconds == other.durationSeconds &&
+          ixmlTrackCount == other.ixmlTrackCount;
 }
 
 class ApiRenderReport {
