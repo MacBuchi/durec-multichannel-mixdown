@@ -49,3 +49,6 @@ app.*.map.json
 
 # DurecMix session files created during local testing
 *.durecmix.json
+
+# Local signing secrets (see secrets/README.md) — never tracked
+/secrets/
