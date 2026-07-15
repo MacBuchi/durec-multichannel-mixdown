@@ -294,8 +294,7 @@ fn to_master_params(m: &ApiMaster) -> MasterParams {
 /// Probe a WAV without loading a session or scanning audio — used by the
 /// in-app browser to annotate directory listings.
 pub fn probe_recording(path: String, fd: Option<i32>) -> anyhow::Result<ApiProbe> {
-    let info =
-        wav::probe(&input_handle(&path, fd)).with_context(|| format!("probe {path}"))?;
+    let info = wav::probe(&input_handle(&path, fd)).with_context(|| format!("probe {path}"))?;
     Ok(ApiProbe {
         channels: info.channels,
         sample_rate: info.sample_rate,
