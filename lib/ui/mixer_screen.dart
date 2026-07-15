@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -7,9 +8,12 @@ import 'package:flutter/material.dart';
 import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
+import '../state/app_settings.dart';
 import '../state/mixer_state.dart';
+import '../state/wav_browser.dart';
 import 'meters.dart';
 import 'track_strip.dart';
+import 'wav_browser_page.dart';
 
 class MixerScreen extends StatefulWidget {
   const MixerScreen({super.key});
@@ -27,7 +31,46 @@ class _MixerScreenState extends State<MixerScreen> {
     super.dispose();
   }
 
-  Future<void> _openFile() async {
+  WavBrowser? _browser;
+
+  /// Default open flow: the in-app WAV browser (Android + desktop). iOS
+  /// keeps the system picker until folder access lands there.
+  Future<void> _openFile() =>
+      IosFiles.isAvailable ? _openSystemPicker() : _openBrowser();
+
+  Future<void> _openBrowser() async {
+    final settings = await AppSettings.load();
+    final browser = _browser ??= WavBrowser(settings);
+    if (browser.folder == null) {
+      final last = settings.lastFolder;
+      if (last != null) {
+        // Fire and forget: the page renders the listing as it arrives. A
+        // stale grant (e.g. macOS sandbox after relaunch) surfaces as an
+        // in-page error with a "choose folder" button.
+        unawaited(browser.openFolder(last));
+      } else {
+        final picked = await browser.pickFolder();
+        if (picked == null) return;
+        unawaited(browser.openFolder(picked));
+      }
+    }
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<Object>(
+      MaterialPageRoute(
+        builder: (_) => WavBrowserPage(
+          browser: browser,
+          currentSource: state.recording?.path,
+        ),
+      ),
+    );
+    if (result is WavEntry) {
+      await state.open(result.source, name: result.name);
+    } else if (result == useSystemPicker) {
+      await _openSystemPicker();
+    }
+  }
+
+  Future<void> _openSystemPicker() async {
     if (Saf.isAvailable) {
       // Android: SAF returns a content URI; the engine reads it through raw
       // fds without ever copying the multi-GB file.
@@ -214,10 +257,32 @@ class _MixerScreenState extends State<MixerScreen> {
         final rec = state.recording;
         return Scaffold(
           appBar: AppBar(
-            title: Text(
-              rec == null ? 'DurecMix' : (state.displayName ?? rec.path.split('/').last),
-              style: const TextStyle(fontSize: 16),
-            ),
+            // Tapping the loaded file's name reopens the browser — the fast
+            // path for switching between takes of the same folder.
+            title: rec == null
+                ? const Text('DurecMix', style: TextStyle(fontSize: 16))
+                : Tooltip(
+                    message: 'Switch recording',
+                    child: InkWell(
+                      onTap: _openFile,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              state.displayName ?? rec.path.split('/').last,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.expand_more,
+                              size: 18, color: Colors.white54),
+                        ],
+                      ),
+                    ),
+                  ),
             actions: narrow ? _narrowActions(rec) : [
               if (rec != null) ...[
                 _loudnessSelector(),
