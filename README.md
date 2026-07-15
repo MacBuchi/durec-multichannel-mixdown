@@ -71,7 +71,7 @@ rust_builder/    cargokit glue that builds the Rust crate inside flutter build
 - **iOS** — Files-app import in place (security-scoped, zero copying); exports land wherever Files can reach (iCloud, USB drive)
 - **Phone UI** — compact app bar and transport on narrow screens
 
-Binaries for macOS, Windows and Android are attached to each [GitHub Release](../../releases).
+Binaries for macOS, Windows and Android are attached to each [GitHub Release](../../releases). Since v0.7.2 the APK is signed with a stable key, so a downloaded APK updates an existing installation in place (coming **from** v0.7.1 or older requires one final uninstall — those builds carried throwaway signatures).
 
 ### Roadmap
 
