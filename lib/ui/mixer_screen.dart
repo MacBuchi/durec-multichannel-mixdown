@@ -706,6 +706,11 @@ class _MixerScreenState extends State<MixerScreen> {
         onPressed: state.togglePlay,
         icon: Icon(state.playing ? Icons.stop : Icons.play_arrow),
       ),
+      const SizedBox(width: 6),
+      // The logo doubles as the "signal is flowing" light: still when
+      // stopped, channels swinging while the mix plays.
+      AnimatedLogo(size: 30, animate: state.playing, amplitude: 90),
+      const SizedBox(width: 2),
       IconButton(
         tooltip: 'Set trim-in at playhead (long-press to clear)',
         onPressed: () => state.setTrimStart(state.positionSeconds),
