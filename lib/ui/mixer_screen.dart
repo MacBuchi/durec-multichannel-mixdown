@@ -90,6 +90,8 @@ class _MixerScreenState extends State<MixerScreen> {
             customLufs: state.customLufs,
             format: state.format,
           ),
+          onPickLoudness: _pickLoudnessDialog,
+          onPickFormat: _pickFormatDialog,
         ),
       ),
     );
@@ -276,7 +278,7 @@ class _MixerScreenState extends State<MixerScreen> {
           .map((f) => DropdownMenuItem(
               value: f,
               child:
-                  Text(_formatLabels[f]!, style: const TextStyle(fontSize: 13))))
+                  Text(formatLabels[f]!, style: const TextStyle(fontSize: 13))))
           .toList(),
       onChanged: (f) =>
           f != null ? setDialogState(() => job.format = f) : null,
@@ -445,7 +447,7 @@ class _MixerScreenState extends State<MixerScreen> {
                 child: Text('Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}')),
             PopupMenuItem(
                 value: 'format',
-                child: Text('Format: ${_formatLabels[state.format]}')),
+                child: Text('Format: ${formatLabels[state.format]}')),
             if (_batchAvailable)
               const PopupMenuItem(value: 'batch', child: Text('Batch export…')),
             for (final slot in ['A', 'B']) ...[
@@ -535,7 +537,7 @@ class _MixerScreenState extends State<MixerScreen> {
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(f),
               child: Text(
-                _formatLabels[f]!,
+                formatLabels[f]!,
                 style: TextStyle(
                   fontWeight:
                       f == state.format ? FontWeight.bold : FontWeight.normal,
@@ -851,21 +853,14 @@ class _MixerScreenState extends State<MixerScreen> {
       value: state.format,
       underline: const SizedBox.shrink(),
       items: rust.ApiFormat.values
-          .map((f) => DropdownMenuItem(value: f, child: Text(_formatLabels[f]!)))
+          .map((f) => DropdownMenuItem(value: f, child: Text(formatLabels[f]!)))
           .toList(),
       onChanged: (f) => f != null ? state.setFormat(f) : null,
     );
   }
 }
 
-const _formatLabels = {
-  rust.ApiFormat.wav16: 'WAV 16',
-  rust.ApiFormat.wav24: 'WAV 24',
-  rust.ApiFormat.wav32Float: 'WAV 32f',
-  rust.ApiFormat.flac16: 'FLAC 16',
-  rust.ApiFormat.flac24: 'FLAC 24',
-  rust.ApiFormat.mp3: 'MP3 320',
-};
+
 
 String _fmtLufs(double v) => v <= -70 ? '−∞' : v.toStringAsFixed(1);
 

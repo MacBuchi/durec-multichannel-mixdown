@@ -29,6 +29,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// `flutter test integration_test -d macos --dart-define=SCREENSHOTS=true`
 /// additionally renders the documentation screenshots (docs/screenshots/)
@@ -195,6 +196,13 @@ void main() {
     expect(state.loudness, LoudnessChoice.lufsCustom);
     expect(state.customLufs, -17.5);
 
+    // Analysis cache: the first open persisted waveforms+BPM; the reopen
+    // above served them from disk without an analyzing phase.
+    final support = await getApplicationSupportDirectory();
+    expect(Directory('${support.path}/analysis').listSync(), isNotEmpty);
+    expect(state.analyzing, isFalse);
+    expect(state.waveforms, isNotNull);
+
     // Phone layout: a narrow window collapses the app-bar selectors into
     // the overflow menu (Export stays a direct button).
     tester.view.physicalSize = const Size(480, 800);
@@ -288,6 +296,21 @@ void main() {
     expect(sel['fixture_2ch.wav'], isFalse);
     expect(find.text('1 selected'), findsOneWidget);
 
+    // The export target is visible and changeable right in selection mode:
+    // switching the format flips the name-field extension live.
+    expect(find.text('Export target:'), findsOneWidget);
+    expect(find.text('-17.5 LUFS'), findsOneWidget);
+    await tester.tap(find.text('WAV 24')); // format chip
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MP3 320')); // dialog option
+    await tester.pumpAndSettle();
+    expect(find.text('.mp3'), findsOneWidget); // suffix of the one name field
+    await tester.tap(find.text('MP3 320')); // chip again
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('WAV 24')); // back to WAV for the batch below
+    await tester.pumpAndSettle();
+    expect(find.text('.wav'), findsOneWidget);
+
     // In selection mode a row TAP toggles the tick (list convention)…
     await tester.tap(find.descendant(
         of: find.byType(WavBrowserPage),
@@ -301,6 +324,10 @@ void main() {
         find.widgetWithText(TextField, 'fixture_4ch'), 'MeinMix');
     await tester.pump();
 
+    // Name collisions must not overwrite: pre-plant the target name.
+    Directory('${tempDir.path}/Mixdown').createSync();
+    File('${tempDir.path}/Mixdown/MeinMix.wav').writeAsBytesSync(const [0]);
+
     await tester.tap(find.textContaining('Export (2)'));
     for (var i = 0;
         i < 300 && !tester.any(find.textContaining('exported to Mixdown'));
@@ -310,11 +337,12 @@ void main() {
     expect(find.textContaining('2 mixdowns exported'), findsOneWidget);
 
     final mixdownDir = Directory('${tempDir.path}/Mixdown');
-    expect(mixdownDir.existsSync(), isTrue);
     final mixdowns =
         mixdownDir.listSync().map((f) => f.path.split('/').last).toSet();
-    expect(mixdowns, {'MeinMix.wav', 'fixture_2ch.wav'});
-    for (final name in mixdowns) {
+    // The planted dummy survives untouched; the render deduplicated to (1).
+    expect(mixdowns, {'MeinMix.wav', 'MeinMix (1).wav', 'fixture_2ch.wav'});
+    expect(File('${mixdownDir.path}/MeinMix.wav').lengthSync(), 1);
+    for (final name in ['MeinMix (1).wav', 'fixture_2ch.wav']) {
       final p = await rust.probeRecording(path: '${mixdownDir.path}/$name');
       expect(p.channels, 2); // every output is a stereo render
     }

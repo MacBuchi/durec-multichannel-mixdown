@@ -144,11 +144,17 @@ class MultiExportRunner extends ChangeNotifier {
         String outTarget;
         int? outputFd;
         if (isSaf) {
+          // SAF providers de-duplicate colliding names themselves.
           outTarget = await Saf.createFileInDirectory(
               outDir, outName, _mime(config.format));
           outputFd = await Saf.openFd(outTarget, mode: 'rwt');
         } else {
+          // Match that behaviour on desktop instead of silently overwriting.
           outTarget = '$outDir/$outName';
+          var n = 1;
+          while (File(outTarget).existsSync()) {
+            outTarget = '$outDir/$stem (${n++})${extensionFor(config.format)}';
+          }
         }
 
         var lastPct = -1;
