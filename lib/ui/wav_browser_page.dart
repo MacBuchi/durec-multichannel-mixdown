@@ -33,13 +33,21 @@ class WavBrowserPage extends StatefulWidget {
 
 class _WavBrowserPageState extends State<WavBrowserPage> {
   final MultiExportRunner _runner = MultiExportRunner();
+  final Map<String, TextEditingController> _stemControllers = {};
 
   @override
   void dispose() {
     widget.browser.cancel();
     _runner.dispose();
+    for (final c in _stemControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
+
+  TextEditingController _stemController(WavEntry e) =>
+      _stemControllers.putIfAbsent(e.source,
+          () => TextEditingController(text: e.outputStem ?? e.defaultStem));
 
   Future<void> _exportSelected() async {
     final config = widget.exportConfig?.call();
@@ -62,59 +70,92 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     return ListenableBuilder(
       listenable: Listenable.merge([b, _runner]),
       builder: (context, _) => PopScope(
-        canPop: !_runner.running,
+        // Back leaves selection mode first; while rendering it stays put.
+        canPop: !_runner.running && !b.selectionMode,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && b.selectionMode && !_runner.running) {
+            b.exitSelectionMode();
+          }
+        },
         child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            b.folderName == null ? 'Open recording' : b.folderName!,
-            style: const TextStyle(fontSize: 16),
-          ),
-          actions: [
-            if (_runner.running)
-              FilledButton.icon(
-                onPressed: _runner.cancel,
-                icon: const Icon(Icons.stop, size: 16),
-                label: Text('${_runner.current}/${_runner.total}'),
-              )
-            else if (b.selectedEntries.isNotEmpty &&
-                widget.exportConfig != null)
-              Tooltip(
-                message: 'Render the ticked takes with the current mix into '
-                    'the Mixdown folder',
-                child: FilledButton.icon(
-                  onPressed: _exportSelected,
-                  icon: const Icon(Icons.save_alt, size: 16),
-                  label: Text('Export (${b.selectedEntries.length})'),
-                ),
-              ),
-            const SizedBox(width: 4),
-            IconButton(
-              tooltip: b.sortByDate ? 'Sorted newest first' : 'Sorted by name',
-              onPressed: b.toggleSort,
-              icon: Icon(
-                b.sortByDate ? Icons.schedule : Icons.sort_by_alpha,
-                size: 20,
-              ),
-            ),
-            IconButton(
-              tooltip: 'Choose a different folder',
-              onPressed: _changeFolder,
-              icon: const Icon(Icons.drive_folder_upload, size: 20),
-            ),
-            PopupMenuButton<String>(
-              onSelected: (v) => Navigator.of(context).pop(v),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: useSystemPicker,
-                  child: Text('Use system picker…'),
-                ),
-              ],
-            ),
-          ],
-        ),
+          appBar: b.selectionMode ? _selectionAppBar(b) : _browseAppBar(b),
           body: _body(b),
         ),
       ),
+    );
+  }
+
+  /// Default mode: a plain file list — tap opens the take in the mixer.
+  AppBar _browseAppBar(WavBrowser b) {
+    return AppBar(
+      title: Text(
+        b.folderName == null ? 'Open recording' : b.folderName!,
+        style: const TextStyle(fontSize: 16),
+      ),
+      actions: [
+        if (widget.exportConfig != null && b.entries.isNotEmpty)
+          IconButton(
+            tooltip: 'Export multiple takes…',
+            onPressed: b.enterSelectionMode,
+            icon: const Icon(Icons.checklist, size: 20),
+          ),
+        IconButton(
+          tooltip: b.sortByDate ? 'Sorted newest first' : 'Sorted by name',
+          onPressed: b.toggleSort,
+          icon: Icon(
+            b.sortByDate ? Icons.schedule : Icons.sort_by_alpha,
+            size: 20,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Choose a different folder',
+          onPressed: _changeFolder,
+          icon: const Icon(Icons.drive_folder_upload, size: 20),
+        ),
+        PopupMenuButton<String>(
+          onSelected: (v) => Navigator.of(context).pop(v),
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: useSystemPicker,
+              child: Text('Use system picker…'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Selection mode: pick takes, edit output names, run the export.
+  AppBar _selectionAppBar(WavBrowser b) {
+    return AppBar(
+      leading: IconButton(
+        tooltip: 'Done selecting',
+        onPressed: _runner.running ? null : b.exitSelectionMode,
+        icon: const Icon(Icons.close),
+      ),
+      title: Text(
+        '${b.selectedEntries.length} selected',
+        style: const TextStyle(fontSize: 16),
+      ),
+      actions: [
+        if (_runner.running)
+          FilledButton.icon(
+            onPressed: _runner.cancel,
+            icon: const Icon(Icons.stop, size: 16),
+            label: Text('${_runner.current}/${_runner.total}'),
+          )
+        else if (b.selectedEntries.isNotEmpty)
+          Tooltip(
+            message: 'Render the ticked takes with the current mix into '
+                'the Mixdown folder',
+            child: FilledButton.icon(
+              onPressed: _exportSelected,
+              icon: const Icon(Icons.save_alt, size: 16),
+              label: Text('Export (${b.selectedEntries.length})'),
+            ),
+          ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 
@@ -201,16 +242,23 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   }
 
   Widget _row(WavEntry e) {
+    final b = widget.browser;
     final isCurrent = e.source == widget.currentSource;
+    final mode = b.selectionMode;
     return ListTile(
       enabled: e.probeError == null && !_runner.running,
-      leading: Checkbox(
-        value: e.selected,
-        onChanged: e.probe == null || _runner.running
-            ? null
-            : (_) => widget.browser.toggleSelected(e),
-        visualDensity: VisualDensity.compact,
-      ),
+      leading: mode
+          ? Checkbox(
+              value: e.selected,
+              onChanged: e.probe == null || _runner.running
+                  ? null
+                  : (_) => b.toggleSelected(e),
+              visualDensity: VisualDensity.compact,
+            )
+          : null,
+      trailing: mode
+          ? null
+          : const Icon(Icons.chevron_right, size: 18, color: Colors.white38),
       title: Row(children: [
         Flexible(
           child: Text(
@@ -228,7 +276,41 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
         ],
       ]),
       subtitle: _subtitle(e),
-      onTap: () => Navigator.of(context).pop(e),
+      // Selection mode follows list-selection convention: tapping the row
+      // toggles the tick; outside it, tapping opens the take in the mixer.
+      onTap: mode
+          ? () {
+              if (e.probe != null && !_runner.running) b.toggleSelected(e);
+            }
+          : () => Navigator.of(context).pop(e),
+    );
+  }
+
+  /// Output-name editor shown under a ticked row in selection mode: the
+  /// stem is editable, the extension follows the chosen format, and the
+  /// original file name sits underneath for reference.
+  Widget _nameField(WavEntry e) {
+    final format = widget.exportConfig?.call().format;
+    final ext = format != null ? MultiExportRunner.extensionFor(format) : '.wav';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _stemController(e),
+          onChanged: (v) => e.outputStem = v,
+          enabled: !_runner.running,
+          style: const TextStyle(fontSize: 13),
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 4),
+            suffixText: ext,
+            suffixStyle: const TextStyle(fontSize: 13, color: Colors.white38),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(e.name,
+            style: const TextStyle(fontSize: 11, color: Colors.white38)),
+      ],
     );
   }
 
@@ -258,6 +340,9 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     if (e.probeError != null) {
       return Text('Not readable as WAV',
           style: TextStyle(fontSize: 12, color: Colors.redAccent.shade100));
+    }
+    if (widget.browser.selectionMode && e.selected) {
+      return _nameField(e);
     }
     final probe = e.probe;
     if (probe == null) {
