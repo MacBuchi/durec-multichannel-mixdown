@@ -76,6 +76,48 @@ class MainActivity : FlutterActivity() {
                             }
                         }.start()
                     }
+                    // Multi-file export: create the Mixdown/ subfolder and
+                    // output files inside the granted tree, and hand the
+                    // finished mixdowns to the system share sheet.
+                    "ensureDirectory" -> {
+                        try {
+                            val treeUri = Uri.parse(call.argument<String>("uri"))
+                            val name = call.argument<String>("name") ?: "Mixdown"
+                            result.success(ensureDirectory(treeUri, name).toString())
+                        } catch (e: Exception) {
+                            result.error("mkdir_failed", e.message, null)
+                        }
+                    }
+                    "createFileInDirectory" -> {
+                        try {
+                            val dirUri = Uri.parse(call.argument<String>("dirUri"))
+                            val name = call.argument<String>("name") ?: "mix.wav"
+                            val mime = call.argument<String>("mime") ?: "audio/x-wav"
+                            val created = DocumentsContract.createDocument(
+                                contentResolver, dirUri, mime, name,
+                            ) ?: throw IllegalStateException("createDocument returned null")
+                            result.success(created.toString())
+                        } catch (e: Exception) {
+                            result.error("create_failed", e.message, null)
+                        }
+                    }
+                    "shareFiles" -> {
+                        try {
+                            val uris = ArrayList(
+                                (call.argument<List<String>>("uris") ?: emptyList())
+                                    .map(Uri::parse),
+                            )
+                            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                type = call.argument<String>("mime") ?: "audio/*"
+                                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(intent, "Share mixdowns"))
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("share_failed", e.message, null)
+                        }
+                    }
                     "openFd" -> {
                         try {
                             val uri = Uri.parse(call.argument<String>("uri"))
@@ -165,6 +207,41 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {}
         }
         res.success(uri?.toString())
+    }
+
+    // Find (or create) a direct subdirectory of the granted tree — the
+    // Mixdown/ output folder for multi-file export.
+    private fun ensureDirectory(treeUri: Uri, name: String): Uri {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri),
+        )
+        contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            ),
+            null, null, null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == name &&
+                    c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR
+                ) {
+                    return DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri, c.getString(0),
+                    )
+                }
+            }
+        }
+        val parent = DocumentsContract.buildDocumentUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri),
+        )
+        return DocumentsContract.createDocument(
+            contentResolver, parent, DocumentsContract.Document.MIME_TYPE_DIR, name,
+        ) ?: throw IllegalStateException("could not create $name directory")
     }
 
     // The tree's direct children that look like WAV files, by NAME — USB

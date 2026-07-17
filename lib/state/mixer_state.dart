@@ -664,33 +664,14 @@ class MixerState extends ChangeNotifier {
     LoudnessChoice? loudness,
     double? customLufs,
     rust.ApiFormat? format,
-  }) {
-    final l = loudness ?? this.loudness;
-    final cl = customLufs ?? this.customLufs;
-    final f = format ?? this.format;
-    final ext = switch (f) {
-      rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'flac',
-      rust.ApiFormat.mp3 => 'mp3',
-      _ => 'wav',
-    };
-    final base = (displayName ?? recording!.path.split('/').last)
-        .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
-    final target = switch (l) {
-      LoudnessChoice.none => 'raw',
-      LoudnessChoice.peakMinus1 => '1dBFS',
-      LoudnessChoice.lufs14 => '14LUFS',
-      LoudnessChoice.lufs16 => '16LUFS',
-      LoudnessChoice.lufs23 => '23LUFS',
-      LoudnessChoice.lufsCustom =>
-        '${cl.abs().toStringAsFixed(1).replaceAll('.0', '')}LUFS',
-    };
-    final bpmPart = bpm != null ? '_${bpm!.round()}BPM' : '';
-    final now = DateTime.now();
-    String two(int v) => v.toString().padLeft(2, '0');
-    final stamp = '${now.year}${two(now.month)}${two(now.day)}'
-        '_${two(now.hour)}${two(now.minute)}${two(now.second)}';
-    return '${base}_$target${bpmPart}_$stamp.$ext';
-  }
+  }) =>
+      suggestedExportName(
+        baseName: displayName ?? recording!.path.split('/').last,
+        loudness: loudness ?? this.loudness,
+        customLufs: customLufs ?? this.customLufs,
+        format: format ?? this.format,
+        bpm: bpm,
+      );
 
   void setLoudness(LoudnessChoice c) {
     loudness = c;
@@ -711,6 +692,39 @@ class MixerState extends ChangeNotifier {
     if (playing) rust.playerStop();
     super.dispose();
   }
+}
+
+/// Output name matching the Python tool's pattern:
+/// `<take>_<target>_<bpm>BPM_<yyyyMMdd_HHmmss>.<ext>`. Shared by the
+/// single-file export, the format queue, and the multi-file export.
+String suggestedExportName({
+  required String baseName,
+  required LoudnessChoice loudness,
+  required double customLufs,
+  required rust.ApiFormat format,
+  double? bpm,
+}) {
+  final ext = switch (format) {
+    rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'flac',
+    rust.ApiFormat.mp3 => 'mp3',
+    _ => 'wav',
+  };
+  final base = baseName.replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
+  final target = switch (loudness) {
+    LoudnessChoice.none => 'raw',
+    LoudnessChoice.peakMinus1 => '1dBFS',
+    LoudnessChoice.lufs14 => '14LUFS',
+    LoudnessChoice.lufs16 => '16LUFS',
+    LoudnessChoice.lufs23 => '23LUFS',
+    LoudnessChoice.lufsCustom =>
+      '${customLufs.abs().toStringAsFixed(1).replaceAll('.0', '')}LUFS',
+  };
+  final bpmPart = bpm != null ? '_${bpm.round()}BPM' : '';
+  final now = DateTime.now();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final stamp = '${now.year}${two(now.month)}${two(now.day)}'
+      '_${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  return '${base}_$target${bpmPart}_$stamp.$ext';
 }
 
 /// One batch-export output target; the mix itself always comes from the

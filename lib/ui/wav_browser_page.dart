@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../io/saf.dart';
+import '../state/batch_export.dart';
 import '../state/wav_browser.dart';
 
 /// Returned from the browser when the user wants the OS picker instead
@@ -10,22 +12,41 @@ const useSystemPicker = 'use-system-picker';
 /// probed metadata (channels · rate · bits · duration · iXML tracks) so
 /// DUREC takes are distinguishable at a glance. Pops the tapped [WavEntry].
 class WavBrowserPage extends StatefulWidget {
-  const WavBrowserPage({super.key, required this.browser, this.currentSource});
+  const WavBrowserPage({
+    super.key,
+    required this.browser,
+    this.currentSource,
+    this.exportConfig,
+  });
 
   final WavBrowser browser;
 
   /// Source of the currently loaded recording (gets the check mark).
   final String? currentSource;
 
+  /// Current mixer settings for the multi-file export, captured on tap.
+  final MultiExportConfig Function()? exportConfig;
+
   @override
   State<WavBrowserPage> createState() => _WavBrowserPageState();
 }
 
 class _WavBrowserPageState extends State<WavBrowserPage> {
+  final MultiExportRunner _runner = MultiExportRunner();
+
   @override
   void dispose() {
     widget.browser.cancel();
+    _runner.dispose();
     super.dispose();
+  }
+
+  Future<void> _exportSelected() async {
+    final config = widget.exportConfig?.call();
+    final folder = widget.browser.folder;
+    if (config == null || folder == null) return;
+    widget.browser.cancel(); // stop metadata probes while rendering
+    await _runner.run(widget.browser.selectedEntries, folder, config);
   }
 
   Future<void> _changeFolder() async {
@@ -39,14 +60,34 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   Widget build(BuildContext context) {
     final b = widget.browser;
     return ListenableBuilder(
-      listenable: b,
-      builder: (context, _) => Scaffold(
+      listenable: Listenable.merge([b, _runner]),
+      builder: (context, _) => PopScope(
+        canPop: !_runner.running,
+        child: Scaffold(
         appBar: AppBar(
           title: Text(
             b.folderName == null ? 'Open recording' : b.folderName!,
             style: const TextStyle(fontSize: 16),
           ),
           actions: [
+            if (_runner.running)
+              FilledButton.icon(
+                onPressed: _runner.cancel,
+                icon: const Icon(Icons.stop, size: 16),
+                label: Text('${_runner.current}/${_runner.total}'),
+              )
+            else if (b.selectedEntries.isNotEmpty &&
+                widget.exportConfig != null)
+              Tooltip(
+                message: 'Render the ticked takes with the current mix into '
+                    'the Mixdown folder',
+                child: FilledButton.icon(
+                  onPressed: _exportSelected,
+                  icon: const Icon(Icons.save_alt, size: 16),
+                  label: Text('Export (${b.selectedEntries.length})'),
+                ),
+              ),
+            const SizedBox(width: 4),
             IconButton(
               tooltip: b.sortByDate ? 'Sorted newest first' : 'Sorted by name',
               onPressed: b.toggleSort,
@@ -71,7 +112,8 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
             ),
           ],
         ),
-        body: _body(b),
+          body: _body(b),
+        ),
       ),
     );
   }
@@ -116,10 +158,44 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720),
-        child: ListView.builder(
-          itemCount: b.entries.length,
-          itemBuilder: (context, i) => _row(b.entries[i]),
-        ),
+        child: Column(children: [
+          if (!_runner.running && _runner.outputs.isNotEmpty)
+            _resultBar(),
+          Expanded(
+            child: ListView.builder(
+              itemCount: b.entries.length,
+              itemBuilder: (context, i) => _row(b.entries[i]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// After a finished run: how many mixdowns landed, and — on Android —
+  /// the hand-off to Nextcloud/Drive/WhatsApp via the system share sheet.
+  Widget _resultBar() {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Row(children: [
+          const Icon(Icons.check_circle, size: 18, color: Colors.greenAccent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${_runner.outputs.length} mixdown'
+              '${_runner.outputs.length == 1 ? '' : 's'} exported to Mixdown/',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          if (Saf.isAvailable)
+            TextButton.icon(
+              onPressed: () => Saf.shareFiles(_runner.outputs),
+              icon: const Icon(Icons.share, size: 16),
+              label: const Text('Share'),
+            ),
+        ]),
       ),
     );
   }
@@ -127,26 +203,58 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   Widget _row(WavEntry e) {
     final isCurrent = e.source == widget.currentSource;
     return ListTile(
-      enabled: e.probeError == null,
-      leading: Icon(
-        isCurrent ? Icons.check_circle : Icons.graphic_eq,
-        color: isCurrent ? Colors.lightBlueAccent : Colors.white38,
-        size: 22,
+      enabled: e.probeError == null && !_runner.running,
+      leading: Checkbox(
+        value: e.selected,
+        onChanged: e.probe == null || _runner.running
+            ? null
+            : (_) => widget.browser.toggleSelected(e),
+        visualDensity: VisualDensity.compact,
       ),
-      title: Text(
-        e.name,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: FontWeight.w500,
-          color: isCurrent ? Colors.lightBlueAccent : null,
+      title: Row(children: [
+        Flexible(
+          child: Text(
+            e.name,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              color: isCurrent ? Colors.lightBlueAccent : null,
+            ),
+          ),
         ),
-      ),
+        if (isCurrent) ...[
+          const SizedBox(width: 6),
+          const Icon(Icons.graphic_eq, size: 14, color: Colors.lightBlueAccent),
+        ],
+      ]),
       subtitle: _subtitle(e),
       onTap: () => Navigator.of(context).pop(e),
     );
   }
 
   Widget _subtitle(WavEntry e) {
+    final st = _runner.status[e.source];
+    if (st != null && st.phase != EntryPhase.pending) {
+      return switch (st.phase) {
+        EntryPhase.rendering => Row(children: [
+            Expanded(
+              child: LinearProgressIndicator(value: st.progress, minHeight: 3),
+            ),
+            const SizedBox(width: 8),
+            Text('${(st.progress * 100).round()} %',
+                style: const TextStyle(fontSize: 12, color: Colors.white54)),
+          ]),
+        EntryPhase.done => Text(
+            'exported'
+            '${st.integratedLufs != null ? ' · ${st.integratedLufs!.toStringAsFixed(1)} LUFS-I' : ''}',
+            style: const TextStyle(fontSize: 12, color: Colors.greenAccent),
+          ),
+        EntryPhase.failed => Text('failed: ${st.error}',
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: Colors.redAccent.shade100)),
+        EntryPhase.pending => const SizedBox.shrink(),
+      };
+    }
     if (e.probeError != null) {
       return Text('Not readable as WAV',
           style: TextStyle(fontSize: 12, color: Colors.redAccent.shade100));

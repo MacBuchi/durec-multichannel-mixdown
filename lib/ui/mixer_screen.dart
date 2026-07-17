@@ -9,6 +9,7 @@ import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import '../state/app_settings.dart';
+import '../state/batch_export.dart';
 import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
 import 'animated_logo.dart';
@@ -80,6 +81,15 @@ class _MixerScreenState extends State<MixerScreen> {
         builder: (_) => WavBrowserPage(
           browser: browser,
           currentSource: state.recording?.path,
+          // Captured on export tap: the current mix drives every take
+          // (mapped by track name); loudness/format from the app bar.
+          exportConfig: () => MultiExportConfig(
+            tracks: state.tracks.map((t) => t.toApi()).toList(),
+            master: state.master,
+            loudness: state.loudness,
+            customLufs: state.customLufs,
+            format: state.format,
+          ),
         ),
       ),
     );
@@ -127,6 +137,15 @@ class _MixerScreenState extends State<MixerScreen> {
       final uri = await Saf.createDocument(state.suggestedName(), mime);
       if (uri != null) {
         await state.export(uri);
+        if (state.error == null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text('Export finished'),
+            action: SnackBarAction(
+              label: 'Share',
+              onPressed: () => Saf.shareFiles([uri]),
+            ),
+          ));
+        }
       }
       return;
     }
@@ -319,8 +338,8 @@ class _MixerScreenState extends State<MixerScreen> {
                 ),
                 if (_batchAvailable)
                   IconButton(
-                    tooltip: 'Batch export: render several targets/formats '
-                        'into one folder',
+                    tooltip: 'Export multiple formats of this mix into one '
+                        'folder (all files of the folder: use the browser)',
                     onPressed: state.rendering ? null : _batchExport,
                     icon: const Icon(Icons.playlist_add_check, size: 20),
                   ),

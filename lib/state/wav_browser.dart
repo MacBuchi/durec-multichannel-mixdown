@@ -25,6 +25,10 @@ class WavEntry {
   /// Filled in lazily by the probe queue.
   rust.ApiProbe? probe;
   String? probeError;
+
+  /// Ticked for the multi-file export. Defaults to true for multichannel
+  /// takes once the probe lands; stereo files start unticked.
+  bool selected = false;
 }
 
 /// Folder listing + lazy metadata probing for the in-app WAV browser.
@@ -85,6 +89,14 @@ class WavBrowser extends ChangeNotifier {
   /// Stop background probing (browser closed / file opened).
   void cancel() => _generation++;
 
+  List<WavEntry> get selectedEntries =>
+      [for (final e in entries) if (e.selected) e];
+
+  void toggleSelected(WavEntry e) {
+    e.selected = !e.selected;
+    notifyListeners();
+  }
+
   void toggleSort() {
     sortByDate = !sortByDate;
     _sort();
@@ -143,6 +155,7 @@ class WavBrowser extends ChangeNotifier {
       final cached = _probeCache[cacheKey];
       if (cached != null) {
         e.probe = cached;
+        e.selected = cached.channels > 2;
         notifyListeners();
         continue;
       }
@@ -152,6 +165,7 @@ class WavBrowser extends ChangeNotifier {
         final probe = await rust.probeRecording(path: e.source, fd: fd);
         if (generation != _generation) return;
         e.probe = probe;
+        e.selected = probe.channels > 2;
         _probeCache[cacheKey] = probe;
       } catch (err) {
         if (generation != _generation) return;

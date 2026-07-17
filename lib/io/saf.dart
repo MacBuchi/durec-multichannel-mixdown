@@ -44,6 +44,24 @@ class Saf {
     return raw ?? const [];
   }
 
+  /// Find or create a subfolder (e.g. `Mixdown`) of the granted tree;
+  /// returns its document URI.
+  static Future<String> ensureDirectory(String treeUri, String name) async =>
+      (await _channel.invokeMethod<String>(
+          'ensureDirectory', {'uri': treeUri, 'name': name}))!;
+
+  /// Create a file inside a directory document URI; returns the new file's
+  /// document URI (the provider may de-duplicate the name — use the URI).
+  static Future<String> createFileInDirectory(
+          String dirUri, String name, String mime) async =>
+      (await _channel.invokeMethod<String>('createFileInDirectory',
+          {'dirUri': dirUri, 'name': name, 'mime': mime}))!;
+
+  /// Hand finished files to the system share sheet (Nextcloud, Drive, …).
+  static Future<void> shareFiles(List<String> uris,
+          {String mime = 'audio/*'}) =>
+      _channel.invokeMethod('shareFiles', {'uris': uris, 'mime': mime});
+
   // ── export foreground service ─────────────────────────────────────────────
   // Renders take minutes on a phone; the service keeps the process alive
   // when the app is backgrounded and mirrors progress as a notification.
