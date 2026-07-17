@@ -270,22 +270,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(state.tracks, hasLength(4));
 
-    // Multi-file export: the multichannel take is ticked by default (probe:
-    // 4 ch), the stereo one is not; tick it too, then render both with the
-    // current mix into the Mixdown/ subfolder.
+    // Multi-file export lives behind an explicit selection mode: the plain
+    // list has NO checkboxes (rows open the mixer — the v0.8.0 confusion),
+    // the checklist icon reveals them with multichannel takes pre-ticked.
     await tester.tap(find.text('fixture_4ch.wav')); // app-bar title
     await tester.pumpAndSettle();
     final browser2 =
         tester.widget<WavBrowserPage>(find.byType(WavBrowserPage)).browser;
+    expect(find.byType(Checkbox), findsNothing);
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(2));
+
+    await tester.tap(find.byIcon(Icons.checklist));
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNWidgets(2));
     final sel = {for (final e in browser2.entries) e.name: e.selected};
     expect(sel['fixture_4ch.wav'], isTrue);
     expect(sel['fixture_2ch.wav'], isFalse);
-    final twoChRow = find.ancestor(
-        of: find.text('fixture_2ch.wav'), matching: find.byType(ListTile));
+    expect(find.text('1 selected'), findsOneWidget);
+
+    // In selection mode a row TAP toggles the tick (list convention)…
     await tester.tap(find.descendant(
-        of: twoChRow, matching: find.byType(Checkbox)));
+        of: find.byType(WavBrowserPage),
+        matching: find.text('fixture_2ch.wav')));
     await tester.pump();
     expect(browser2.selectedEntries, hasLength(2));
+    expect(find.text('2 selected'), findsOneWidget);
+
+    // …and ticked rows expose an editable output name (stem + fixed ext).
+    await tester.enterText(
+        find.widgetWithText(TextField, 'fixture_4ch'), 'MeinMix');
+    await tester.pump();
 
     await tester.tap(find.textContaining('Export (2)'));
     for (var i = 0;
@@ -297,18 +311,19 @@ void main() {
 
     final mixdownDir = Directory('${tempDir.path}/Mixdown');
     expect(mixdownDir.existsSync(), isTrue);
-    final mixdowns = mixdownDir.listSync().map((f) => f.path).toList();
-    expect(mixdowns, hasLength(2));
-    // Loudness/format came from the app selection (custom −17.5 LUFS, WAV);
-    // every output is a stereo render readable by our own probe.
-    for (final path in mixdowns) {
-      expect(path, contains('_17.5LUFS'));
-      final p = await rust.probeRecording(path: path);
-      expect(p.channels, 2);
+    final mixdowns =
+        mixdownDir.listSync().map((f) => f.path.split('/').last).toSet();
+    expect(mixdowns, {'MeinMix.wav', 'fixture_2ch.wav'});
+    for (final name in mixdowns) {
+      final p = await rust.probeRecording(path: '${mixdownDir.path}/$name');
+      expect(p.channels, 2); // every output is a stereo render
     }
 
-    // Rows are tappable again after the run; close the browser via the row
-    // (the loaded file's name also sits in the app bar behind the route).
+    // Leave selection mode, then a row tap opens the take again.
+    await tester.tap(find.descendant(
+        of: find.byType(WavBrowserPage), matching: find.byIcon(Icons.close)));
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNothing);
     await tester.tap(find.descendant(
         of: find.byType(WavBrowserPage),
         matching: find.text('fixture_4ch.wav')));

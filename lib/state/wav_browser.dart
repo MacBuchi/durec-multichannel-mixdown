@@ -29,6 +29,13 @@ class WavEntry {
   /// Ticked for the multi-file export. Defaults to true for multichannel
   /// takes once the probe lands; stereo files start unticked.
   bool selected = false;
+
+  /// Editable output name (without extension) for the multi-file export.
+  /// Defaults to the original name minus its .wav ending.
+  String? outputStem;
+
+  String get defaultStem =>
+      name.replaceAll(RegExp(r'\.wav$', caseSensitive: false), '');
 }
 
 /// Folder listing + lazy metadata probing for the in-app WAV browser.
@@ -94,6 +101,20 @@ class WavBrowser extends ChangeNotifier {
 
   void toggleSelected(WavEntry e) {
     e.selected = !e.selected;
+    notifyListeners();
+  }
+
+  /// Multi-export selection mode: checkboxes and name fields only appear
+  /// here, so the plain list stays unmistakably "tap to open in the mixer".
+  bool selectionMode = false;
+
+  void enterSelectionMode() {
+    selectionMode = true;
+    notifyListeners();
+  }
+
+  void exitSelectionMode() {
+    selectionMode = false;
     notifyListeners();
   }
 

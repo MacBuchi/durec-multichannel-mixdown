@@ -135,12 +135,12 @@ class MultiExportRunner extends ChangeNotifier {
                         : null)),
         ];
 
-        final outName = suggestedExportName(
-          baseName: entry.name,
-          loudness: config.loudness,
-          customLufs: config.customLufs,
-          format: config.format,
-        );
+        // User-editable stem from the selection mode; falls back to the
+        // original name. Extension follows the chosen format.
+        final rawStem = entry.outputStem?.trim() ?? '';
+        final stem = _sanitizeStem(
+            rawStem.isEmpty ? entry.defaultStem : rawStem, entry.defaultStem);
+        final outName = '$stem${extensionFor(config.format)}';
         String outTarget;
         int? outputFd;
         if (isSaf) {
@@ -228,4 +228,19 @@ class MultiExportRunner extends ChangeNotifier {
         rust.ApiFormat.mp3 => 'audio/mpeg',
         _ => 'audio/x-wav',
       };
+
+  /// File extension of the chosen output format (also shown as the fixed
+  /// suffix of the name editor in the browser's selection mode).
+  static String extensionFor(rust.ApiFormat f) => switch (f) {
+        rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => '.flac',
+        rust.ApiFormat.mp3 => '.mp3',
+        _ => '.wav',
+      };
+
+  /// Strip filesystem-hostile characters; an emptied-out stem falls back to
+  /// the original file name.
+  static String _sanitizeStem(String stem, String fallback) {
+    final cleaned = stem.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_').trim();
+    return cleaned.isEmpty ? fallback : cleaned;
+  }
 }
