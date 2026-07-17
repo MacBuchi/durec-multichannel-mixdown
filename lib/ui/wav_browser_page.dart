@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../io/saf.dart';
 import '../state/batch_export.dart';
+import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
 
 /// Returned from the browser when the user wants the OS picker instead
@@ -17,6 +18,8 @@ class WavBrowserPage extends StatefulWidget {
     required this.browser,
     this.currentSource,
     this.exportConfig,
+    this.onPickLoudness,
+    this.onPickFormat,
   });
 
   final WavBrowser browser;
@@ -26,6 +29,12 @@ class WavBrowserPage extends StatefulWidget {
 
   /// Current mixer settings for the multi-file export, captured on tap.
   final MultiExportConfig Function()? exportConfig;
+
+  /// Open the loudness/format pickers (the mixer screen's own dialogs), so
+  /// the export target is visible AND changeable right where the export
+  /// happens.
+  final Future<void> Function()? onPickLoudness;
+  final Future<void> Function()? onPickFormat;
 
   @override
   State<WavBrowserPage> createState() => _WavBrowserPageState();
@@ -53,8 +62,9 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     final config = widget.exportConfig?.call();
     final folder = widget.browser.folder;
     if (config == null || folder == null) return;
-    widget.browser.cancel(); // stop metadata probes while rendering
+    widget.browser.cancel(); // pause metadata probes while rendering
     await _runner.run(widget.browser.selectedEntries, folder, config);
+    widget.browser.resumeProbing(); // finish annotating the remaining rows
   }
 
   Future<void> _changeFolder() async {
@@ -200,6 +210,7 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720),
         child: Column(children: [
+          if (b.selectionMode && widget.exportConfig != null) _targetBar(),
           if (!_runner.running && _runner.outputs.isNotEmpty)
             _resultBar(),
           Expanded(
@@ -210,6 +221,45 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           ),
         ]),
       ),
+    );
+  }
+
+  /// What the ticked takes will be rendered to — visible and changeable
+  /// right here, so nobody exports 15 takes with yesterday's format.
+  Widget _targetBar() {
+    final config = widget.exportConfig!();
+    final loudnessLabel = config.loudness == LoudnessChoice.lufsCustom
+        ? '${config.customLufs.toStringAsFixed(1)} LUFS'
+        : config.loudness.label;
+    Widget chip(String label, Future<void> Function()? onTap) => InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: onTap == null || _runner.running
+              ? null
+              : () async {
+                  await onTap();
+                  if (mounted) setState(() {});
+                },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white24),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 12, color: Colors.lightBlueAccent)),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(children: [
+        const Text('Export target:',
+            style: TextStyle(fontSize: 12, color: Colors.white54)),
+        const SizedBox(width: 8),
+        chip(loudnessLabel, widget.onPickLoudness),
+        const SizedBox(width: 6),
+        chip(formatLabels[config.format]!, widget.onPickFormat),
+      ]),
     );
   }
 

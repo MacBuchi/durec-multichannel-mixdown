@@ -19,7 +19,7 @@ Future<String> sessionPathFor(String wavSource, {String? displayName}) async {
   final base = (displayName ?? wavSource.split('/').last)
       .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '')
       .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-  final path = '${dir.path}/${base}_${_fnv1a64(_sourceKey(wavSource))}.durecmix.json';
+  final path = '${dir.path}/${base}_${sourceHashFor(wavSource)}.durecmix.json';
   // One-time migration: sessions saved before the documentId normalization
   // hashed the full URI string. Rename them onto the stable key so a mix
   // saved via the single-file picker survives opening the same file from
@@ -37,14 +37,19 @@ Future<String> sessionPathFor(String wavSource, {String? displayName}) async {
 /// different URI strings — `…/document/<id>` from the single-file picker vs
 /// `…/tree/<t>/document/<id>` from a folder tree — but the documentId is
 /// identical, so content URIs are reduced to it before hashing. Everything
-/// else (filesystem paths) keeps its full string.
-String _sourceKey(String wavSource) {
+/// else (filesystem paths) keeps its full string. Shared by session files
+/// and the analysis cache so both survive picker↔browser switches.
+String sourceKeyFor(String wavSource) {
   if (!wavSource.startsWith('content://')) return wavSource;
   const marker = '/document/';
   final i = wavSource.lastIndexOf(marker);
   if (i < 0) return wavSource;
   return Uri.decodeComponent(wavSource.substring(i + marker.length));
 }
+
+/// FNV-1a hash of the stable source key, hex — filename-safe cache/session
+/// discriminator.
+String sourceHashFor(String wavSource) => _fnv1a64(sourceKeyFor(wavSource));
 
 /// FNV-1a 64-bit hash, hex-encoded. Stable across runs and platforms.
 /// (Dart ints are signed 64-bit with wrapping arithmetic, hence the

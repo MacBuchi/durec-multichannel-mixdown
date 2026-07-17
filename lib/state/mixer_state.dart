@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
+import 'analysis_cache.dart';
 import 'session_paths.dart';
 
 /// Mutable UI-side copy of one EQ band.
@@ -115,6 +116,17 @@ class TrackUi {
     eq: eq.toApi(),
   );
 }
+
+/// Display names of the output formats (app bar, dialogs, export target
+/// bar in the browser's selection mode).
+const formatLabels = {
+  rust.ApiFormat.wav16: 'WAV 16',
+  rust.ApiFormat.wav24: 'WAV 24',
+  rust.ApiFormat.wav32Float: 'WAV 32f',
+  rust.ApiFormat.flac16: 'FLAC 16',
+  rust.ApiFormat.flac24: 'FLAC 24',
+  rust.ApiFormat.mp3: 'MP3 320',
+};
 
 enum LoudnessChoice {
   none('none'),
@@ -227,17 +239,32 @@ class MixerState extends ChangeNotifier {
     }
   }
 
+  static const int _waveformBuckets = 600;
+
   Future<void> _analyze(String source) async {
+    // The analysis pass reads the whole multi-GB file — cached results make
+    // returning to a take instant (key includes the frame count, so
+    // re-recorded files invalidate naturally).
+    final numFrames = recording!.numFrames;
+    final cached = await AnalysisCache.load(source, numFrames, _waveformBuckets);
+    if (cached != null && recording?.path == source) {
+      waveforms = cached.waveforms;
+      bpm = cached.bpm;
+      notifyListeners();
+      return;
+    }
     analyzing = true;
     notifyListeners();
     try {
       final analysis = await rust.analyzeRecording(
         path: source,
-        buckets: BigInt.from(600),
+        buckets: BigInt.from(_waveformBuckets),
         fd: await _inputFd(source),
       );
       waveforms = analysis.waveforms;
       bpm = analysis.bpm;
+      unawaited(
+          AnalysisCache.save(source, numFrames, _waveformBuckets, analysis));
     } catch (_) {
       waveforms = null;
       bpm = null;

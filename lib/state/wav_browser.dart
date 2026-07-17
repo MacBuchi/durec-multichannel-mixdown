@@ -96,6 +96,10 @@ class WavBrowser extends ChangeNotifier {
   /// Stop background probing (browser closed / file opened).
   void cancel() => _generation++;
 
+  /// Restart the probe queue over entries still lacking metadata — after a
+  /// batch export paused it, remaining rows must not stay "reading…" forever.
+  void resumeProbing() => _probeAll(++_generation);
+
   List<WavEntry> get selectedEntries =>
       [for (final e in entries) if (e.selected) e];
 
