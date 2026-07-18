@@ -131,8 +131,8 @@ jobs:
           else
             RANGE="v$VERSION..HEAD"
           fi
-          echo "diff range:      $RANGE (shipping files = everything except *.md, docs/, .github/)"
-          CHANGED=$(git diff --name-only "$RANGE" -- . ':!*.md' ':!docs' ':!.github' || true)
+          echo "diff range:      $RANGE (shipping files = everything except *.md, docs/, .github/, engine/examples/, engine/tests/)"
+          CHANGED=$(git diff --name-only "$RANGE" -- . ':!*.md' ':!docs' ':!.github' ':!engine/examples' ':!engine/tests' || true)
           if [ -z "$CHANGED" ]; then
             note "✅ version $VERSION already tagged, but only docs/CI changed — no bump needed"
             exit 0
