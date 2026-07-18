@@ -1348,3 +1348,149 @@ fn probe_rejects_non_wav() {
     std::fs::write(&path, b"this is definitely not a RIFF file").unwrap();
     assert!(wav::probe(&InputHandle::Path(path.to_str().unwrap().into())).is_err());
 }
+
+// ── dsp: mid/side FIR stage ─────────────────────────────────────────────────
+
+/// Direct O(n·taps) reference: split to M/S, convolve each with its FIR
+/// (centre-aligned, i.e. group delay compensated), recombine to L/R.
+fn direct_ms_conv(stereo: &[f64], fir_mid: &[f64], fir_side: &[f64]) -> Vec<f64> {
+    let frames = stereo.len() / 2;
+    let latency = (fir_mid.len() - 1) / 2;
+    let sample = |buf: &[(f64, f64)], idx: i64| -> (f64, f64) {
+        if idx < 0 || idx as usize >= buf.len() {
+            (0.0, 0.0)
+        } else {
+            buf[idx as usize]
+        }
+    };
+    let ms: Vec<(f64, f64)> = stereo
+        .chunks_exact(2)
+        .map(|fr| ((fr[0] + fr[1]) * 0.5, (fr[0] - fr[1]) * 0.5))
+        .collect();
+    let mut out = Vec::with_capacity(stereo.len());
+    for n in 0..frames as i64 {
+        let (mut m, mut s) = (0.0, 0.0);
+        for (k, (&hm, &hs)) in fir_mid.iter().zip(fir_side).enumerate() {
+            let (im, is) = sample(&ms, n + latency as i64 - k as i64);
+            m += hm * im;
+            s += hs * is;
+        }
+        out.push(m + s);
+        out.push(m - s);
+    }
+    out
+}
+
+/// Odd-length deterministic pseudo-random FIR for tests.
+fn test_fir(len: usize, seed: u64) -> Vec<f64> {
+    assert_eq!(len % 2, 1);
+    let mut s = seed;
+    (0..len).map(|_| noise(&mut s) / len as f64).collect()
+}
+
+#[test]
+fn fir_stage_impulse_reproduces_taps() {
+    use durecmix_engine::dsp::fir::MsFirStage;
+    let taps = test_fir(15, 7);
+    let mut stage = MsFirStage::new(&taps, &taps);
+    assert_eq!(stage.latency_frames(), 7);
+    let frames = 100usize;
+    let mut input = vec![0.0f64; frames * 2];
+    input[0] = 1.0; // left-channel impulse at frame 0
+    let mut out = Vec::new();
+    stage.process(&input, &mut out);
+    stage.flush(&mut out);
+    assert_eq!(out.len(), input.len());
+    // Identical mid/side filters act per-channel: out_l[n] = taps[n + latency].
+    let latency = stage.latency_frames();
+    for (n, fr) in out.chunks_exact(2).enumerate() {
+        let expected = taps.get(n + latency).copied().unwrap_or(0.0);
+        assert!(
+            (fr[0] - expected).abs() < 1e-12,
+            "left sample {n}: {} vs {expected}",
+            fr[0]
+        );
+        assert!(
+            fr[1].abs() < 1e-12,
+            "right sample {n} not silent: {}",
+            fr[1]
+        );
+    }
+}
+
+#[test]
+fn fir_stage_matches_direct_convolution() {
+    use durecmix_engine::dsp::fir::MsFirStage;
+    let fir_mid = test_fir(31, 1);
+    let fir_side = test_fir(31, 2);
+    let mut seed = 99u64;
+    let input: Vec<f64> = (0..500 * 2).map(|_| noise(&mut seed)).collect();
+    let expected = direct_ms_conv(&input, &fir_mid, &fir_side);
+    let mut stage = MsFirStage::new(&fir_mid, &fir_side);
+    let mut out = Vec::new();
+    for chunk in input.chunks(2 * 17) {
+        stage.process(chunk, &mut out);
+    }
+    stage.flush(&mut out);
+    assert_eq!(out.len(), expected.len());
+    for (i, (a, b)) in out.iter().zip(&expected).enumerate() {
+        assert!((a - b).abs() < 1e-9, "sample {i}: {a} vs {b}");
+    }
+}
+
+#[test]
+fn fir_stage_is_block_size_invariant() {
+    use durecmix_engine::dsp::fir::MsFirStage;
+    let fir_mid = test_fir(4095, 3);
+    let fir_side = test_fir(4095, 4);
+    let mut seed = 5u64;
+    let input: Vec<f64> = (0..30_000 * 2).map(|_| noise(&mut seed)).collect();
+    let mut reference = Vec::new();
+    let mut stage = MsFirStage::new(&fir_mid, &fir_side);
+    stage.process(&input, &mut reference);
+    stage.flush(&mut reference);
+    assert_eq!(reference.len(), input.len());
+    for block in [2, 997 * 2, 4096 * 2, 65_536 * 2] {
+        let mut stage = MsFirStage::new(&fir_mid, &fir_side);
+        let mut out = Vec::new();
+        for chunk in input.chunks(block) {
+            stage.process(chunk, &mut out);
+        }
+        stage.flush(&mut out);
+        assert_eq!(out, reference, "block size {block} diverges");
+    }
+}
+
+#[test]
+fn fir_stage_flushes_input_shorter_than_latency() {
+    use durecmix_engine::dsp::fir::MsFirStage;
+    let fir_mid = test_fir(4095, 8);
+    let fir_side = test_fir(4095, 9);
+    let mut seed = 11u64;
+    let input: Vec<f64> = (0..100 * 2).map(|_| noise(&mut seed)).collect();
+    let expected = direct_ms_conv(&input, &fir_mid, &fir_side);
+    let mut stage = MsFirStage::new(&fir_mid, &fir_side);
+    let mut out = Vec::new();
+    stage.process(&input, &mut out);
+    stage.flush(&mut out);
+    assert_eq!(out.len(), input.len());
+    for (i, (a, b)) in out.iter().zip(&expected).enumerate() {
+        assert!((a - b).abs() < 1e-9, "sample {i}: {a} vs {b}");
+    }
+}
+
+#[test]
+fn fir_stage_single_tap_is_transparent() {
+    use durecmix_engine::dsp::fir::MsFirStage;
+    let mut seed = 21u64;
+    let input: Vec<f64> = (0..2_000 * 2).map(|_| noise(&mut seed)).collect();
+    let mut stage = MsFirStage::new(&[1.0], &[1.0]);
+    assert_eq!(stage.latency_frames(), 0);
+    let mut out = Vec::new();
+    stage.process(&input, &mut out);
+    stage.flush(&mut out);
+    assert_eq!(out.len(), input.len());
+    for (i, (a, b)) in input.iter().zip(&out).enumerate() {
+        assert!((a - b).abs() < 1e-12, "sample {i} altered: {a} vs {b}");
+    }
+}
