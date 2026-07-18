@@ -6,6 +6,7 @@ import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'analysis_cache.dart';
+import 'reference_profile_cache.dart';
 import 'session_paths.dart';
 
 /// Mutable UI-side copy of one EQ band.
@@ -166,6 +167,12 @@ class MixerState extends ChangeNotifier {
   String masteringReferencePath = '';
   String masteringReferenceName = '';
 
+  /// Analyzed profile of the chosen reference (runtime only; backed by
+  /// [ReferenceProfileCache]).
+  rust.ApiReferenceProfile? referenceProfile;
+  bool analyzingReference = false;
+  double referenceProgress = 0;
+
   /// Trim range in seconds (null = untrimmed); fades match the old tool's
   /// 80 ms default whenever a trim point is set.
   double? trimStartSeconds;
@@ -238,6 +245,11 @@ class MixerState extends ChangeNotifier {
       // lands in the app container even if the user changes nothing.
       await saveSession();
       _analyze(source);
+      if (masteringEnabled) {
+        // Warm the reference profile from its cache so a later export (or
+        // multi-export) doesn't stall on a fresh analysis.
+        unawaited(ensureReferenceProfile().catchError((_) => null));
+      }
     } catch (e) {
       opening = false;
       error = e.toString();
@@ -473,6 +485,9 @@ class MixerState extends ChangeNotifier {
   void _restoreMaster(rust.ApiMaster m) {
     format = m.format;
     masteringEnabled = m.masteringEnabled;
+    if (masteringReferencePath != m.masteringReferencePath) {
+      referenceProfile = null; // different reference → profile is stale
+    }
     masteringReferencePath = m.masteringReferencePath;
     masteringReferenceName = m.masteringReferenceName;
     final sr = recording?.sampleRate ?? 48000;
@@ -612,6 +627,15 @@ class MixerState extends ChangeNotifier {
     try {
       if (Saf.isAvailable) await Saf.exportStarted(exportName);
       if (IosFiles.isAvailable) iosBgTask = await IosFiles.beginBackgroundTask();
+      // Resolve the mastering reference first (cache hit is instant; a
+      // fresh analysis streams its own progress).
+      rust.ApiReferenceProfile? reference;
+      if ((masterOverride ?? master).masteringEnabled) {
+        reference = await ensureReferenceProfile();
+        if (reference == null) {
+          throw StateError('Mastering is on but no reference track is set');
+        }
+      }
       final outputFd = Saf.isContentUri(outTarget)
           ? await Saf.openFd(outTarget, mode: 'rwt')
           : null;
@@ -621,6 +645,7 @@ class MixerState extends ChangeNotifier {
         outPath: outTarget,
         tracks: tracks.map((t) => t.toApi()).toList(),
         master: masterOverride ?? master,
+        reference: reference,
         inputFd: _isSaf ? await _inputFd(rec.path) : null,
         outputFd: outputFd,
       )) {
@@ -722,6 +747,71 @@ class MixerState extends ChangeNotifier {
     format = f;
     _scheduleSave();
     notifyListeners();
+  }
+
+  // ── reference mastering ───────────────────────────────────────────────────
+
+  void setMasteringEnabled(bool enabled) {
+    masteringEnabled = enabled && masteringReferencePath.isNotEmpty;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Select a new reference track and analyze it (cache-backed). Throws on
+  /// analysis failure — the previous reference stays active then.
+  Future<void> chooseReference(String path, String name) async {
+    final previousPath = masteringReferencePath;
+    final previousName = masteringReferenceName;
+    final previousProfile = referenceProfile;
+    masteringReferencePath = path;
+    masteringReferenceName = name;
+    referenceProfile = null;
+    notifyListeners();
+    try {
+      await ensureReferenceProfile();
+      masteringEnabled = true;
+      _scheduleSave();
+    } catch (_) {
+      masteringReferencePath = previousPath;
+      masteringReferenceName = previousName;
+      referenceProfile = previousProfile;
+      rethrow;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Profile of the current reference: memory → cache → fresh analysis
+  /// (streams progress into [referenceProgress]).
+  Future<rust.ApiReferenceProfile?> ensureReferenceProfile() async {
+    final path = masteringReferencePath;
+    if (path.isEmpty) return null;
+    if (referenceProfile != null) return referenceProfile;
+    final cached = await ReferenceProfileCache.load(path);
+    if (cached != null) {
+      referenceProfile = cached;
+      notifyListeners();
+      return cached;
+    }
+    analyzingReference = true;
+    referenceProgress = 0;
+    notifyListeners();
+    try {
+      final fd = Saf.isContentUri(path) ? await Saf.openFd(path) : null;
+      await for (final ev in rust.analyzeReference(path: path, fd: fd)) {
+        referenceProgress = ev.progress;
+        if (ev.profile != null) referenceProfile = ev.profile;
+        notifyListeners();
+      }
+      final profile = referenceProfile;
+      if (profile != null) {
+        await ReferenceProfileCache.save(path, profile);
+      }
+      return profile;
+    } finally {
+      analyzingReference = false;
+      notifyListeners();
+    }
   }
 
   @override

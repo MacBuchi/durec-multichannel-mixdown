@@ -16,6 +16,11 @@ class Saf {
   /// Open the system picker for a WAV; returns a content URI or null.
   static Future<String?> pickWav() => _channel.invokeMethod<String>('pickWav');
 
+  /// Pick any audio file (mastering reference: MP3/FLAC/WAV/OGG); persists
+  /// a read grant like [pickWav].
+  static Future<String?> pickAudio() =>
+      _channel.invokeMethod<String>('pickAudio');
+
   /// Open the system save dialog; returns a content URI or null.
   static Future<String?> createDocument(String name, String mime) =>
       _channel.invokeMethod<String>(
