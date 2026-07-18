@@ -1797,3 +1797,171 @@ fn reference_rejects_non_audio() {
     std::fs::write(&path, vec![0u8; 4096]).unwrap();
     assert!(analyze_reference(&InputHandle::Path(path.to_str().unwrap().into()), |_| {}).is_err());
 }
+
+// ── mastering: render integration ───────────────────────────────────────────
+
+use durecmix_engine::render::{render_io, MasteringSettings};
+
+/// Stereo f64 noise → 24-bit 2-channel WAV bytes for render fixtures.
+fn stereo_wav24(stereo: &[f64], sr: u32) -> Vec<u8> {
+    let samples: Vec<i32> = stereo
+        .iter()
+        .map(|&s| (s.clamp(-1.0, 1.0) * 8_388_607.0).round() as i32)
+        .collect();
+    wav24(2, sr, &samples)
+}
+
+fn read_wav32_stereo(path: &std::path::Path) -> Vec<f64> {
+    let mut r = hound::WavReader::open(path).unwrap();
+    r.samples::<f32>().map(|s| s.unwrap() as f64).collect()
+}
+
+#[test]
+fn render_with_reference_masters_the_mix() {
+    let sr = 44_100u32;
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+
+    let source = ms_noise(20 * sr as usize, 0.3, 0.03, 80);
+    std::fs::write(&in_path, stereo_wav24(&source, sr)).unwrap();
+
+    // Reference: quieter, wider, high-shelf boosted.
+    let mut reference = ms_noise(20 * sr as usize, 0.15, 0.06, 81);
+    let coeffs = BiquadCoeffs::high_shelf(sr as f64, 4000.0, 6.0, BUTTERWORTH_2ND_Q);
+    let (mut bl, mut br) = (Biquad::new(coeffs), Biquad::new(coeffs));
+    for fr in reference.chunks_exact_mut(2) {
+        fr[0] = bl.process(fr[0]);
+        fr[1] = br.process(fr[1]);
+    }
+    let ref_stats = analyze(&reference, sr);
+    let profile = ReferenceProfile::from_stats(&ref_stats);
+
+    // Hard-panned channels reproduce the file's stereo signal on the bus.
+    let tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    let settings = RenderSettings {
+        // Must be ignored while mastering: the reference owns the level.
+        loudness: LoudnessMode::LufsIntegrated(-14.0),
+        format: OutputFormat::Wav32Float,
+        limiter_enabled: false,
+        mastering: Some(MasteringSettings {
+            enabled: true,
+            reference_path: "ref".into(),
+            reference_name: "Ref Song".into(),
+        }),
+        ..RenderSettings::default()
+    };
+    let report = render_io(
+        &InputHandle::Path(in_path.to_str().unwrap().into()),
+        &tracks,
+        &settings,
+        Some(&profile),
+        &OutputHandle::Path(out_path.to_str().unwrap().into()),
+        |_| {},
+    )
+    .unwrap();
+    assert!(report.mastering_applied);
+    assert!(report.mastering_gain_db < 0.0, "quieter ref must cut gain");
+    assert_eq!(
+        report.gain_applied_db, 0.0,
+        "normalisation must be bypassed"
+    );
+
+    let out = read_wav32_stereo(&out_path);
+    assert_eq!(out.len(), source.len(), "length must be preserved");
+    let out_stats = analyze(&out, sr);
+    let rms_err = linear_to_db(out_stats.mid_rms) - linear_to_db(ref_stats.mid_rms);
+    assert!(rms_err.abs() < 0.5, "mid RMS off by {rms_err} dB");
+    let width_err = linear_to_db(out_stats.side_rms / out_stats.mid_rms)
+        - linear_to_db(ref_stats.side_rms / ref_stats.mid_rms);
+    assert!(width_err.abs() < 1.0, "width off by {width_err} dB");
+    let mut f = 60.0f64;
+    while f < 18_000.0 {
+        let hi = (f * 1.26).min(18_000.0);
+        let err = band_db(&out_stats.mid_spectrum, sr, f, hi)
+            - band_db(&ref_stats.mid_spectrum, sr, f, hi);
+        assert!(err.abs() < 1.0, "band {f:.0}-{hi:.0} Hz off by {err:.2} dB");
+        f = hi;
+    }
+
+    // Same render without a profile: mastering off, loudness target active.
+    let plain = render_io(
+        &InputHandle::Path(in_path.to_str().unwrap().into()),
+        &tracks,
+        &settings,
+        None,
+        &OutputHandle::Path(out_path.to_str().unwrap().into()),
+        |_| {},
+    )
+    .unwrap();
+    assert!(!plain.mastering_applied);
+    assert!((plain.integrated_lufs - -14.0).abs() < 0.5);
+}
+
+#[test]
+fn mastering_render_is_deterministic_and_limiter_safe() {
+    let sr = 44_100u32;
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+
+    let source = ms_noise(16 * sr as usize, 0.3, 0.03, 90);
+    std::fs::write(&in_path, stereo_wav24(&source, sr)).unwrap();
+    // Much louder reference forces heavy upward gain → limiter must catch it.
+    let reference = ms_noise(16 * sr as usize, 0.65, 0.06, 91);
+    let profile = ReferenceProfile::from_stats(&analyze(&reference, sr));
+
+    let tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::None,
+        format: OutputFormat::Wav24,
+        limiter_enabled: true,
+        ceiling_dbtp: -1.0,
+        ..RenderSettings::default()
+    };
+    let render = |out: &std::path::Path| {
+        render_io(
+            &InputHandle::Path(in_path.to_str().unwrap().into()),
+            &tracks,
+            &settings,
+            Some(&profile),
+            &OutputHandle::Path(out.to_str().unwrap().into()),
+            |_| {},
+        )
+        .unwrap()
+    };
+    let out_a = dir.path().join("a.wav");
+    let out_b = dir.path().join("b.wav");
+    let report = render(&out_a);
+    render(&out_b);
+    assert_eq!(
+        std::fs::read(&out_a).unwrap(),
+        std::fs::read(&out_b).unwrap(),
+        "mastering render must be deterministic"
+    );
+    assert!(report.mastering_applied);
+    assert!(report.true_peak_dbtp <= -1.0 + 0.1, "ceiling violated");
+}
+
+#[test]
+fn session_v2_loads_and_v3_roundtrips_mastering() {
+    let v2 = r#"{
+        "version": 2,
+        "tracks": [],
+        "settings": {
+            "loudness": { "PeakDbfs": -1.0 },
+            "format": "Wav24"
+        }
+    }"#;
+    let session: Session = serde_json::from_str(v2).unwrap();
+    assert!(session.settings.mastering.is_none());
+
+    let mut session = Session::default();
+    session.settings.mastering = Some(MasteringSettings {
+        enabled: true,
+        reference_path: "/music/ref.mp3".into(),
+        reference_name: "ref.mp3".into(),
+    });
+    let json = serde_json::to_string(&session).unwrap();
+    let back: Session = serde_json::from_str(&json).unwrap();
+    assert_eq!(session, back);
+}
