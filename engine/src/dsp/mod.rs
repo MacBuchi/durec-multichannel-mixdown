@@ -2,6 +2,7 @@
 
 pub mod biquad;
 pub mod dither;
+pub mod fir;
 pub mod limiter;
 
 /// Faders at or below this dB value are treated as silence.
