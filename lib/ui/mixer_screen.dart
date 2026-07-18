@@ -699,7 +699,8 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Widget _transportBar(rust.RecordingInfo rec) {
-    final report = state.lastReport;
+    // Every row is always present so the bar NEVER changes height — it used
+    // to wobble on phones whenever playback or an export started/stopped.
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
       child: SafeArea(
@@ -708,34 +709,18 @@ class _MixerScreenState extends State<MixerScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (state.rendering)
-                LinearProgressIndicator(value: state.renderProgress),
-              if (report != null && !state.rendering)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    'Exported: ${_fmtLufs(report.integratedLufs)} LUFS-I · '
-                    'TP ${report.truePeakDbtp.toStringAsFixed(1)} dBTP · '
-                    'LRA ${report.lraLu.toStringAsFixed(1)} LU · '
-                    '${report.masteringApplied ? 'matched to ${state.masteringReferenceName} '
-                        '(${report.masteringGainDb >= 0 ? '+' : ''}${report.masteringGainDb.toStringAsFixed(1)} dB) ' : 'gain ${report.gainAppliedDb >= 0 ? '+' : ''}${report.gainAppliedDb.toStringAsFixed(1)} dB '}'
-                    '→ ${state.lastOutputPath ?? ''}',
-                    style: const TextStyle(fontSize: 11, color: Colors.white54),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+              _statusSlot(),
               // Phones get the meters on their own line; the single wide row
               // otherwise overflows and squeezes the seek slider unusably.
               if (MediaQuery.sizeOf(context).width < 640) ...[
                 Row(children: _transportControls(rec)),
-                if (state.playing)
-                  Row(
-                    children: [
-                      StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
-                      const SizedBox(width: 12),
-                      Expanded(child: _meterText(oneLine: true)),
-                    ],
-                  ),
+                Row(
+                  children: [
+                    StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
+                    const SizedBox(width: 12),
+                    Expanded(child: _meterText(oneLine: true)),
+                  ],
+                ),
               ] else
                 Row(
                   children: [
@@ -752,6 +737,106 @@ class _MixerScreenState extends State<MixerScreen> {
       ),
     );
   }
+
+  /// Fixed-height status line above the transport: export progress while
+  /// rendering, otherwise the last report (single line — hover shows the
+  /// full text, tapping opens the detail dialog, which is the phone's
+  /// hover replacement), otherwise blank.
+  Widget _statusSlot() {
+    final report = state.lastReport;
+    final Widget child;
+    if (state.rendering) {
+      child = Center(
+        child: LinearProgressIndicator(value: state.renderProgress),
+      );
+    } else if (report != null) {
+      final summary = _reportSummary(report);
+      child = Tooltip(
+        message: summary,
+        child: InkWell(
+          onTap: () => _showReportDialog(report),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              summary,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.white54),
+            ),
+          ),
+        ),
+      );
+    } else {
+      child = const SizedBox.shrink();
+    }
+    return SizedBox(height: 20, child: child);
+  }
+
+  String _signedDb(double v) => '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)}';
+
+  String _reportSummary(rust.ApiRenderReport report) =>
+      'Exported: ${_fmtLufs(report.integratedLufs)} LUFS-I · '
+      'TP ${report.truePeakDbtp.toStringAsFixed(1)} dBTP · '
+      'LRA ${report.lraLu.toStringAsFixed(1)} LU · '
+      '${report.masteringApplied ? 'matched to ${state.masteringReferenceName} '
+          '(${_signedDb(report.masteringGainDb)} dB) ' : 'gain ${_signedDb(report.gainAppliedDb)} dB '}'
+      '→ ${state.lastOutputPath ?? ''}';
+
+  void _showReportDialog(rust.ApiRenderReport report) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Last export'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _reportRow('Loudness', '${_fmtLufs(report.integratedLufs)} LUFS-I'),
+            _reportRow(
+                'True peak', '${report.truePeakDbtp.toStringAsFixed(2)} dBTP'),
+            _reportRow(
+                'Loudness range', '${report.lraLu.toStringAsFixed(1)} LU'),
+            if (report.masteringApplied)
+              _reportRow(
+                  'Mastering',
+                  'matched to ${state.masteringReferenceName} '
+                      '(${_signedDb(report.masteringGainDb)} dB)')
+            else
+              _reportRow('Gain', '${_signedDb(report.gainAppliedDb)} dB'),
+            _reportRow('Source loudness',
+                '${_fmtLufs(report.sourceIntegratedLufs)} LUFS-I'),
+            _reportRow('Duration', _fmtTime(report.durationSeconds)),
+            const SizedBox(height: 8),
+            SelectableText(
+              state.lastOutputPath ?? '',
+              style: const TextStyle(fontSize: 11, color: Colors.white54),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _reportRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 130,
+              child: Text(label,
+                  style:
+                      const TextStyle(fontSize: 12, color: Colors.white54)),
+            ),
+            Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
+          ],
+        ),
+      );
 
   List<Widget> _transportControls(rust.RecordingInfo rec) {
     return [
@@ -816,6 +901,9 @@ class _MixerScreenState extends State<MixerScreen> {
           ? '${_fmtLufs(state.lufsMomentary)} LUFS-M · ${_fmtLufs(state.lufsIntegrated)} LUFS-I$separator'
               'TP $tp dBTP · corr ${state.correlation.toStringAsFixed(2)}'
           : '',
+      // Never wrap: a second line would change the bar height mid-playback.
+      maxLines: oneLine ? 1 : 2,
+      overflow: TextOverflow.ellipsis,
       style: const TextStyle(fontSize: 10, color: Colors.white54),
     );
   }
