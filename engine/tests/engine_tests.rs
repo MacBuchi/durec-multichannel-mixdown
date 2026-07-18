@@ -1693,3 +1693,107 @@ fn reference_profile_serde_and_validation() {
     let short = analyze(&ms_noise(100, 0.2, 0.0, 61), sr);
     assert!(design_mastering(&short, &profile).is_err());
 }
+
+// ── mastering: reference decoding ───────────────────────────────────────────
+
+use durecmix_engine::reference::analyze_reference;
+use durecmix_engine::sink::{OutputHandle, StereoSink};
+
+fn write_ref_fixture(path: &std::path::Path, format: OutputFormat, stereo: &[f64], sr: u32) {
+    let mut sink = StereoSink::create(
+        &OutputHandle::Path(path.to_str().unwrap().into()),
+        format,
+        sr,
+    )
+    .unwrap();
+    for chunk in stereo.chunks(2 * 65_536) {
+        sink.write_block(chunk, None).unwrap();
+    }
+    sink.finalize().unwrap();
+}
+
+fn f32_spectrum(spec: &[f32]) -> Vec<f64> {
+    spec.iter().map(|&v| v as f64).collect()
+}
+
+#[test]
+fn reference_decodes_wav_flac_mp3_consistently() {
+    let sr = 44_100u32;
+    let stereo = ms_noise(16 * sr as usize, 0.2, 0.05, 70);
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("ref.wav");
+    let flac = dir.path().join("ref.flac");
+    let mp3 = dir.path().join("ref.mp3");
+    write_ref_fixture(&wav, OutputFormat::Wav24, &stereo, sr);
+    write_ref_fixture(&flac, OutputFormat::Flac24, &stereo, sr);
+    write_ref_fixture(&mp3, OutputFormat::Mp3, &stereo, sr);
+
+    let mut last = 0.0f32;
+    let p_wav = analyze_reference(&InputHandle::Path(wav.to_str().unwrap().into()), |p| {
+        assert!(p >= last, "progress went backwards");
+        last = p;
+    })
+    .expect("wav");
+    assert_eq!(p_wav.sample_rate, sr);
+    assert!((p_wav.duration_seconds - 16.0).abs() < 0.1);
+    assert!((last - 1.0).abs() < 1e-6, "progress did not reach 1.0");
+    // Decoding must agree with a direct in-memory analysis (24-bit quantised).
+    let direct = ReferenceProfile::from_stats(&analyze(&stereo, sr));
+    assert!((linear_to_db(p_wav.mid_rms) - linear_to_db(direct.mid_rms)).abs() < 0.01);
+    assert!((linear_to_db(p_wav.side_rms) - linear_to_db(direct.side_rms)).abs() < 0.01);
+
+    let p_flac =
+        analyze_reference(&InputHandle::Path(flac.to_str().unwrap().into()), |_| {}).expect("flac");
+    assert!((linear_to_db(p_flac.mid_rms) - linear_to_db(p_wav.mid_rms)).abs() < 0.05);
+
+    let p_mp3 =
+        analyze_reference(&InputHandle::Path(mp3.to_str().unwrap().into()), |_| {}).expect("mp3");
+    // White noise is MP3's worst case: LAME's ~20 kHz cutoff removes real
+    // signal power here (real music has far less HF energy).
+    assert!(
+        (linear_to_db(p_mp3.mid_rms) - linear_to_db(p_wav.mid_rms)).abs() < 0.6,
+        "mp3 RMS drifted: {} vs {}",
+        p_mp3.mid_rms,
+        p_wav.mid_rms
+    );
+    // Spectra agree within codec tolerance below the MP3 rolloff.
+    let (wav_spec, mp3_spec) = (
+        f32_spectrum(&p_wav.mid_spectrum),
+        f32_spectrum(&p_mp3.mid_spectrum),
+    );
+    let mut f = 100.0f64;
+    while f < 12_000.0 {
+        let hi = (f * 2.0).min(12_000.0);
+        let err = band_db(&mp3_spec, sr, f, hi) - band_db(&wav_spec, sr, f, hi);
+        assert!(
+            err.abs() < 1.0,
+            "mp3 band {f:.0}-{hi:.0} Hz off by {err:.2} dB"
+        );
+        f = hi;
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn reference_decodes_from_raw_fd() {
+    use std::os::fd::IntoRawFd;
+    let sr = 44_100u32;
+    let stereo = ms_noise(16 * sr as usize, 0.2, 0.05, 71);
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("ref.wav");
+    write_ref_fixture(&wav, OutputFormat::Wav24, &stereo, sr);
+    let by_path =
+        analyze_reference(&InputHandle::Path(wav.to_str().unwrap().into()), |_| {}).unwrap();
+    let fd = std::fs::File::open(&wav).unwrap().into_raw_fd();
+    let by_fd = analyze_reference(&InputHandle::Fd(fd), |_| {}).unwrap();
+    assert_eq!(by_path.mid_spectrum, by_fd.mid_spectrum);
+    assert_eq!(by_path.mid_rms, by_fd.mid_rms);
+}
+
+#[test]
+fn reference_rejects_non_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("junk.mp3");
+    std::fs::write(&path, vec![0u8; 4096]).unwrap();
+    assert!(analyze_reference(&InputHandle::Path(path.to_str().unwrap().into()), |_| {}).is_err());
+}

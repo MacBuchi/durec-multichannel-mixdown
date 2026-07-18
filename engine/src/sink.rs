@@ -165,6 +165,7 @@ pub struct FlacWriter {
     pending: Vec<i32>, // interleaved, quantised
     frame_number: usize,
     bits: usize,
+    wrote_full_block: bool,
 }
 
 impl FlacWriter {
@@ -187,6 +188,7 @@ impl FlacWriter {
             pending: Vec::with_capacity(FLAC_BLOCK * 4),
             frame_number: 0,
             bits,
+            wrote_full_block: false,
         })
     }
 
@@ -208,6 +210,7 @@ impl FlacWriter {
             let rest = self.pending.split_off(FLAC_BLOCK * 2);
             let chunk = std::mem::replace(&mut self.pending, rest);
             self.encode_frame(&chunk, FLAC_BLOCK)?;
+            self.wrote_full_block = true;
         }
         Ok(())
     }
@@ -245,7 +248,16 @@ impl FlacWriter {
         self.file.seek(SeekFrom::Start(8))?;
         let mut sink = ByteSink::new();
         self.stream_info.write(&mut sink).map_err(enc_err)?;
-        self.file.write_all(sink.as_slice())?;
+        let mut body = sink.as_slice().to_vec();
+        // flacenc counts a short final frame into min_blocksize, but the
+        // FLAC spec excludes the last frame from that bound: a
+        // fixed-blocksize stream must report min == max, and strict decoders
+        // (e.g. Symphonia) refuse to sync on the frames otherwise.
+        if self.wrote_full_block && body.len() >= 4 {
+            body[0] = (FLAC_BLOCK >> 8) as u8;
+            body[1] = (FLAC_BLOCK & 0xff) as u8;
+        }
+        self.file.write_all(&body)?;
         self.file.flush()?;
         Ok(())
     }

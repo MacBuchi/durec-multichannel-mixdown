@@ -12,6 +12,7 @@ pub mod ixml;
 pub mod mastering;
 pub mod mix;
 pub mod playback;
+pub mod reference;
 pub mod render;
 pub mod session;
 pub mod sink;
