@@ -394,6 +394,7 @@ pub fn save_session(
 
 /// Render the stereo mixdown. Streams `RenderEvent`s to Dart: progress in
 /// 0.0..1.0 while rendering, then a final event with the report attached.
+#[allow(clippy::too_many_arguments)] // flat FRB surface, one arg per Dart param
 pub fn render_mix(
     wav_path: String,
     out_path: String,
