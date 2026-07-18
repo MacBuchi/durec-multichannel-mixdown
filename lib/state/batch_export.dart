@@ -212,6 +212,9 @@ class MultiExportRunner extends ChangeNotifier {
         trimEndFrame: null,
         fadeInMs: 0,
         fadeOutMs: 0,
+        masteringEnabled: m.masteringEnabled,
+        masteringReferencePath: m.masteringReferencePath,
+        masteringReferenceName: m.masteringReferenceName,
       );
 
   static rust.ApiTrack _applied(rust.ApiTrack target, rust.ApiTrack? source) =>

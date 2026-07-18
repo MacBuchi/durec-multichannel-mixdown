@@ -25,6 +25,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  RustStreamSink<ReferenceEvent> dco_decode_StreamSink_reference_event_Sse(
+    dynamic raw,
+  );
+
+  @protected
   RustStreamSink<RenderEvent> dco_decode_StreamSink_render_event_Sse(
     dynamic raw,
   );
@@ -63,6 +68,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiProbe dco_decode_api_probe(dynamic raw);
 
   @protected
+  ApiReferenceProfile dco_decode_api_reference_profile(dynamic raw);
+
+  @protected
   ApiRenderReport dco_decode_api_render_report(dynamic raw);
 
   @protected
@@ -76,6 +84,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMaster dco_decode_box_autoadd_api_master(dynamic raw);
+
+  @protected
+  ApiReferenceProfile dco_decode_box_autoadd_api_reference_profile(dynamic raw);
 
   @protected
   ApiRenderReport dco_decode_box_autoadd_api_render_report(dynamic raw);
@@ -111,6 +122,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  ApiReferenceProfile? dco_decode_opt_box_autoadd_api_reference_profile(
+    dynamic raw,
+  );
+
+  @protected
   ApiRenderReport? dco_decode_opt_box_autoadd_api_render_report(dynamic raw);
 
   @protected
@@ -124,6 +140,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RecordingInfo dco_decode_recording_info(dynamic raw);
+
+  @protected
+  ReferenceEvent dco_decode_reference_event(dynamic raw);
 
   @protected
   RenderEvent dco_decode_render_event(dynamic raw);
@@ -148,6 +167,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  RustStreamSink<ReferenceEvent> sse_decode_StreamSink_reference_event_Sse(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RustStreamSink<RenderEvent> sse_decode_StreamSink_render_event_Sse(
@@ -190,6 +214,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiProbe sse_decode_api_probe(SseDeserializer deserializer);
 
   @protected
+  ApiReferenceProfile sse_decode_api_reference_profile(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ApiRenderReport sse_decode_api_render_report(SseDeserializer deserializer);
 
   @protected
@@ -203,6 +232,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMaster sse_decode_box_autoadd_api_master(SseDeserializer deserializer);
+
+  @protected
+  ApiReferenceProfile sse_decode_box_autoadd_api_reference_profile(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ApiRenderReport sse_decode_box_autoadd_api_render_report(
@@ -242,6 +276,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  ApiReferenceProfile? sse_decode_opt_box_autoadd_api_reference_profile(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ApiRenderReport? sse_decode_opt_box_autoadd_api_render_report(
     SseDeserializer deserializer,
   );
@@ -257,6 +296,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RecordingInfo sse_decode_recording_info(SseDeserializer deserializer);
+
+  @protected
+  ReferenceEvent sse_decode_reference_event(SseDeserializer deserializer);
 
   @protected
   RenderEvent sse_decode_render_event(SseDeserializer deserializer);
@@ -282,6 +324,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_reference_event_Sse(
+    RustStreamSink<ReferenceEvent> self,
     SseSerializer serializer,
   );
 
@@ -334,6 +382,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_api_probe(ApiProbe self, SseSerializer serializer);
 
   @protected
+  void sse_encode_api_reference_profile(
+    ApiReferenceProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_api_render_report(
     ApiRenderReport self,
     SseSerializer serializer,
@@ -351,6 +405,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_api_master(
     ApiMaster self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_api_reference_profile(
+    ApiReferenceProfile self,
     SseSerializer serializer,
   );
 
@@ -400,6 +460,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_api_reference_profile(
+    ApiReferenceProfile? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_api_render_report(
     ApiRenderReport? self,
     SseSerializer serializer,
@@ -416,6 +482,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_recording_info(RecordingInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_reference_event(
+    ReferenceEvent self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_render_event(RenderEvent self, SseSerializer serializer);

@@ -10,9 +10,13 @@ use anyhow::Context;
 use durecmix_engine::analysis;
 use durecmix_engine::chain::MasterParams;
 use durecmix_engine::ixml;
+use durecmix_engine::mastering::{ReferenceProfile, PROFILE_VERSION};
 use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
 use durecmix_engine::playback::Player;
-use durecmix_engine::render::{self, LoudnessMode, OutputFormat, RenderSettings};
+use durecmix_engine::reference;
+use durecmix_engine::render::{
+    self, LoudnessMode, MasteringSettings, OutputFormat, RenderSettings,
+};
 use durecmix_engine::session::Session;
 use durecmix_engine::sink::OutputHandle;
 use durecmix_engine::wav::{self, InputHandle};
@@ -104,6 +108,11 @@ pub struct ApiMaster {
     pub trim_end_frame: Option<u64>,
     pub fade_in_ms: f64,
     pub fade_out_ms: f64,
+    /// Reference mastering (session state; the render acts on the profile
+    /// passed to `render_mix`, not on these fields alone).
+    pub mastering_enabled: bool,
+    pub mastering_reference_path: String,
+    pub mastering_reference_name: String,
 }
 
 pub struct RecordingInfo {
@@ -139,6 +148,8 @@ pub struct ApiRenderReport {
     pub true_peak_dbtp: f64,
     pub lra_lu: f64,
     pub source_integrated_lufs: f64,
+    pub mastering_applied: bool,
+    pub mastering_gain_db: f64,
 }
 
 /// One event of the render stream: progress ticks while rendering, and the
@@ -244,7 +255,13 @@ fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
         trim_end_frame: m.trim_end_frame,
         fade_in_ms: m.fade_in_ms,
         fade_out_ms: m.fade_out_ms,
-        mastering: None,
+        mastering: (m.mastering_enabled || !m.mastering_reference_path.is_empty()).then(|| {
+            MasteringSettings {
+                enabled: m.mastering_enabled,
+                reference_path: m.mastering_reference_path.clone(),
+                reference_name: m.mastering_reference_name.clone(),
+            }
+        }),
     }
 }
 
@@ -279,6 +296,17 @@ fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
         trim_end_frame: s.trim_end_frame,
         fade_in_ms: s.fade_in_ms,
         fade_out_ms: s.fade_out_ms,
+        mastering_enabled: s.mastering.as_ref().is_some_and(|m| m.enabled),
+        mastering_reference_path: s
+            .mastering
+            .as_ref()
+            .map(|m| m.reference_path.clone())
+            .unwrap_or_default(),
+        mastering_reference_name: s
+            .mastering
+            .as_ref()
+            .map(|m| m.reference_name.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -366,17 +394,23 @@ pub fn save_session(
 
 /// Render the stereo mixdown. Streams `RenderEvent`s to Dart: progress in
 /// 0.0..1.0 while rendering, then a final event with the report attached.
+#[allow(clippy::too_many_arguments)] // flat FRB surface, one arg per Dart param
 pub fn render_mix(
     wav_path: String,
     out_path: String,
     tracks: Vec<ApiTrack>,
     master: ApiMaster,
+    reference: Option<ApiReferenceProfile>,
     input_fd: Option<i32>,
     output_fd: Option<i32>,
     events: StreamSink<RenderEvent>,
 ) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
     let settings = to_engine_settings(&master);
+    let profile = match (&master.mastering_enabled, reference) {
+        (true, Some(p)) => Some(to_engine_profile(p)),
+        _ => None,
+    };
     let output = match output_fd {
         Some(fd) => OutputHandle::Fd(fd),
         None => OutputHandle::Path(out_path.clone()),
@@ -385,7 +419,7 @@ pub fn render_mix(
         &input_handle(&wav_path, input_fd),
         &engine_tracks,
         &settings,
-        None,
+        profile.as_ref(),
         &output,
         |p| {
             if p < 1.0 {
@@ -408,7 +442,89 @@ pub fn render_mix(
             true_peak_dbtp: report.true_peak_dbtp,
             lra_lu: report.lra_lu,
             source_integrated_lufs: report.source_integrated_lufs,
+            mastering_applied: report.mastering_applied,
+            mastering_gain_db: report.mastering_gain_db,
         }),
+    });
+    Ok(())
+}
+
+// ── reference mastering ─────────────────────────────────────────────────────
+
+/// Mirror of the engine's `ReferenceProfile` (cached as JSON on the Dart
+/// side so a reference is analyzed once).
+pub struct ApiReferenceProfile {
+    pub version: u32,
+    pub sample_rate: u32,
+    pub fft_size: u32,
+    pub piece_seconds: f64,
+    pub duration_seconds: f64,
+    pub mid_rms: f64,
+    pub side_rms: f64,
+    pub mid_spectrum: Vec<f32>,
+    pub side_spectrum: Vec<f32>,
+}
+
+fn to_engine_profile(p: ApiReferenceProfile) -> ReferenceProfile {
+    ReferenceProfile {
+        version: p.version,
+        sample_rate: p.sample_rate,
+        fft_size: p.fft_size,
+        piece_seconds: p.piece_seconds,
+        duration_seconds: p.duration_seconds,
+        mid_rms: p.mid_rms,
+        side_rms: p.side_rms,
+        mid_spectrum: p.mid_spectrum,
+        side_spectrum: p.side_spectrum,
+    }
+}
+
+fn from_engine_profile(p: ReferenceProfile) -> ApiReferenceProfile {
+    ApiReferenceProfile {
+        version: p.version,
+        sample_rate: p.sample_rate,
+        fft_size: p.fft_size,
+        piece_seconds: p.piece_seconds,
+        duration_seconds: p.duration_seconds,
+        mid_rms: p.mid_rms,
+        side_rms: p.side_rms,
+        mid_spectrum: p.mid_spectrum,
+        side_spectrum: p.side_spectrum,
+    }
+}
+
+/// The profile format version currently produced by the engine; the Dart
+/// cache keys on it so algorithm changes invalidate stored profiles.
+pub fn reference_profile_version() -> u32 {
+    PROFILE_VERSION
+}
+
+/// One event of the reference-analysis stream: progress ticks while
+/// decoding, and the final event (progress == 1.0) carries the profile.
+pub struct ReferenceEvent {
+    pub progress: f32,
+    pub profile: Option<ApiReferenceProfile>,
+}
+
+/// Decode and analyze a reference track (WAV/FLAC/MP3/OGG) into a profile.
+/// Streams progress like `render_mix`.
+pub fn analyze_reference(
+    path: String,
+    fd: Option<i32>,
+    events: StreamSink<ReferenceEvent>,
+) -> anyhow::Result<()> {
+    let profile = reference::analyze_reference(&input_handle(&path, fd), |p| {
+        if p < 1.0 {
+            let _ = events.add(ReferenceEvent {
+                progress: p,
+                profile: None,
+            });
+        }
+    })
+    .with_context(|| format!("analyze reference {path}"))?;
+    let _ = events.add(ReferenceEvent {
+        progress: 1.0,
+        profile: Some(from_engine_profile(profile)),
     });
     Ok(())
 }

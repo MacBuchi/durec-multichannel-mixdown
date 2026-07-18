@@ -160,6 +160,12 @@ class MixerState extends ChangeNotifier {
   double customLufs = -17.0;
   rust.ApiFormat format = rust.ApiFormat.wav24;
 
+  /// Reference mastering: session state only — the analyzed profile itself
+  /// lives in the profile cache, keyed by the reference file.
+  bool masteringEnabled = false;
+  String masteringReferencePath = '';
+  String masteringReferenceName = '';
+
   /// Trim range in seconds (null = untrimmed); fades match the old tool's
   /// 80 ms default whenever a trim point is set.
   double? trimStartSeconds;
@@ -447,6 +453,9 @@ class MixerState extends ChangeNotifier {
         trimEndSeconds != null ? BigInt.from((trimEndSeconds! * sampleRate).round()) : null,
     fadeInMs: trimStartSeconds != null ? fadeMs : 0,
     fadeOutMs: trimEndSeconds != null ? fadeMs : 0,
+    masteringEnabled: masteringEnabled,
+    masteringReferencePath: masteringReferencePath,
+    masteringReferenceName: masteringReferenceName,
   );
 
   void setTrimStart(double? seconds) {
@@ -463,6 +472,9 @@ class MixerState extends ChangeNotifier {
 
   void _restoreMaster(rust.ApiMaster m) {
     format = m.format;
+    masteringEnabled = m.masteringEnabled;
+    masteringReferencePath = m.masteringReferencePath;
+    masteringReferenceName = m.masteringReferenceName;
     final sr = recording?.sampleRate ?? 48000;
     final start = m.trimStartFrame.toInt();
     trimStartSeconds = start > 0 ? start / sr : null;

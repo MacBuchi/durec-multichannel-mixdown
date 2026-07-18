@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_settings`, `from_engine_track`, `input_handle`, `player_slot`, `to_engine_band`, `to_engine_eq`, `to_engine_settings`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_track`, `input_handle`, `player_slot`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_track`, `to_master_params`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -45,6 +45,7 @@ Stream<RenderEvent> renderMix({
   required String outPath,
   required List<ApiTrack> tracks,
   required ApiMaster master,
+  ApiReferenceProfile? reference,
   int? inputFd,
   int? outputFd,
 }) => RustLib.instance.api.crateApiMixerRenderMix(
@@ -52,9 +53,20 @@ Stream<RenderEvent> renderMix({
   outPath: outPath,
   tracks: tracks,
   master: master,
+  reference: reference,
   inputFd: inputFd,
   outputFd: outputFd,
 );
+
+/// The profile format version currently produced by the engine; the Dart
+/// cache keys on it so algorithm changes invalidate stored profiles.
+Future<int> referenceProfileVersion() =>
+    RustLib.instance.api.crateApiMixerReferenceProfileVersion();
+
+/// Decode and analyze a reference track (WAV/FLAC/MP3/OGG) into a profile.
+/// Streams progress like `render_mix`.
+Stream<ReferenceEvent> analyzeReference({required String path, int? fd}) =>
+    RustLib.instance.api.crateApiMixerAnalyzeReference(path: path, fd: fd);
 
 /// Streamed min/max envelope of every channel (`buckets` values per channel)
 /// plus BPM detection, in one pass.
@@ -223,6 +235,12 @@ class ApiMaster {
   final double fadeInMs;
   final double fadeOutMs;
 
+  /// Reference mastering (session state; the render acts on the profile
+  /// passed to `render_mix`, not on these fields alone).
+  final bool masteringEnabled;
+  final String masteringReferencePath;
+  final String masteringReferenceName;
+
   const ApiMaster({
     required this.loudness,
     required this.format,
@@ -233,6 +251,9 @@ class ApiMaster {
     this.trimEndFrame,
     required this.fadeInMs,
     required this.fadeOutMs,
+    required this.masteringEnabled,
+    required this.masteringReferencePath,
+    required this.masteringReferenceName,
   });
 
   @override
@@ -245,7 +266,10 @@ class ApiMaster {
       trimStartFrame.hashCode ^
       trimEndFrame.hashCode ^
       fadeInMs.hashCode ^
-      fadeOutMs.hashCode;
+      fadeOutMs.hashCode ^
+      masteringEnabled.hashCode ^
+      masteringReferencePath.hashCode ^
+      masteringReferenceName.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -260,7 +284,10 @@ class ApiMaster {
           trimStartFrame == other.trimStartFrame &&
           trimEndFrame == other.trimEndFrame &&
           fadeInMs == other.fadeInMs &&
-          fadeOutMs == other.fadeOutMs;
+          fadeOutMs == other.fadeOutMs &&
+          masteringEnabled == other.masteringEnabled &&
+          masteringReferencePath == other.masteringReferencePath &&
+          masteringReferenceName == other.masteringReferenceName;
 }
 
 class ApiPlayerState {
@@ -357,6 +384,59 @@ class ApiProbe {
           ixmlTrackCount == other.ixmlTrackCount;
 }
 
+/// Mirror of the engine's `ReferenceProfile` (cached as JSON on the Dart
+/// side so a reference is analyzed once).
+class ApiReferenceProfile {
+  final int version;
+  final int sampleRate;
+  final int fftSize;
+  final double pieceSeconds;
+  final double durationSeconds;
+  final double midRms;
+  final double sideRms;
+  final Float32List midSpectrum;
+  final Float32List sideSpectrum;
+
+  const ApiReferenceProfile({
+    required this.version,
+    required this.sampleRate,
+    required this.fftSize,
+    required this.pieceSeconds,
+    required this.durationSeconds,
+    required this.midRms,
+    required this.sideRms,
+    required this.midSpectrum,
+    required this.sideSpectrum,
+  });
+
+  @override
+  int get hashCode =>
+      version.hashCode ^
+      sampleRate.hashCode ^
+      fftSize.hashCode ^
+      pieceSeconds.hashCode ^
+      durationSeconds.hashCode ^
+      midRms.hashCode ^
+      sideRms.hashCode ^
+      midSpectrum.hashCode ^
+      sideSpectrum.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiReferenceProfile &&
+          runtimeType == other.runtimeType &&
+          version == other.version &&
+          sampleRate == other.sampleRate &&
+          fftSize == other.fftSize &&
+          pieceSeconds == other.pieceSeconds &&
+          durationSeconds == other.durationSeconds &&
+          midRms == other.midRms &&
+          sideRms == other.sideRms &&
+          midSpectrum == other.midSpectrum &&
+          sideSpectrum == other.sideSpectrum;
+}
+
 class ApiRenderReport {
   final double peakDbfsBefore;
   final double gainAppliedDb;
@@ -366,6 +446,8 @@ class ApiRenderReport {
   final double truePeakDbtp;
   final double lraLu;
   final double sourceIntegratedLufs;
+  final bool masteringApplied;
+  final double masteringGainDb;
 
   const ApiRenderReport({
     required this.peakDbfsBefore,
@@ -376,6 +458,8 @@ class ApiRenderReport {
     required this.truePeakDbtp,
     required this.lraLu,
     required this.sourceIntegratedLufs,
+    required this.masteringApplied,
+    required this.masteringGainDb,
   });
 
   @override
@@ -387,7 +471,9 @@ class ApiRenderReport {
       integratedLufs.hashCode ^
       truePeakDbtp.hashCode ^
       lraLu.hashCode ^
-      sourceIntegratedLufs.hashCode;
+      sourceIntegratedLufs.hashCode ^
+      masteringApplied.hashCode ^
+      masteringGainDb.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -401,7 +487,9 @@ class ApiRenderReport {
           integratedLufs == other.integratedLufs &&
           truePeakDbtp == other.truePeakDbtp &&
           lraLu == other.lraLu &&
-          sourceIntegratedLufs == other.sourceIntegratedLufs;
+          sourceIntegratedLufs == other.sourceIntegratedLufs &&
+          masteringApplied == other.masteringApplied &&
+          masteringGainDb == other.masteringGainDb;
 }
 
 class ApiTrack {
@@ -541,6 +629,26 @@ class RecordingInfo {
           durationSeconds == other.durationSeconds &&
           tracks == other.tracks &&
           master == other.master;
+}
+
+/// One event of the reference-analysis stream: progress ticks while
+/// decoding, and the final event (progress == 1.0) carries the profile.
+class ReferenceEvent {
+  final double progress;
+  final ApiReferenceProfile? profile;
+
+  const ReferenceEvent({required this.progress, this.profile});
+
+  @override
+  int get hashCode => progress.hashCode ^ profile.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReferenceEvent &&
+          runtimeType == other.runtimeType &&
+          progress == other.progress &&
+          profile == other.profile;
 }
 
 /// One event of the render stream: progress ticks while rendering, and the
