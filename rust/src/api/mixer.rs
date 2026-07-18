@@ -11,13 +11,14 @@ use durecmix_engine::analysis;
 use durecmix_engine::chain::MasterParams;
 use durecmix_engine::ixml;
 use durecmix_engine::mastering::{
-    design_mastering, MasteringPlan, MasteringStats, ReferenceProfile, PROFILE_VERSION,
+    design_mastering, merge_profiles, MasteringPlan, MasteringStats, ReferenceProfile,
+    PROFILE_VERSION,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
 use durecmix_engine::playback::Player;
 use durecmix_engine::reference;
 use durecmix_engine::render::{
-    self, LoudnessMode, MasteringSettings, OutputFormat, RenderSettings,
+    self, LoudnessMode, MasteringReference, MasteringSettings, OutputFormat, RenderSettings,
 };
 use durecmix_engine::session::Session;
 use durecmix_engine::sink::OutputHandle;
@@ -111,10 +112,16 @@ pub struct ApiMaster {
     pub fade_in_ms: f64,
     pub fade_out_ms: f64,
     /// Reference mastering (session state; the render acts on the profile
-    /// passed to `render_mix`, not on these fields alone).
+    /// passed to `render_mix`, not on these fields alone). Multiple
+    /// references average into one genre target curve.
     pub mastering_enabled: bool,
-    pub mastering_reference_path: String,
-    pub mastering_reference_name: String,
+    pub mastering_references: Vec<ApiMasteringReference>,
+}
+
+/// One chosen mastering reference (path/URI + display name).
+pub struct ApiMasteringReference {
+    pub path: String,
+    pub name: String,
 }
 
 pub struct RecordingInfo {
@@ -257,11 +264,29 @@ fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
         trim_end_frame: m.trim_end_frame,
         fade_in_ms: m.fade_in_ms,
         fade_out_ms: m.fade_out_ms,
-        mastering: (m.mastering_enabled || !m.mastering_reference_path.is_empty()).then(|| {
+        mastering: (m.mastering_enabled || !m.mastering_references.is_empty()).then(|| {
             MasteringSettings {
                 enabled: m.mastering_enabled,
-                reference_path: m.mastering_reference_path.clone(),
-                reference_name: m.mastering_reference_name.clone(),
+                // Legacy single-reference fields mirror the first entry so a
+                // v3 reader of the session file still shows something sane.
+                reference_path: m
+                    .mastering_references
+                    .first()
+                    .map(|r| r.path.clone())
+                    .unwrap_or_default(),
+                reference_name: m
+                    .mastering_references
+                    .first()
+                    .map(|r| r.name.clone())
+                    .unwrap_or_default(),
+                references: m
+                    .mastering_references
+                    .iter()
+                    .map(|r| MasteringReference {
+                        path: r.path.clone(),
+                        name: r.name.clone(),
+                    })
+                    .collect(),
             }
         }),
     }
@@ -299,15 +324,18 @@ fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
         fade_in_ms: s.fade_in_ms,
         fade_out_ms: s.fade_out_ms,
         mastering_enabled: s.mastering.as_ref().is_some_and(|m| m.enabled),
-        mastering_reference_path: s
+        mastering_references: s
             .mastering
             .as_ref()
-            .map(|m| m.reference_path.clone())
-            .unwrap_or_default(),
-        mastering_reference_name: s
-            .mastering
-            .as_ref()
-            .map(|m| m.reference_name.clone())
+            .map(|m| {
+                m.normalized_references()
+                    .into_iter()
+                    .map(|r| ApiMasteringReference {
+                        path: r.path,
+                        name: r.name,
+                    })
+                    .collect()
+            })
             .unwrap_or_default(),
     }
 }
@@ -499,6 +527,17 @@ fn from_engine_profile(p: ReferenceProfile) -> ApiReferenceProfile {
 /// cache keys on it so algorithm changes invalidate stored profiles.
 pub fn reference_profile_version() -> u32 {
     PROFILE_VERSION
+}
+
+/// Average several reference profiles into one mastering target (one vote
+/// per song; spectra merged on the highest sample-rate grid).
+pub fn merge_reference_profiles(
+    profiles: Vec<ApiReferenceProfile>,
+) -> anyhow::Result<ApiReferenceProfile> {
+    let engine: Vec<ReferenceProfile> = profiles.into_iter().map(to_engine_profile).collect();
+    Ok(from_engine_profile(
+        merge_profiles(&engine).context("merge reference profiles")?,
+    ))
 }
 
 /// Loudest-piece statistics of the current mix (mirror of the engine's

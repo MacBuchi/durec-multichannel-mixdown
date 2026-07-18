@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1382040450;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -865305758;
 
 // Section: executor
 
@@ -264,6 +264,42 @@ fn wire__crate__api__mixer__load_recording_impl(
                     (move || {
                         let output_ok =
                             crate::api::mixer::load_recording(api_path, api_session_path, api_fd)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__mixer__merge_reference_profiles_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "merge_reference_profiles",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_profiles =
+                <Vec<crate::api::mixer::ApiReferenceProfile>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::mixer::merge_reference_profiles(api_profiles)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -788,8 +824,8 @@ impl SseDecode for crate::api::mixer::ApiMaster {
         let mut var_fadeInMs = <f64>::sse_decode(deserializer);
         let mut var_fadeOutMs = <f64>::sse_decode(deserializer);
         let mut var_masteringEnabled = <bool>::sse_decode(deserializer);
-        let mut var_masteringReferencePath = <String>::sse_decode(deserializer);
-        let mut var_masteringReferenceName = <String>::sse_decode(deserializer);
+        let mut var_masteringReferences =
+            <Vec<crate::api::mixer::ApiMasteringReference>>::sse_decode(deserializer);
         return crate::api::mixer::ApiMaster {
             loudness: var_loudness,
             format: var_format,
@@ -801,8 +837,19 @@ impl SseDecode for crate::api::mixer::ApiMaster {
             fade_in_ms: var_fadeInMs,
             fade_out_ms: var_fadeOutMs,
             mastering_enabled: var_masteringEnabled,
-            mastering_reference_path: var_masteringReferencePath,
-            mastering_reference_name: var_masteringReferenceName,
+            mastering_references: var_masteringReferences,
+        };
+    }
+}
+
+impl SseDecode for crate::api::mixer::ApiMasteringReference {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        return crate::api::mixer::ApiMasteringReference {
+            path: var_path,
+            name: var_name,
         };
     }
 }
@@ -1010,6 +1057,34 @@ impl SseDecode for Vec<crate::api::mixer::ApiChannelWaveform> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::mixer::ApiChannelWaveform>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::mixer::ApiMasteringReference> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::mixer::ApiMasteringReference>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::mixer::ApiReferenceProfile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::mixer::ApiReferenceProfile>::sse_decode(
                 deserializer,
             ));
         }
@@ -1250,19 +1325,25 @@ fn pde_ffi_dispatcher_primary_impl(
         3 => wire__crate__api__mixer__analyze_reference_impl(port, ptr, rust_vec_len, data_len),
         5 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
         6 => wire__crate__api__mixer__load_recording_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__mixer__player_seek_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__mixer__player_start_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__mixer__player_stop_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__mixer__player_update_params_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__mixer__probe_recording_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__mixer__reference_profile_version_impl(
+        7 => wire__crate__api__mixer__merge_reference_profiles_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        14 => wire__crate__api__mixer__render_mix_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__mixer__save_session_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__mixer__player_seek_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__mixer__player_start_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__mixer__player_stop_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__mixer__player_update_params_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__mixer__probe_recording_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__mixer__reference_profile_version_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        15 => wire__crate__api__mixer__render_mix_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__mixer__save_session_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1276,7 +1357,7 @@ fn pde_ffi_dispatcher_sync_impl(
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
         4 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__mixer__player_state_impl(ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__mixer__player_state_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1446,8 +1527,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiMaster {
             self.fade_in_ms.into_into_dart().into_dart(),
             self.fade_out_ms.into_into_dart().into_dart(),
             self.mastering_enabled.into_into_dart().into_dart(),
-            self.mastering_reference_path.into_into_dart().into_dart(),
-            self.mastering_reference_name.into_into_dart().into_dart(),
+            self.mastering_references.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1457,6 +1537,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::ApiMaster>
     for crate::api::mixer::ApiMaster
 {
     fn into_into_dart(self) -> crate::api::mixer::ApiMaster {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiMasteringReference {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.path.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::mixer::ApiMasteringReference
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::mixer::ApiMasteringReference>
+    for crate::api::mixer::ApiMasteringReference
+{
+    fn into_into_dart(self) -> crate::api::mixer::ApiMasteringReference {
         self
     }
 }
@@ -1873,8 +1974,18 @@ impl SseEncode for crate::api::mixer::ApiMaster {
         <f64>::sse_encode(self.fade_in_ms, serializer);
         <f64>::sse_encode(self.fade_out_ms, serializer);
         <bool>::sse_encode(self.mastering_enabled, serializer);
-        <String>::sse_encode(self.mastering_reference_path, serializer);
-        <String>::sse_encode(self.mastering_reference_name, serializer);
+        <Vec<crate::api::mixer::ApiMasteringReference>>::sse_encode(
+            self.mastering_references,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::mixer::ApiMasteringReference {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.path, serializer);
+        <String>::sse_encode(self.name, serializer);
     }
 }
 
@@ -2010,6 +2121,26 @@ impl SseEncode for Vec<crate::api::mixer::ApiChannelWaveform> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::mixer::ApiChannelWaveform>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::mixer::ApiMasteringReference> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::mixer::ApiMasteringReference>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::mixer::ApiReferenceProfile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::mixer::ApiReferenceProfile>::sse_encode(item, serializer);
         }
     }
 }

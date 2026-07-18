@@ -65,6 +65,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiMaster dco_decode_api_master(dynamic raw);
 
   @protected
+  ApiMasteringReference dco_decode_api_mastering_reference(dynamic raw);
+
+  @protected
   ApiMixStats dco_decode_api_mix_stats(dynamic raw);
 
   @protected
@@ -120,6 +123,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ApiChannelWaveform> dco_decode_list_api_channel_waveform(dynamic raw);
+
+  @protected
+  List<ApiMasteringReference> dco_decode_list_api_mastering_reference(
+    dynamic raw,
+  );
+
+  @protected
+  List<ApiReferenceProfile> dco_decode_list_api_reference_profile(dynamic raw);
 
   @protected
   List<ApiTrack> dco_decode_list_api_track(dynamic raw);
@@ -231,6 +242,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiMaster sse_decode_api_master(SseDeserializer deserializer);
 
   @protected
+  ApiMasteringReference sse_decode_api_mastering_reference(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ApiMixStats sse_decode_api_mix_stats(SseDeserializer deserializer);
 
   @protected
@@ -294,6 +310,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ApiChannelWaveform> sse_decode_list_api_channel_waveform(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ApiMasteringReference> sse_decode_list_api_mastering_reference(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ApiReferenceProfile> sse_decode_list_api_reference_profile(
     SseDeserializer deserializer,
   );
 
@@ -421,6 +447,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_api_master(ApiMaster self, SseSerializer serializer);
 
   @protected
+  void sse_encode_api_mastering_reference(
+    ApiMasteringReference self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_api_mix_stats(ApiMixStats self, SseSerializer serializer);
 
   @protected
@@ -498,6 +530,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_api_channel_waveform(
     List<ApiChannelWaveform> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_api_mastering_reference(
+    List<ApiMasteringReference> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_api_reference_profile(
+    List<ApiReferenceProfile> self,
     SseSerializer serializer,
   );
 

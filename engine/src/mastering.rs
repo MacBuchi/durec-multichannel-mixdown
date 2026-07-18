@@ -363,6 +363,53 @@ impl ReferenceProfile {
     }
 }
 
+/// Merge several reference profiles into one mastering target. Each song
+/// gets one vote (equal weight — a long track must not dominate the genre
+/// curve): magnitude spectra are averaged on the grid of the highest sample
+/// rate, RMS values quadratically. One profile passes through unchanged.
+pub fn merge_profiles(profiles: &[ReferenceProfile]) -> Result<ReferenceProfile> {
+    let first = profiles
+        .first()
+        .ok_or_else(|| EngineError::Mastering("no reference profiles to merge".into()))?;
+    for p in profiles {
+        p.validate()?;
+    }
+    if profiles.len() == 1 {
+        return Ok(first.clone());
+    }
+
+    let sample_rate = profiles.iter().map(|p| p.sample_rate).max().unwrap();
+    let sr = sample_rate as f64;
+    let inv = 1.0 / profiles.len() as f64;
+    let mut mid = vec![0.0f64; BINS];
+    let mut side = vec![0.0f64; BINS];
+    let mut mid_sq = 0.0;
+    let mut side_sq = 0.0;
+    let mut duration = 0.0;
+    for p in profiles {
+        let pm = resample_spectrum(&p.mid_spectrum, p.sample_rate as f64, sr);
+        let ps = resample_spectrum(&p.side_spectrum, p.sample_rate as f64, sr);
+        for k in 0..BINS {
+            mid[k] += pm[k] * inv;
+            side[k] += ps[k] * inv;
+        }
+        mid_sq += p.mid_rms * p.mid_rms * inv;
+        side_sq += p.side_rms * p.side_rms * inv;
+        duration += p.duration_seconds;
+    }
+    Ok(ReferenceProfile {
+        version: PROFILE_VERSION,
+        sample_rate,
+        fft_size: ANALYSIS_FFT as u32,
+        piece_seconds: PIECE_SECONDS,
+        duration_seconds: duration,
+        mid_rms: mid_sq.sqrt(),
+        side_rms: side_sq.sqrt(),
+        mid_spectrum: mid.iter().map(|&v| v as f32).collect(),
+        side_spectrum: side.iter().map(|&v| v as f32).collect(),
+    })
+}
+
 // ── matching design ─────────────────────────────────────────────────────────
 
 /// The designed mastering filters, ready for `dsp::fir::MsFirStage`. All

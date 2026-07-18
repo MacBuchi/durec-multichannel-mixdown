@@ -161,17 +161,25 @@ class MixerState extends ChangeNotifier {
   double customLufs = -17.0;
   rust.ApiFormat format = rust.ApiFormat.wav24;
 
-  /// Reference mastering: session state only — the analyzed profile itself
-  /// lives in the profile cache, keyed by the reference file.
+  /// Reference mastering: session state only — the analyzed profiles live
+  /// in the profile cache, keyed per reference file. Multiple references
+  /// average into one genre target curve (one vote per song).
   bool masteringEnabled = false;
-  String masteringReferencePath = '';
-  String masteringReferenceName = '';
+  List<rust.ApiMasteringReference> masteringReferences = [];
+
+  /// Display label: single reference name, or "N references".
+  String get masteringReferenceName => masteringReferences.isEmpty
+      ? ''
+      : masteringReferences.length == 1
+          ? masteringReferences.first.name
+          : '${masteringReferences.length} references';
 
   /// Analyzed profile of the chosen reference (runtime only; backed by
   /// [ReferenceProfileCache]).
   rust.ApiReferenceProfile? referenceProfile;
   bool analyzingReference = false;
   double referenceProgress = 0;
+  String analyzingReferenceLabel = '';
 
   /// Mastering preview (runtime only, off after opening a take): playback
   /// runs through the matching FIRs designed from [mixMasteringStats] +
@@ -479,8 +487,7 @@ class MixerState extends ChangeNotifier {
     fadeInMs: trimStartSeconds != null ? fadeMs : 0,
     fadeOutMs: trimEndSeconds != null ? fadeMs : 0,
     masteringEnabled: masteringEnabled,
-    masteringReferencePath: masteringReferencePath,
-    masteringReferenceName: masteringReferenceName,
+    masteringReferences: masteringReferences,
   );
 
   void setTrimStart(double? seconds) {
@@ -500,11 +507,11 @@ class MixerState extends ChangeNotifier {
   void _restoreMaster(rust.ApiMaster m) {
     format = m.format;
     masteringEnabled = m.masteringEnabled;
-    if (masteringReferencePath != m.masteringReferencePath) {
-      referenceProfile = null; // different reference → profile is stale
+    if (!listEquals(masteringReferences.map((r) => r.path).toList(),
+        m.masteringReferences.map((r) => r.path).toList())) {
+      referenceProfile = null; // different reference set → profile is stale
     }
-    masteringReferencePath = m.masteringReferencePath;
-    masteringReferenceName = m.masteringReferenceName;
+    masteringReferences = List.of(m.masteringReferences);
     final sr = recording?.sampleRate ?? 48000;
     final start = m.trimStartFrame.toInt();
     trimStartSeconds = start > 0 ? start / sr : null;
@@ -780,31 +787,32 @@ class MixerState extends ChangeNotifier {
   // ── reference mastering ───────────────────────────────────────────────────
 
   void setMasteringEnabled(bool enabled) {
-    masteringEnabled = enabled && masteringReferencePath.isNotEmpty;
+    masteringEnabled = enabled && masteringReferences.isNotEmpty;
     if (!masteringEnabled) masteringPreview = false;
     _scheduleSave();
     notifyListeners();
     _pushLiveParams(mixEdited: false);
   }
 
-  /// Select a new reference track and analyze it (cache-backed). Throws on
-  /// analysis failure — the previous reference stays active then.
-  Future<void> chooseReference(String path, String name) async {
-    final previousPath = masteringReferencePath;
-    final previousName = masteringReferenceName;
+  /// Add a reference track and analyze it (cache-backed). Throws on
+  /// analysis failure — the previous reference set stays active then.
+  Future<void> addReference(String path, String name) async {
+    if (masteringReferences.any((r) => r.path == path)) return;
+    final previous = masteringReferences;
     final previousProfile = referenceProfile;
-    masteringReferencePath = path;
-    masteringReferenceName = name;
-    referenceProfile = null;
+    masteringReferences = [
+      ...masteringReferences,
+      rust.ApiMasteringReference(path: path, name: name),
+    ];
+    referenceProfile = null; // merged target must include the new song
     notifyListeners();
     try {
       await ensureReferenceProfile();
       masteringEnabled = true;
       _scheduleSave();
-      _pushLiveParams(mixEdited: false); // preview follows the new reference
+      _pushLiveParams(mixEdited: false); // preview follows the new target
     } catch (_) {
-      masteringReferencePath = previousPath;
-      masteringReferenceName = previousName;
+      masteringReferences = previous;
       referenceProfile = previousProfile;
       rethrow;
     } finally {
@@ -812,31 +820,65 @@ class MixerState extends ChangeNotifier {
     }
   }
 
-  /// Profile of the current reference: memory → cache → fresh analysis
-  /// (streams progress into [referenceProgress]).
-  Future<rust.ApiReferenceProfile?> ensureReferenceProfile() async {
-    final path = masteringReferencePath;
-    if (path.isEmpty) return null;
-    if (referenceProfile != null) return referenceProfile;
-    final cached = await ReferenceProfileCache.load(path);
-    if (cached != null) {
-      referenceProfile = cached;
-      notifyListeners();
-      return cached;
+  Future<void> removeReference(rust.ApiMasteringReference ref) async {
+    masteringReferences =
+        masteringReferences.where((r) => r.path != ref.path).toList();
+    referenceProfile = null;
+    if (masteringReferences.isEmpty) {
+      masteringEnabled = false;
+      masteringPreview = false;
     }
+    _scheduleSave();
+    notifyListeners();
+    if (masteringReferences.isNotEmpty) {
+      // Remaining profiles come from the cache — re-merge is instant.
+      try {
+        await ensureReferenceProfile();
+      } catch (_) {}
+    }
+    _pushLiveParams(mixEdited: false);
+  }
+
+  /// Merged target profile of the current reference set: memory → per-file
+  /// cache → fresh analysis (streams progress into [referenceProgress]),
+  /// then averaged engine-side when more than one reference is chosen.
+  Future<rust.ApiReferenceProfile?> ensureReferenceProfile() async {
+    if (masteringReferences.isEmpty) return null;
+    if (referenceProfile != null) return referenceProfile;
+    final refs = List.of(masteringReferences);
+    final profiles = <rust.ApiReferenceProfile>[];
+    for (var i = 0; i < refs.length; i++) {
+      final ref = refs[i];
+      var profile = await ReferenceProfileCache.load(ref.path);
+      profile ??= await _analyzeSingleReference(ref, i + 1, refs.length);
+      if (profile == null) {
+        throw StateError('reference analysis failed: ${ref.name}');
+      }
+      profiles.add(profile);
+    }
+    referenceProfile = profiles.length == 1
+        ? profiles.single
+        : await rust.mergeReferenceProfiles(profiles: profiles);
+    notifyListeners();
+    return referenceProfile;
+  }
+
+  Future<rust.ApiReferenceProfile?> _analyzeSingleReference(
+      rust.ApiMasteringReference ref, int index, int total) async {
     analyzingReference = true;
     referenceProgress = 0;
+    analyzingReferenceLabel = total > 1 ? '${ref.name} ($index/$total)' : ref.name;
     notifyListeners();
+    rust.ApiReferenceProfile? profile;
     try {
-      final fd = Saf.isContentUri(path) ? await Saf.openFd(path) : null;
-      await for (final ev in rust.analyzeReference(path: path, fd: fd)) {
+      final fd = Saf.isContentUri(ref.path) ? await Saf.openFd(ref.path) : null;
+      await for (final ev in rust.analyzeReference(path: ref.path, fd: fd)) {
         referenceProgress = ev.progress;
-        if (ev.profile != null) referenceProfile = ev.profile;
+        if (ev.profile != null) profile = ev.profile;
         notifyListeners();
       }
-      final profile = referenceProfile;
       if (profile != null) {
-        await ReferenceProfileCache.save(path, profile);
+        await ReferenceProfileCache.save(ref.path, profile);
       }
       return profile;
     } finally {
@@ -852,7 +894,7 @@ class MixerState extends ChangeNotifier {
   /// Turn the mastered preview on: analyze the current mix once (whole-file
   /// pass, streamed progress), then feed the running player.
   Future<void> enableMasteringPreview() async {
-    if (recording == null || masteringReferencePath.isEmpty) return;
+    if (recording == null || masteringReferences.isEmpty) return;
     await ensureReferenceProfile();
     await _analyzeMixForMastering();
     if (mixMasteringStats == null) return;
