@@ -25,8 +25,10 @@ use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::chain::{ChainConfig, MasterParams, MixChain};
+use crate::dsp::fir::MsFirStage;
 use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use crate::error::{EngineError, Result};
+use crate::mastering::MasteringPlan;
 use crate::mix::TrackParams;
 use crate::wav::WavReader;
 
@@ -71,6 +73,9 @@ pub struct PlayerSnapshot {
 pub struct LiveParams {
     pub tracks: Vec<TrackParams>,
     pub master: MasterParams,
+    /// Mastering-preview filters (designed from current mix stats + the
+    /// reference profile); `None` plays the plain mix.
+    pub mastering: Option<MasteringPlan>,
 }
 
 pub struct Player {
@@ -91,6 +96,7 @@ impl Player {
             &crate::wav::InputHandle::Path(path.into()),
             tracks,
             master,
+            None,
             start_frame,
         )
     }
@@ -100,6 +106,7 @@ impl Player {
         input: &crate::wav::InputHandle,
         tracks: Vec<TrackParams>,
         master: MasterParams,
+        mastering: Option<MasteringPlan>,
         start_frame: u64,
     ) -> Result<Player> {
         let mut reader = input.open()?;
@@ -115,7 +122,11 @@ impl Player {
             lufs_integrated: AtomicU32::new((-70.0f32).to_bits()),
             ..SharedState::default()
         });
-        let params = Arc::new(Mutex::new(LiveParams { tracks, master }));
+        let params = Arc::new(Mutex::new(LiveParams {
+            tracks,
+            master,
+            mastering,
+        }));
 
         let (producer, consumer) = rtrb::RingBuffer::<f32>::new(RING_FRAMES * 2);
 
@@ -179,8 +190,17 @@ impl Player {
     }
 
     /// Swap in new track/master parameters; audible within ring latency.
-    pub fn update_params(&self, tracks: Vec<TrackParams>, master: MasterParams) {
-        *self.params.lock().unwrap() = LiveParams { tracks, master };
+    pub fn update_params(
+        &self,
+        tracks: Vec<TrackParams>,
+        master: MasterParams,
+        mastering: Option<MasteringPlan>,
+    ) {
+        *self.params.lock().unwrap() = LiveParams {
+            tracks,
+            master,
+            mastering,
+        };
         self.shared.params_epoch.fetch_add(1, Ordering::AcqRel);
     }
 
@@ -232,11 +252,20 @@ fn spawn_decode_thread(
                     )
                 })
             };
-            let (mut chain, mut master) = {
+            let build_fir = |plan: &Option<MasteringPlan>| {
+                plan.as_ref()
+                    .map(|p| MsFirStage::new(&p.fir_mid, &p.fir_side))
+            };
+            let (mut chain, mut master, mut mastering) = {
                 let p = params.lock().unwrap();
-                (MixChain::new(&p.tracks, channels, &cfg), p.master)
+                (
+                    MixChain::new(&p.tracks, channels, &cfg),
+                    p.master,
+                    p.mastering.clone(),
+                )
             };
             let mut limiter = build_limiter(&master);
+            let mut fir = build_fir(&mastering);
             let mut seen_epoch = shared.params_epoch.load(Ordering::Acquire);
             // Meter mode M|I|TRUE_PEAK: momentary for the bar, integrated +
             // running true peak so the user sees what render pass 1 will.
@@ -251,6 +280,7 @@ fn spawn_decode_thread(
             let mut ebu = make_ebu();
             let mut input: Vec<f64> = Vec::new();
             let mut stereo: Vec<f64> = Vec::new();
+            let mut mastered: Vec<f64> = Vec::new();
             let mut limited: Vec<f64> = Vec::new();
             let mut stereo_f32: Vec<f32> = Vec::new();
 
@@ -265,6 +295,9 @@ fn spawn_decode_thread(
                     shared.eof.store(false, Ordering::Release);
                     shared.finished.store(false, Ordering::Release);
                     chain.reset(); // filter state belongs to the old position
+                    if let Some(f) = &mut fir {
+                        f.reset();
+                    }
                     if let Some(lim) = &mut limiter {
                         lim.reset();
                     }
@@ -281,6 +314,10 @@ fn spawn_decode_thread(
                         master = p.master;
                         limiter = build_limiter(&master);
                     }
+                    if p.mastering != mastering {
+                        mastering = p.mastering.clone();
+                        fir = build_fir(&mastering);
+                    }
                 }
 
                 let n = reader.read_frames(&mut input, DECODE_BLOCK).unwrap_or(0);
@@ -291,13 +328,23 @@ fn spawn_decode_thread(
                 }
 
                 chain.process(&input, &mut stereo);
+                // Same ordering as render pass 2: mix → matching FIRs →
+                // true-peak limiter (which catches the mastering gain).
+                let block: &[f64] = match &mut fir {
+                    Some(f) => {
+                        mastered.clear();
+                        f.process(&stereo, &mut mastered);
+                        &mastered
+                    }
+                    None => &stereo,
+                };
                 let block: &[f64] = match &mut limiter {
                     Some(lim) => {
                         limited.clear();
-                        lim.process(&stereo, &mut limited);
+                        lim.process(block, &mut limited);
                         &limited
                     }
-                    None => &stereo,
+                    None => block,
                 };
                 stereo_f32.clear();
                 stereo_f32.extend(block.iter().map(|&s| s as f32));

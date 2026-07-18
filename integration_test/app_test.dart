@@ -205,6 +205,25 @@ void main() {
     expect(File(masteredPath).existsSync(), isTrue);
     expect(find.textContaining('matched to fixture_4ch.wav'), findsOneWidget);
 
+    // Mastering preview: enabling analyzes the current mix (real engine
+    // pass); mix edits mark the analysis stale; refresh clears it. (No
+    // audio device is exercised — CI runners have none.)
+    await state.enableMasteringPreview();
+    await tester.pumpAndSettle();
+    expect(state.masteringPreview, isTrue);
+    expect(state.mixMasteringStats, isNotNull);
+    expect(state.mixStatsStale, isFalse);
+    state.updateTrack(state.tracks[0], (t) => t.gainDb = -3.0);
+    await tester.pump();
+    expect(state.mixStatsStale, isTrue,
+        reason: 'mix edit must mark preview stale');
+    await state.refreshMasteringPreview();
+    await tester.pumpAndSettle();
+    expect(state.mixStatsStale, isFalse);
+    state.updateTrack(state.tracks[0], (t) => t.gainDb = 0.0);
+    state.disableMasteringPreview();
+    await tester.pump();
+
     // Reopen: the EQ setting, loudness choice and mastering reference
     // round-trip via the session.
     await state.open(fixturePath);

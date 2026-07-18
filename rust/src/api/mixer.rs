@@ -10,7 +10,9 @@ use anyhow::Context;
 use durecmix_engine::analysis;
 use durecmix_engine::chain::MasterParams;
 use durecmix_engine::ixml;
-use durecmix_engine::mastering::{ReferenceProfile, PROFILE_VERSION};
+use durecmix_engine::mastering::{
+    design_mastering, MasteringPlan, MasteringStats, ReferenceProfile, PROFILE_VERSION,
+};
 use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
 use durecmix_engine::playback::Player;
 use durecmix_engine::reference;
@@ -499,6 +501,96 @@ pub fn reference_profile_version() -> u32 {
     PROFILE_VERSION
 }
 
+/// Loudest-piece statistics of the current mix (mirror of the engine's
+/// `MasteringStats`) — the target half of a mastering-preview plan. Runtime
+/// only, never persisted.
+pub struct ApiMixStats {
+    pub sample_rate: u32,
+    pub duration_seconds: f64,
+    pub mid_rms: f64,
+    pub side_rms: f64,
+    pub mid_spectrum: Vec<f64>,
+    pub side_spectrum: Vec<f64>,
+    pub mid_power: Vec<f64>,
+    pub side_power: Vec<f64>,
+}
+
+fn to_engine_stats(s: ApiMixStats) -> MasteringStats {
+    MasteringStats {
+        sample_rate: s.sample_rate,
+        duration_seconds: s.duration_seconds,
+        mid_rms: s.mid_rms,
+        side_rms: s.side_rms,
+        mid_spectrum: s.mid_spectrum,
+        side_spectrum: s.side_spectrum,
+        mid_power: s.mid_power,
+        side_power: s.side_power,
+    }
+}
+
+fn from_engine_stats(s: MasteringStats) -> ApiMixStats {
+    ApiMixStats {
+        sample_rate: s.sample_rate,
+        duration_seconds: s.duration_seconds,
+        mid_rms: s.mid_rms,
+        side_rms: s.side_rms,
+        mid_spectrum: s.mid_spectrum,
+        side_spectrum: s.side_spectrum,
+        mid_power: s.mid_power,
+        side_power: s.side_power,
+    }
+}
+
+/// Design the preview mastering plan when everything needed is present.
+fn preview_plan(
+    master: &ApiMaster,
+    stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
+) -> anyhow::Result<Option<MasteringPlan>> {
+    match (master.mastering_enabled, stats, reference) {
+        (true, Some(s), Some(r)) => Ok(Some(
+            design_mastering(&to_engine_stats(s), &to_engine_profile(r))
+                .context("design mastering preview")?,
+        )),
+        _ => Ok(None),
+    }
+}
+
+/// One event of the mix-analysis stream: progress ticks, final event
+/// (progress == 1.0) carries the stats.
+pub struct MixStatsEvent {
+    pub progress: f32,
+    pub stats: Option<ApiMixStats>,
+}
+
+/// Analyze the current mix (same trim/fades as an export) for the mastering
+/// preview. Reads the whole recording once; streams progress.
+pub fn analyze_mix_mastering(
+    path: String,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    fd: Option<i32>,
+    events: StreamSink<MixStatsEvent>,
+) -> anyhow::Result<()> {
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let settings = to_engine_settings(&master);
+    let stats =
+        render::analyze_mix_mastering(&input_handle(&path, fd), &engine_tracks, &settings, |p| {
+            if p < 1.0 {
+                let _ = events.add(MixStatsEvent {
+                    progress: p,
+                    stats: None,
+                });
+            }
+        })
+        .with_context(|| format!("analyze mix of {path}"))?;
+    let _ = events.add(MixStatsEvent {
+        progress: 1.0,
+        stats: Some(from_engine_stats(stats)),
+    });
+    Ok(())
+}
+
 /// One event of the reference-analysis stream: progress ticks while
 /// decoding, and the final event (progress == 1.0) carries the profile.
 pub struct ReferenceEvent {
@@ -588,12 +680,16 @@ pub fn player_start(
     master: ApiMaster,
     start_frame: u64,
     fd: Option<i32>,
+    mastering_stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
 ) -> anyhow::Result<()> {
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let plan = preview_plan(&master, mastering_stats, reference)?;
     let new_player = Player::start_input(
         &input_handle(&path, fd),
         engine_tracks,
         to_master_params(&master),
+        plan,
         start_frame,
     )
     .with_context(|| format!("start playback of {path}"))?;
@@ -619,13 +715,21 @@ pub fn player_seek(frame: u64) {
 }
 
 /// Push updated mix/master parameters to the running player (~0.2 s).
-pub fn player_update_params(tracks: Vec<ApiTrack>, master: ApiMaster) {
+pub fn player_update_params(
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    mastering_stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
+) -> anyhow::Result<()> {
+    let plan = preview_plan(&master, mastering_stats, reference)?;
     if let Some(p) = player_slot().lock().unwrap().as_ref() {
         p.update_params(
             tracks.iter().map(to_engine_track).collect(),
             to_master_params(&master),
+            plan,
         );
     }
+    Ok(())
 }
 
 /// Poll playback position and meters (call at UI frame rate).

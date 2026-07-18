@@ -1965,3 +1965,69 @@ fn session_v2_loads_and_v3_roundtrips_mastering() {
     let back: Session = serde_json::from_str(&json).unwrap();
     assert_eq!(session, back);
 }
+
+// ── mastering: preview support ──────────────────────────────────────────────
+
+#[test]
+fn fir_stage_reset_matches_fresh_stage() {
+    use durecmix_engine::dsp::fir::MsFirStage;
+    let fir_mid = test_fir(255, 12);
+    let fir_side = test_fir(255, 13);
+    let mut seed = 31u64;
+    let input: Vec<f64> = (0..20_000 * 2).map(|_| noise(&mut seed)).collect();
+
+    let mut fresh = MsFirStage::new(&fir_mid, &fir_side);
+    let mut expected = Vec::new();
+    fresh.process(&input, &mut expected);
+
+    let mut reused = MsFirStage::new(&fir_mid, &fir_side);
+    let mut sink = Vec::new();
+    reused.process(&input[..7_000 * 2], &mut sink); // dirty state
+    reused.reset();
+    let mut out = Vec::new();
+    reused.process(&input, &mut out);
+    assert_eq!(out, expected, "reset stage diverges from a fresh one");
+}
+
+#[test]
+fn analyze_mix_mastering_matches_direct_analysis() {
+    use durecmix_engine::render::analyze_mix_mastering;
+    let sr = 44_100u32;
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let source = ms_noise(16 * sr as usize, 0.3, 0.05, 95);
+    std::fs::write(&in_path, stereo_wav24(&source, sr)).unwrap();
+
+    // Hard-panned tracks reproduce the file's stereo signal on the bus.
+    let tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    let settings = RenderSettings::default();
+    let mut last = 0.0f32;
+    let stats = analyze_mix_mastering(
+        &InputHandle::Path(in_path.to_str().unwrap().into()),
+        &tracks,
+        &settings,
+        |p| {
+            assert!(p >= last);
+            last = p;
+        },
+    )
+    .unwrap();
+    assert!((last - 1.0).abs() < 1e-6);
+
+    // The mix bus is a pass-through here, so the stats must match analyzing
+    // the source after the exact 24-bit round trip (encode ×8388607,
+    // decode ÷8388608 — see sink.rs/wav.rs).
+    let direct = analyze(
+        &source
+            .iter()
+            .map(|&s| (s * 8_388_607.0).round() / 8_388_608.0)
+            .collect::<Vec<_>>(),
+        sr,
+    );
+    assert!((linear_to_db(stats.mid_rms) - linear_to_db(direct.mid_rms)).abs() < 1e-6);
+    assert!((linear_to_db(stats.side_rms) - linear_to_db(direct.side_rms)).abs() < 1e-6);
+    for (a, b) in stats.mid_spectrum.iter().zip(&direct.mid_spectrum) {
+        assert!((a - b).abs() < 1e-9);
+    }
+    assert!((stats.duration_seconds - 16.0).abs() < 0.01);
+}
