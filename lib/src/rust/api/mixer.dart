@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_track`, `input_handle`, `player_slot`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `input_handle`, `player_slot`, `preview_plan`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -63,6 +63,20 @@ Stream<RenderEvent> renderMix({
 Future<int> referenceProfileVersion() =>
     RustLib.instance.api.crateApiMixerReferenceProfileVersion();
 
+/// Analyze the current mix (same trim/fades as an export) for the mastering
+/// preview. Reads the whole recording once; streams progress.
+Stream<MixStatsEvent> analyzeMixMastering({
+  required String path,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  int? fd,
+}) => RustLib.instance.api.crateApiMixerAnalyzeMixMastering(
+  path: path,
+  tracks: tracks,
+  master: master,
+  fd: fd,
+);
+
 /// Decode and analyze a reference track (WAV/FLAC/MP3/OGG) into a profile.
 /// Streams progress like `render_mix`.
 Stream<ReferenceEvent> analyzeReference({required String path, int? fd}) =>
@@ -87,12 +101,16 @@ Future<void> playerStart({
   required ApiMaster master,
   required BigInt startFrame,
   int? fd,
+  ApiMixStats? masteringStats,
+  ApiReferenceProfile? reference,
 }) => RustLib.instance.api.crateApiMixerPlayerStart(
   path: path,
   tracks: tracks,
   master: master,
   startFrame: startFrame,
   fd: fd,
+  masteringStats: masteringStats,
+  reference: reference,
 );
 
 Future<void> playerStop() => RustLib.instance.api.crateApiMixerPlayerStop();
@@ -104,9 +122,13 @@ Future<void> playerSeek({required BigInt frame}) =>
 Future<void> playerUpdateParams({
   required List<ApiTrack> tracks,
   required ApiMaster master,
+  ApiMixStats? masteringStats,
+  ApiReferenceProfile? reference,
 }) => RustLib.instance.api.crateApiMixerPlayerUpdateParams(
   tracks: tracks,
   master: master,
+  masteringStats: masteringStats,
+  reference: reference,
 );
 
 /// Poll playback position and meters (call at UI frame rate).
@@ -288,6 +310,56 @@ class ApiMaster {
           masteringEnabled == other.masteringEnabled &&
           masteringReferencePath == other.masteringReferencePath &&
           masteringReferenceName == other.masteringReferenceName;
+}
+
+/// Loudest-piece statistics of the current mix (mirror of the engine's
+/// `MasteringStats`) — the target half of a mastering-preview plan. Runtime
+/// only, never persisted.
+class ApiMixStats {
+  final int sampleRate;
+  final double durationSeconds;
+  final double midRms;
+  final double sideRms;
+  final Float64List midSpectrum;
+  final Float64List sideSpectrum;
+  final Float64List midPower;
+  final Float64List sidePower;
+
+  const ApiMixStats({
+    required this.sampleRate,
+    required this.durationSeconds,
+    required this.midRms,
+    required this.sideRms,
+    required this.midSpectrum,
+    required this.sideSpectrum,
+    required this.midPower,
+    required this.sidePower,
+  });
+
+  @override
+  int get hashCode =>
+      sampleRate.hashCode ^
+      durationSeconds.hashCode ^
+      midRms.hashCode ^
+      sideRms.hashCode ^
+      midSpectrum.hashCode ^
+      sideSpectrum.hashCode ^
+      midPower.hashCode ^
+      sidePower.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiMixStats &&
+          runtimeType == other.runtimeType &&
+          sampleRate == other.sampleRate &&
+          durationSeconds == other.durationSeconds &&
+          midRms == other.midRms &&
+          sideRms == other.sideRms &&
+          midSpectrum == other.midSpectrum &&
+          sideSpectrum == other.sideSpectrum &&
+          midPower == other.midPower &&
+          sidePower == other.sidePower;
 }
 
 class ApiPlayerState {
@@ -580,6 +652,26 @@ class ApiTrackEq {
           low == other.low &&
           mid == other.mid &&
           high == other.high;
+}
+
+/// One event of the mix-analysis stream: progress ticks, final event
+/// (progress == 1.0) carries the stats.
+class MixStatsEvent {
+  final double progress;
+  final ApiMixStats? stats;
+
+  const MixStatsEvent({required this.progress, this.stats});
+
+  @override
+  int get hashCode => progress.hashCode ^ stats.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MixStatsEvent &&
+          runtimeType == other.runtimeType &&
+          progress == other.progress &&
+          stats == other.stats;
 }
 
 class RecordingInfo {

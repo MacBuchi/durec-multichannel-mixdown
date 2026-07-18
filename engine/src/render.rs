@@ -196,6 +196,59 @@ pub struct RenderReport {
     pub mastering_gain_db: f64,
 }
 
+/// Measure the current mix for reference mastering — render pass 1 without
+/// peak/loudness/sink. Same trim/fades as an export, so the stats (and the
+/// FIRs designed from them) match what `render_io` would produce. Feeds the
+/// live mastering preview.
+pub fn analyze_mix_mastering(
+    input: &InputHandle,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    mut progress: impl FnMut(f32),
+) -> Result<crate::mastering::MasteringStats> {
+    let mut reader = input.open()?;
+    let spec = reader.spec();
+    let cfg = ChainConfig {
+        sample_rate: spec.sample_rate,
+    };
+    let num_frames = reader.num_frames();
+    let start = settings.trim_start_frame.min(num_frames);
+    let end = settings
+        .trim_end_frame
+        .unwrap_or(num_frames)
+        .clamp(start, num_frames);
+    let range_frames = (end - start).max(1) as f64;
+    let fade = FadeEnvelope::new(
+        spec.sample_rate,
+        end - start,
+        settings.fade_in_ms,
+        settings.fade_out_ms,
+    );
+    let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
+    let mut analyzer = MasteringAnalyzer::new(spec.sample_rate);
+    reader.seek_to_frame(start)?;
+    let mut input_buf = Vec::new();
+    let mut stereo = Vec::new();
+    let mut done: u64 = 0;
+    loop {
+        let want = BLOCK_FRAMES.min((end - start - done) as usize);
+        if want == 0 {
+            break;
+        }
+        let n = reader.read_frames(&mut input_buf, want)?;
+        if n == 0 {
+            break;
+        }
+        chain.process(&input_buf, &mut stereo);
+        fade.apply(&mut stereo, done);
+        analyzer.push(&stereo);
+        done += n as u64;
+        progress((done as f64 / range_frames) as f32);
+    }
+    progress(1.0);
+    Ok(analyzer.finish())
+}
+
 /// Measure the sample peak of the mixed output without writing anything.
 pub fn measure_mix_peak<R: Read + Seek>(reader: &mut WavReader<R>, bus: &MixBus) -> Result<f64> {
     reader.seek_to_frame(0)?;

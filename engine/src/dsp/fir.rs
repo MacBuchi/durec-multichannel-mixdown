@@ -103,6 +103,20 @@ impl MsFirStage {
         (self.taps_len - 1) / 2
     }
 
+    /// Drop all streaming state (buffers, tails, counters) while keeping the
+    /// filters — live playback calls this on seeks, like `Biquad`/limiter
+    /// resets, so stale audio never bleeds across a jump.
+    pub fn reset(&mut self) {
+        self.mid_in.clear();
+        self.side_in.clear();
+        self.mid_tail.fill(0.0);
+        self.side_tail.fill(0.0);
+        self.ready.clear();
+        self.skip_remaining = (self.taps_len - 1) / 2;
+        self.frames_in = 0;
+        self.frames_out = 0;
+    }
+
     /// Feed interleaved stereo; appends the filtered signal to `out` (the
     /// first calls emit fewer frames while the group delay primes).
     pub fn process(&mut self, stereo_in: &[f64], out: &mut Vec<f64>) {

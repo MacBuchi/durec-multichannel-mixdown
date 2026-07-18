@@ -367,6 +367,9 @@ impl ReferenceProfile {
 
 /// The designed mastering filters, ready for `dsp::fir::MsFirStage`. All
 /// gain (RMS match + Parseval correction) is folded into the taps.
+/// `Clone + PartialEq` so live playback can detect plan changes on its
+/// epoch-updated parameter swaps.
+#[derive(Debug, Clone, PartialEq)]
 pub struct MasteringPlan {
     pub fir_mid: Vec<f64>,
     pub fir_side: Vec<f64>,

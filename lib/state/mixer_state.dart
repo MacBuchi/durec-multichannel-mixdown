@@ -173,6 +173,16 @@ class MixerState extends ChangeNotifier {
   bool analyzingReference = false;
   double referenceProgress = 0;
 
+  /// Mastering preview (runtime only, off after opening a take): playback
+  /// runs through the matching FIRs designed from [mixMasteringStats] +
+  /// [referenceProfile]. Mix edits mark the stats stale instead of
+  /// re-scanning the file — the user refreshes explicitly.
+  bool masteringPreview = false;
+  rust.ApiMixStats? mixMasteringStats;
+  bool mixStatsStale = false;
+  bool analyzingMix = false;
+  double mixAnalysisProgress = 0;
+
   /// Trim range in seconds (null = untrimmed); fades match the old tool's
   /// 80 ms default whenever a trim point is set.
   double? trimStartSeconds;
@@ -236,6 +246,9 @@ class MixerState extends ChangeNotifier {
       _restoreMaster(recording!.master);
       positionSeconds = 0;
       lastReport = null;
+      masteringPreview = false;
+      mixMasteringStats = null;
+      mixStatsStale = false;
       expandedEq.clear();
       unlinkedPairs.clear();
       batchQueue.clear();
@@ -472,12 +485,14 @@ class MixerState extends ChangeNotifier {
 
   void setTrimStart(double? seconds) {
     trimStartSeconds = seconds?.clamp(0, durationSeconds);
+    if (masteringPreview) mixStatsStale = true; // analysis covers trim range
     _scheduleSave();
     notifyListeners();
   }
 
   void setTrimEnd(double? seconds) {
     trimEndSeconds = seconds?.clamp(0, durationSeconds);
+    if (masteringPreview) mixStatsStale = true;
     _scheduleSave();
     notifyListeners();
   }
@@ -512,12 +527,22 @@ class MixerState extends ChangeNotifier {
     }
   }
 
-  void _pushLiveParams() {
+  void _pushLiveParams({bool mixEdited = true}) {
+    // Every mix edit invalidates the preview's whole-file analysis; the
+    // preview keeps playing on the frozen plan until the user refreshes.
+    if (mixEdited && masteringPreview) {
+      mixStatsStale = true;
+    }
     if (playing) {
-      rust.playerUpdateParams(
-        tracks: tracks.map((t) => t.toApi()).toList(),
-        master: master,
-      );
+      final stats = _previewStats;
+      unawaited(rust
+          .playerUpdateParams(
+            tracks: tracks.map((t) => t.toApi()).toList(),
+            master: master,
+            masteringStats: stats,
+            reference: stats != null ? referenceProfile : null,
+          )
+          .catchError((_) {}));
     }
   }
 
@@ -557,12 +582,15 @@ class MixerState extends ChangeNotifier {
     try {
       final startFrame =
           BigInt.from((positionSeconds * rec.sampleRate).round().clamp(0, rec.numFrames.toInt()));
+      final stats = _previewStats;
       await rust.playerStart(
         path: rec.path,
         tracks: tracks.map((t) => t.toApi()).toList(),
         master: master,
         startFrame: startFrame,
         fd: await _inputFd(rec.path),
+        masteringStats: stats,
+        reference: stats != null ? referenceProfile : null,
       );
       playing = true;
       _startPolling();
@@ -753,8 +781,10 @@ class MixerState extends ChangeNotifier {
 
   void setMasteringEnabled(bool enabled) {
     masteringEnabled = enabled && masteringReferencePath.isNotEmpty;
+    if (!masteringEnabled) masteringPreview = false;
     _scheduleSave();
     notifyListeners();
+    _pushLiveParams(mixEdited: false);
   }
 
   /// Select a new reference track and analyze it (cache-backed). Throws on
@@ -771,6 +801,7 @@ class MixerState extends ChangeNotifier {
       await ensureReferenceProfile();
       masteringEnabled = true;
       _scheduleSave();
+      _pushLiveParams(mixEdited: false); // preview follows the new reference
     } catch (_) {
       masteringReferencePath = previousPath;
       masteringReferenceName = previousName;
@@ -810,6 +841,61 @@ class MixerState extends ChangeNotifier {
       return profile;
     } finally {
       analyzingReference = false;
+      notifyListeners();
+    }
+  }
+
+  /// Stats+profile pair handed to the player while the preview is active.
+  rust.ApiMixStats? get _previewStats =>
+      masteringPreview && masteringEnabled ? mixMasteringStats : null;
+
+  /// Turn the mastered preview on: analyze the current mix once (whole-file
+  /// pass, streamed progress), then feed the running player.
+  Future<void> enableMasteringPreview() async {
+    if (recording == null || masteringReferencePath.isEmpty) return;
+    await ensureReferenceProfile();
+    await _analyzeMixForMastering();
+    if (mixMasteringStats == null) return;
+    masteringPreview = true;
+    mixStatsStale = false;
+    notifyListeners();
+    _pushLiveParams(mixEdited: false);
+  }
+
+  void disableMasteringPreview() {
+    masteringPreview = false;
+    notifyListeners();
+    _pushLiveParams(mixEdited: false);
+  }
+
+  /// Re-analyze after mix edits (explicit — never scans behind the user's
+  /// back).
+  Future<void> refreshMasteringPreview() async {
+    await _analyzeMixForMastering();
+    mixStatsStale = false;
+    notifyListeners();
+    _pushLiveParams(mixEdited: false);
+  }
+
+  Future<void> _analyzeMixForMastering() async {
+    final rec = recording;
+    if (rec == null) return;
+    analyzingMix = true;
+    mixAnalysisProgress = 0;
+    notifyListeners();
+    try {
+      await for (final ev in rust.analyzeMixMastering(
+        path: rec.path,
+        tracks: tracks.map((t) => t.toApi()).toList(),
+        master: master,
+        fd: _isSaf ? await _inputFd(rec.path) : null,
+      )) {
+        mixAnalysisProgress = ev.progress;
+        if (ev.stats != null) mixMasteringStats = ev.stats;
+        notifyListeners();
+      }
+    } finally {
+      analyzingMix = false;
       notifyListeners();
     }
   }

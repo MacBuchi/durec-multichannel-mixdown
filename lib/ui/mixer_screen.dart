@@ -330,16 +330,22 @@ class _MixerScreenState extends State<MixerScreen> {
             actions: narrow ? _narrowActions(rec) : [
               if (rec != null) ...[
                 IconButton(
-                  tooltip: state.masteringEnabled
-                      ? 'Reference mastering: ${state.masteringReferenceName}'
-                      : 'Reference mastering — match the export to a '
-                          'reference track',
+                  tooltip: state.masteringPreview && state.mixStatsStale
+                      ? 'Mastering preview is stale — mix changed since the '
+                          'analysis'
+                      : state.masteringEnabled
+                          ? 'Reference mastering: '
+                              '${state.masteringReferenceName}'
+                          : 'Reference mastering — match the export to a '
+                              'reference track',
                   onPressed: _masteringDialog,
                   icon: Icon(Icons.auto_fix_high,
                       size: 20,
-                      color: state.masteringEnabled
-                          ? Colors.lightBlueAccent
-                          : Colors.white38),
+                      color: state.masteringPreview && state.mixStatsStale
+                          ? Colors.amberAccent
+                          : state.masteringEnabled
+                              ? Colors.lightBlueAccent
+                              : Colors.white38),
                 ),
                 _loudnessSelector(),
                 const SizedBox(width: 8),
@@ -911,6 +917,54 @@ class _MixerScreenState extends State<MixerScreen> {
                         style:
                             TextStyle(fontSize: 11, color: Colors.white54)),
                   ],
+                  const Divider(height: 16),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Preview mastered playback'),
+                    subtitle: const Text(
+                      'Analyzes the current mix once; meters then show the '
+                      'mastered signal',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    value: state.masteringPreview,
+                    onChanged: !state.masteringEnabled || state.analyzingMix
+                        ? null
+                        : (v) => v
+                            ? _enableMasteringPreview()
+                            : state.disableMasteringPreview(),
+                  ),
+                  if (state.analyzingMix) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                        value: state.mixAnalysisProgress > 0
+                            ? state.mixAnalysisProgress
+                            : null),
+                    const SizedBox(height: 4),
+                    const Text('Analyzing mix…',
+                        style:
+                            TextStyle(fontSize: 11, color: Colors.white54)),
+                  ],
+                  if (state.masteringPreview && state.mixStatsStale)
+                    Row(
+                      children: [
+                        const Icon(Icons.warning_amber,
+                            size: 16, color: Colors.amberAccent),
+                        const SizedBox(width: 6),
+                        const Expanded(
+                          child: Text(
+                            'Mix changed — preview uses the old analysis',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.amberAccent),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: state.analyzingMix
+                              ? null
+                              : _refreshMasteringPreview,
+                          child: const Text('Refresh'),
+                        ),
+                      ],
+                    ),
                 ],
               );
             },
@@ -949,6 +1003,26 @@ class _MixerScreenState extends State<MixerScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Reference analysis failed: $e')));
+    }
+  }
+
+  Future<void> _enableMasteringPreview() async {
+    try {
+      await state.enableMasteringPreview();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Mix analysis failed: $e')));
+    }
+  }
+
+  Future<void> _refreshMasteringPreview() async {
+    try {
+      await state.refreshMasteringPreview();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Mix analysis failed: $e')));
     }
   }
 
