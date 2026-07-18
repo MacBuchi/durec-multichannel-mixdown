@@ -15,6 +15,10 @@ class IosFiles {
   /// Open the Files picker for a WAV; returns its in-place path or null.
   static Future<String?> pickWav() => _channel.invokeMethod<String>('pickWav');
 
+  /// Pick any audio file (mastering reference: MP3/FLAC/WAV).
+  static Future<String?> pickAudio() =>
+      _channel.invokeMethod<String>('pickAudio');
+
   /// Move a finished render out of tmp via the export picker.
   /// Returns the destination path, or null if the user cancelled.
   static Future<String?> exportMove(String tempPath) =>

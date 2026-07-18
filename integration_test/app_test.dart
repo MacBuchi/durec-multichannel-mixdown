@@ -189,12 +189,34 @@ void main() {
     expect(batchFiles.any((p) => p.endsWith('.wav') && p.contains('_17.5LUFS')),
         isTrue);
 
-    // Reopen: the EQ setting and loudness choice round-trip via the session.
+    // Reference mastering: use the fixture itself as reference (WAV decode
+    // through the real Symphonia path). The export must run the matching
+    // stage and say so in the report; the loudness target is bypassed.
+    await state.chooseReference(fixturePath, 'fixture_4ch.wav');
+    await tester.pumpAndSettle();
+    expect(state.error, isNull);
+    expect(state.masteringEnabled, isTrue);
+    expect(state.referenceProfile, isNotNull);
+    final masteredPath = '${tempDir.path}/out/mastered.wav';
+    await state.export(masteredPath);
+    await tester.pumpAndSettle();
+    expect(state.error, isNull);
+    expect(state.lastReport!.masteringApplied, isTrue);
+    expect(File(masteredPath).existsSync(), isTrue);
+    expect(find.textContaining('matched to fixture_4ch.wav'), findsOneWidget);
+
+    // Reopen: the EQ setting, loudness choice and mastering reference
+    // round-trip via the session.
     await state.open(fixturePath);
     await tester.pumpAndSettle();
     expect(state.tracks[0].eq.hpfEnabled, isTrue);
     expect(state.loudness, LoudnessChoice.lufsCustom);
     expect(state.customLufs, -17.5);
+    expect(state.masteringEnabled, isTrue);
+    expect(state.masteringReferenceName, 'fixture_4ch.wav');
+    // The rest of the test exercises loudness-driven exports.
+    state.setMasteringEnabled(false);
+    await tester.pump(const Duration(seconds: 2)); // let the autosave land
 
     // Analysis cache: the first open persisted waveforms+BPM; the reopen
     // above served them from disk without an analyzing phase.

@@ -89,6 +89,9 @@ class _MixerScreenState extends State<MixerScreen> {
             loudness: state.loudness,
             customLufs: state.customLufs,
             format: state.format,
+            // Analyzed when the reference was chosen; cache-restored on
+            // app restart the first time an export runs.
+            reference: state.referenceProfile,
           ),
           onPickLoudness: _pickLoudnessDialog,
           onPickFormat: _pickFormatDialog,
@@ -326,6 +329,18 @@ class _MixerScreenState extends State<MixerScreen> {
                   ),
             actions: narrow ? _narrowActions(rec) : [
               if (rec != null) ...[
+                IconButton(
+                  tooltip: state.masteringEnabled
+                      ? 'Reference mastering: ${state.masteringReferenceName}'
+                      : 'Reference mastering — match the export to a '
+                          'reference track',
+                  onPressed: _masteringDialog,
+                  icon: Icon(Icons.auto_fix_high,
+                      size: 20,
+                      color: state.masteringEnabled
+                          ? Colors.lightBlueAccent
+                          : Colors.white38),
+                ),
                 _loudnessSelector(),
                 const SizedBox(width: 8),
                 _formatSelector(),
@@ -423,6 +438,8 @@ class _MixerScreenState extends State<MixerScreen> {
         PopupMenuButton<String>(
           onSelected: (v) async {
             switch (v) {
+              case 'mastering':
+                await _masteringDialog();
               case 'loudness':
                 await _pickLoudnessDialog();
               case 'format':
@@ -443,8 +460,16 @@ class _MixerScreenState extends State<MixerScreen> {
           },
           itemBuilder: (_) => [
             PopupMenuItem(
+                value: 'mastering',
+                child: Text(state.masteringEnabled
+                    ? 'Mastering: ${state.masteringReferenceName}'
+                    : 'Reference mastering…')),
+            PopupMenuItem(
                 value: 'loudness',
-                child: Text('Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}')),
+                enabled: !state.masteringEnabled,
+                child: Text(state.masteringEnabled
+                    ? 'Loudness: follows reference'
+                    : 'Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}')),
             PopupMenuItem(
                 value: 'format',
                 child: Text('Format: ${formatLabels[state.format]}')),
@@ -686,7 +711,8 @@ class _MixerScreenState extends State<MixerScreen> {
                     'Exported: ${_fmtLufs(report.integratedLufs)} LUFS-I · '
                     'TP ${report.truePeakDbtp.toStringAsFixed(1)} dBTP · '
                     'LRA ${report.lraLu.toStringAsFixed(1)} LU · '
-                    'gain ${report.gainAppliedDb >= 0 ? '+' : ''}${report.gainAppliedDb.toStringAsFixed(1)} dB '
+                    '${report.masteringApplied ? 'matched to ${state.masteringReferenceName} '
+                        '(${report.masteringGainDb >= 0 ? '+' : ''}${report.masteringGainDb.toStringAsFixed(1)} dB) ' : 'gain ${report.gainAppliedDb >= 0 ? '+' : ''}${report.gainAppliedDb.toStringAsFixed(1)} dB '}'
                     '→ ${state.lastOutputPath ?? ''}',
                     style: const TextStyle(fontSize: 11, color: Colors.white54),
                     overflow: TextOverflow.ellipsis,
@@ -790,7 +816,9 @@ class _MixerScreenState extends State<MixerScreen> {
 
   Widget _loudnessSelector() {
     return Tooltip(
-      message: 'Applied on export; preview plays pre-normalisation',
+      message: state.masteringEnabled
+          ? 'Level follows the mastering reference'
+          : 'Applied on export; preview plays pre-normalisation',
       child: DropdownButton<LoudnessChoice>(
         value: state.loudness,
         underline: const SizedBox.shrink(),
@@ -802,17 +830,132 @@ class _MixerScreenState extends State<MixerScreen> {
                     ? '${state.customLufs.toStringAsFixed(1)} LUFS'
                     : c.label)))
             .toList(),
-        onChanged: (c) async {
-          if (c == null) return;
-          if (c == LoudnessChoice.lufsCustom) {
-            final v = await _askCustomLufs();
-            if (v == null) return;
-            state.customLufs = v;
-          }
-          state.setLoudness(c);
-        },
+        // Greyed out while mastering: the reference owns the level.
+        onChanged: state.masteringEnabled
+            ? null
+            : (c) async {
+                if (c == null) return;
+                if (c == LoudnessChoice.lufsCustom) {
+                  final v = await _askCustomLufs();
+                  if (v == null) return;
+                  state.customLufs = v;
+                }
+                state.setLoudness(c);
+              },
       ),
     );
+  }
+
+  // ── reference mastering ─────────────────────────────────────────────────
+
+  Future<void> _masteringDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reference mastering'),
+        content: SizedBox(
+          width: 400,
+          child: ListenableBuilder(
+            listenable: state,
+            builder: (context, _) {
+              final profile = state.referenceProfile;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Matches the export to a reference track: loudness, tone '
+                    '(matching EQ) and stereo width. The loudness target is '
+                    'ignored while active; the true-peak limiter stays on.',
+                    style: TextStyle(fontSize: 12, color: Colors.white54),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Master to reference'),
+                    value: state.masteringEnabled,
+                    onChanged: state.masteringReferencePath.isEmpty
+                        ? null
+                        : state.setMasteringEnabled,
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.library_music, size: 20),
+                    title: Text(
+                      state.masteringReferenceName.isEmpty
+                          ? 'No reference chosen'
+                          : state.masteringReferenceName,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: profile == null
+                        ? null
+                        : Text(
+                            '${_fmtDuration(profile.durationSeconds)}'
+                            '${profile.sideRms < profile.midRms * 1e-4 ? ' · mono (width kept from mix)' : ''}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                    trailing: TextButton(
+                      onPressed:
+                          state.analyzingReference ? null : _pickReference,
+                      child: const Text('Choose…'),
+                    ),
+                  ),
+                  if (state.analyzingReference) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                        value: state.referenceProgress > 0
+                            ? state.referenceProgress
+                            : null),
+                    const SizedBox(height: 4),
+                    const Text('Analyzing reference…',
+                        style:
+                            TextStyle(fontSize: 11, color: Colors.white54)),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickReference() async {
+    String? path;
+    String? name;
+    if (Saf.isAvailable) {
+      path = await Saf.pickAudio();
+      if (path != null) name = await Saf.displayName(path);
+    } else if (IosFiles.isAvailable) {
+      path = await IosFiles.pickAudio();
+    } else {
+      const group = XTypeGroup(
+          label: 'Audio',
+          extensions: ['wav', 'flac', 'mp3', 'ogg', 'WAV', 'FLAC', 'MP3']);
+      final file = await openFile(acceptedTypeGroups: [group]);
+      path = file?.path;
+      name = file?.name;
+    }
+    if (path == null) return;
+    try {
+      await state.chooseReference(path, name ?? path.split('/').last);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reference analysis failed: $e')));
+    }
+  }
+
+  String _fmtDuration(double seconds) {
+    final m = seconds ~/ 60;
+    final s = (seconds % 60).round();
+    return '$m:${s.toString().padLeft(2, '0')} min';
   }
 
   Future<double?> _askCustomLufs() async {

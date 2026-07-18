@@ -20,6 +20,7 @@ class MultiExportConfig {
     required this.loudness,
     required this.customLufs,
     required this.format,
+    this.reference,
   });
 
   /// Current mixer tracks; empty when no recording is loaded (each file
@@ -29,6 +30,10 @@ class MultiExportConfig {
   final LoudnessChoice loudness;
   final double customLufs;
   final rust.ApiFormat format;
+
+  /// Mastering reference profile; applied to every take when the master has
+  /// mastering enabled (it was analyzed when the reference was chosen).
+  final rust.ApiReferenceProfile? reference;
 }
 
 /// Per-file progress the browser rows render.
@@ -163,6 +168,7 @@ class MultiExportRunner extends ChangeNotifier {
           outPath: outTarget,
           tracks: tracks,
           master: master,
+          reference: master.masteringEnabled ? config.reference : null,
           inputFd: Saf.isContentUri(entry.source)
               ? await Saf.openFd(entry.source)
               : null,

@@ -43,6 +43,28 @@ class MainActivity : FlutterActivity() {
                         }
                         startActivityForResult(intent, pickRequest)
                     }
+                    // Mastering reference: any audio file, same persisted
+                    // read grant as pickWav.
+                    "pickAudio" -> {
+                        pendingResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "audio/*"
+                            putExtra(
+                                Intent.EXTRA_MIME_TYPES,
+                                arrayOf(
+                                    "audio/mpeg",
+                                    "audio/flac",
+                                    "audio/x-flac",
+                                    "audio/x-wav",
+                                    "audio/wav",
+                                    "audio/ogg",
+                                    "application/octet-stream",
+                                ),
+                            )
+                        }
+                        startActivityForResult(intent, pickRequest)
+                    }
                     "createDocument" -> {
                         pendingResult = result
                         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {

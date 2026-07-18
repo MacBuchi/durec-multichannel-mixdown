@@ -43,7 +43,9 @@ class DocumentFiles: NSObject, UIDocumentPickerDelegate {
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
-    case "pickWav":
+    case "pickWav", "pickAudio":
+      // Both open in place with a session-long security scope; the content
+      // types already cover every audio format (WAV, MP3, FLAC, ...).
       present(mode: .open, urls: nil, result: result)
     case "exportMove":
       guard let args = call.arguments as? [String: Any],
