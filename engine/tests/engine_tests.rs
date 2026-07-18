@@ -1494,3 +1494,202 @@ fn fir_stage_single_tap_is_transparent() {
         assert!((a - b).abs() < 1e-12, "sample {i} altered: {a} vs {b}");
     }
 }
+
+// ── mastering: analysis + matching design ───────────────────────────────────
+
+use durecmix_engine::mastering::{
+    design_mastering, MasteringAnalyzer, MasteringStats, ReferenceProfile, ANALYSIS_FFT,
+    PROFILE_VERSION,
+};
+
+/// Interleaved stereo noise with independent mid/side beds:
+/// l = mid + side, r = mid − side.
+fn ms_noise(frames: usize, mid_amp: f64, side_amp: f64, seed: u64) -> Vec<f64> {
+    let mut s = seed;
+    let mut out = Vec::with_capacity(frames * 2);
+    for _ in 0..frames {
+        let m = mid_amp * noise(&mut s);
+        let sd = side_amp * noise(&mut s);
+        out.push(m + sd);
+        out.push(m - sd);
+    }
+    out
+}
+
+fn analyze(stereo: &[f64], sr: u32) -> MasteringStats {
+    let mut an = MasteringAnalyzer::new(sr);
+    for chunk in stereo.chunks(2 * 4801) {
+        an.push(chunk);
+    }
+    an.finish()
+}
+
+/// Mean dB of a spectrum over a frequency band.
+fn band_db(spectrum: &[f64], sr: u32, lo_hz: f64, hi_hz: f64) -> f64 {
+    let bin_hz = sr as f64 / ANALYSIS_FFT as f64;
+    let lo = (lo_hz / bin_hz).ceil() as usize;
+    let hi = ((hi_hz / bin_hz).floor() as usize).min(spectrum.len() - 1);
+    let mean = spectrum[lo..=hi].iter().sum::<f64>() / (hi - lo + 1) as f64;
+    linear_to_db(mean)
+}
+
+#[test]
+fn mastering_analyzer_selects_loud_pieces() {
+    let sr = 8000u32;
+    let piece = (15.0 * sr as f64) as usize;
+    // Two loud pieces, one quiet piece: the quiet one must not dilute the RMS.
+    let mut input = ms_noise(piece * 2, 0.5, 0.0, 1);
+    input.extend(ms_noise(piece, 0.05, 0.0, 2));
+    let stats = analyze(&input, sr);
+    // Uniform noise in [−1,1) has RMS 1/√3.
+    let expected = 0.5 / 3f64.sqrt();
+    assert!(
+        (linear_to_db(stats.mid_rms) - linear_to_db(expected)).abs() < 0.1,
+        "loud-piece mid RMS off: {} vs {expected}",
+        stats.mid_rms
+    );
+    assert!(stats.side_rms < 1e-9, "l==r input must have zero side");
+    assert!((stats.duration_seconds - 45.0).abs() < 0.01);
+}
+
+#[test]
+fn mastering_matches_reference_tone_level_and_width() {
+    let sr = 44_100u32;
+    let frames = 30 * sr as usize;
+    let target = ms_noise(frames, 0.3, 0.03, 10);
+    // Reference: quieter, wider, and tilted — high shelf +6 dB at 4 kHz on
+    // both channels (i.e. on mid and side alike).
+    let mut reference = ms_noise(frames, 0.15, 0.06, 20);
+    let coeffs = BiquadCoeffs::high_shelf(sr as f64, 4000.0, 6.0, BUTTERWORTH_2ND_Q);
+    let (mut bl, mut br) = (Biquad::new(coeffs), Biquad::new(coeffs));
+    for fr in reference.chunks_exact_mut(2) {
+        fr[0] = bl.process(fr[0]);
+        fr[1] = br.process(fr[1]);
+    }
+
+    let target_stats = analyze(&target, sr);
+    let ref_stats = analyze(&reference, sr);
+    let profile = ReferenceProfile::from_stats(&ref_stats);
+    let plan = design_mastering(&target_stats, &profile).expect("design");
+    assert!(plan.gain_db < 0.0, "quieter reference must reduce gain");
+
+    let mut stage = durecmix_engine::dsp::fir::MsFirStage::new(&plan.fir_mid, &plan.fir_side);
+    let mut out = Vec::new();
+    for chunk in target.chunks(2 * 65_536) {
+        stage.process(chunk, &mut out);
+    }
+    stage.flush(&mut out);
+    assert_eq!(out.len(), target.len());
+    let out_stats = analyze(&out, sr);
+
+    // Loudness and width land on the reference.
+    let rms_err = linear_to_db(out_stats.mid_rms) - linear_to_db(ref_stats.mid_rms);
+    assert!(rms_err.abs() < 0.5, "mid RMS off by {rms_err} dB");
+    let width_err = linear_to_db(out_stats.side_rms / out_stats.mid_rms)
+        - linear_to_db(ref_stats.side_rms / ref_stats.mid_rms);
+    assert!(width_err.abs() < 1.0, "width off by {width_err} dB");
+
+    // Tonality: third-octave-ish bands from 60 Hz to 18 kHz within ±1 dB.
+    let mut f = 60.0f64;
+    while f < 18_000.0 {
+        let hi = (f * 1.26).min(18_000.0);
+        let err = band_db(&out_stats.mid_spectrum, sr, f, hi)
+            - band_db(&ref_stats.mid_spectrum, sr, f, hi);
+        assert!(err.abs() < 1.0, "band {f:.0}-{hi:.0} Hz off by {err:.2} dB");
+        f = hi;
+    }
+}
+
+#[test]
+fn mastering_low_rate_reference_never_boosts_above_its_nyquist() {
+    let tgt_sr = 96_000u32;
+    let ref_sr = 44_100u32;
+    let target_stats = analyze(&ms_noise(20 * tgt_sr as usize, 0.3, 0.03, 30), tgt_sr);
+    let ref_stats = analyze(&ms_noise(20 * ref_sr as usize, 0.3, 0.03, 31), ref_sr);
+    let profile = ReferenceProfile::from_stats(&ref_stats);
+    let plan = design_mastering(&target_stats, &profile).expect("design");
+    // Response above the reference Nyquist must not exceed the response just
+    // below it (held-value rule: cut allowed, boost not).
+    let resp = {
+        // reuse the engine's own grid via a probe: impulse through the FIR
+        let mut spec = vec![0.0f64; ANALYSIS_FFT];
+        spec[..plan.fir_mid.len()].copy_from_slice(&plan.fir_mid);
+        spec
+    };
+    // Measure via analyzer-grid FFT of the taps.
+    let mut an = MasteringAnalyzer::new(tgt_sr);
+    let stereo: Vec<f64> = resp.iter().flat_map(|&v| [v, v]).collect();
+    an.push(&stereo);
+    let taps_spec = an.finish();
+    let below = band_db(&taps_spec.mid_spectrum, tgt_sr, 15_000.0, 20_000.0);
+    let above = band_db(&taps_spec.mid_spectrum, tgt_sr, 25_000.0, 46_000.0);
+    assert!(
+        above <= below + 1.0,
+        "boost above reference Nyquist: {above:.2} dB vs {below:.2} dB"
+    );
+}
+
+#[test]
+fn mastering_mono_reference_preserves_target_width() {
+    let sr = 44_100u32;
+    let target = ms_noise(20 * sr as usize, 0.25, 0.1, 40);
+    let reference = ms_noise(20 * sr as usize, 0.2, 0.0, 41); // mono
+    let target_stats = analyze(&target, sr);
+    let ref_stats = analyze(&reference, sr);
+    let plan =
+        design_mastering(&target_stats, &ReferenceProfile::from_stats(&ref_stats)).expect("design");
+    let mut stage = durecmix_engine::dsp::fir::MsFirStage::new(&plan.fir_mid, &plan.fir_side);
+    let mut out = Vec::new();
+    stage.process(&target, &mut out);
+    stage.flush(&mut out);
+    let out_stats = analyze(&out, sr);
+    let rms_err = linear_to_db(out_stats.mid_rms) - linear_to_db(ref_stats.mid_rms);
+    assert!(rms_err.abs() < 0.5, "mid RMS off by {rms_err} dB");
+    // Width must survive, not collapse toward the mono reference.
+    let width_err = linear_to_db(out_stats.side_rms / out_stats.mid_rms) - linear_to_db(0.1 / 0.25);
+    assert!(width_err.abs() < 1.0, "width changed by {width_err} dB");
+}
+
+#[test]
+fn mastering_mono_target_stays_finite_and_silent_side() {
+    let sr = 44_100u32;
+    let target = ms_noise(20 * sr as usize, 0.25, 0.0, 50); // mono target
+    let reference = ms_noise(20 * sr as usize, 0.2, 0.08, 51); // wide reference
+    let target_stats = analyze(&target, sr);
+    let plan = design_mastering(
+        &target_stats,
+        &ReferenceProfile::from_stats(&analyze(&reference, sr)),
+    )
+    .expect("design");
+    assert!(plan.fir_mid.iter().all(|t| t.is_finite()));
+    assert!(plan.fir_side.iter().all(|t| t.is_finite()));
+    let mut stage = durecmix_engine::dsp::fir::MsFirStage::new(&plan.fir_mid, &plan.fir_side);
+    let mut out = Vec::new();
+    stage.process(&target, &mut out);
+    stage.flush(&mut out);
+    let out_stats = analyze(&out, sr);
+    assert!(out_stats.side_rms < 1e-6, "mono target grew a side channel");
+}
+
+#[test]
+fn reference_profile_serde_and_validation() {
+    let sr = 44_100u32;
+    let stats = analyze(&ms_noise(16 * sr as usize, 0.2, 0.05, 60), sr);
+    let profile = ReferenceProfile::from_stats(&stats);
+    assert_eq!(profile.version, PROFILE_VERSION);
+    let json = serde_json::to_string(&profile).unwrap();
+    let back: ReferenceProfile = serde_json::from_str(&json).unwrap();
+    assert_eq!(profile, back);
+
+    // Wrong version and silent reference are rejected.
+    let mut bad = profile.clone();
+    bad.version = PROFILE_VERSION + 1;
+    assert!(design_mastering(&stats, &bad).is_err());
+    let mut silent = profile.clone();
+    silent.mid_rms = 0.0;
+    assert!(design_mastering(&stats, &silent).is_err());
+
+    // A too-short target is rejected.
+    let short = analyze(&ms_noise(100, 0.2, 0.0, 61), sr);
+    assert!(design_mastering(&short, &profile).is_err());
+}
