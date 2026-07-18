@@ -20,6 +20,8 @@ pub enum EngineError {
     Json(#[from] serde_json::Error),
     #[error("WAV encode error: {0}")]
     Encode(String),
+    #[error("mastering error: {0}")]
+    Mastering(String),
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;
