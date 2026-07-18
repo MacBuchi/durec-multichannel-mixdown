@@ -75,3 +75,72 @@ jobs:
       - name: Integration test (real engine, headless-driven GUI)
         if: matrix.name == 'macOS'
         run: flutter test integration_test -d macos
+
+  # Housekeeping: catches "merged but never released" states. A release only
+  # fires when main carries an UNTAGGED pubspec version (see release.yml) —
+  # this job warns on PRs that ship code without a version bump and fails
+  # the main run outright when that state actually lands (the mastering
+  # chain #28–#33 merged exactly like that and nobody got a release).
+  housekeeping:
+    name: Housekeeping (version bump)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # tags + merge-base diffs
+      - name: Version must count upwards and be bumped for shipping changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version: \([0-9][0-9.]*\).*/\1/p' pubspec.yaml)
+          if [ -z "$VERSION" ]; then
+            echo "::error file=pubspec.yaml::no parsable 'version:' line"
+            exit 1
+          fi
+          LATEST=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+
+          if ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            # Untagged version → merging releases it. It must be an increase.
+            if [ -n "$LATEST" ]; then
+              HIGHEST=$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -1)
+              if [ "$HIGHEST" != "$VERSION" ]; then
+                echo "::error file=pubspec.yaml::version $VERSION is not above the latest tag v$LATEST — releases must count upwards"
+                exit 1
+              fi
+            fi
+            echo "✅ version $VERSION is untagged — merging to main releases v$VERSION (latest tag: v${LATEST:-none})" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Version already tagged → merging will NOT release. Fine for
+          # docs/CI-only changes; anything else needs a bump somewhere in
+          # the chain before it reaches main.
+          if [ "$EVENT" = "pull_request" ]; then
+            RANGE="$BASE_SHA...HEAD"
+          else
+            RANGE="v$VERSION..HEAD"
+          fi
+          CHANGED=$(git diff --name-only "$RANGE" -- . ':!*.md' ':!docs' ':!.github' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "✅ version $VERSION already tagged, but only docs/CI changed — no bump needed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          MSG="pubspec version $VERSION is already tagged as v$VERSION: these code changes will NOT produce a release. Bump pubspec.yaml (this PR or the last PR of the chain)."
+          {
+            echo "⚠️ $MSG"
+            echo ""
+            echo "Shipping files changed without a bump:"
+            echo '```'
+            echo "$CHANGED" | head -30
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EVENT" = "pull_request" ]; then
+            # Warning only: intermediate PRs of a stacked chain are allowed
+            # to ship without a bump as long as the chain's last PR bumps.
+            echo "::warning file=pubspec.yaml::$MSG"
+          else
+            echo "::error file=pubspec.yaml::$MSG"
+            exit 1
+          fi
