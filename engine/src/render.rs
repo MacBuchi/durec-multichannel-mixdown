@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::chain::{ChainConfig, MixChain};
 use crate::dsp::dither::TpdfDither;
+use crate::dsp::fir::MsFirStage;
 use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
 use crate::dsp::linear_to_db;
 use crate::error::{EngineError, Result};
+use crate::mastering::{design_mastering, MasteringAnalyzer, ReferenceProfile};
 use crate::mix::{MixBus, TrackParams};
 use crate::sink::{OutputHandle, StereoSink};
 use crate::wav::{InputHandle, WavReader};
@@ -68,7 +70,17 @@ fn default_dither() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Reference-mastering session state. Only `enabled` influences the engine
+/// (via the `reference` argument of [`render_io`]); path and display name
+/// are persisted so the UI can restore and re-analyze the chosen reference.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MasteringSettings {
+    pub enabled: bool,
+    pub reference_path: String,
+    pub reference_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderSettings {
     pub loudness: LoudnessMode,
     pub format: OutputFormat,
@@ -94,6 +106,9 @@ pub struct RenderSettings {
     /// Linear fade-out length up to the trim-out point, in ms.
     #[serde(default)]
     pub fade_out_ms: f64,
+    /// Reference mastering (v3 sessions; absent in older files).
+    #[serde(default)]
+    pub mastering: Option<MasteringSettings>,
 }
 
 impl Default for RenderSettings {
@@ -108,6 +123,7 @@ impl Default for RenderSettings {
             trim_end_frame: None,
             fade_in_ms: 0.0,
             fade_out_ms: 0.0,
+            mastering: None,
         }
     }
 }
@@ -172,6 +188,12 @@ pub struct RenderReport {
     pub lra_lu: f64,
     /// Integrated loudness of the source mix (pre-gain), LUFS.
     pub source_integrated_lufs: f64,
+    /// Whether reference mastering was applied to this render.
+    #[serde(default)]
+    pub mastering_applied: bool,
+    /// Overall mid-channel level change of the mastering stage, in dB.
+    #[serde(default)]
+    pub mastering_gain_db: f64,
 }
 
 /// Measure the sample peak of the mixed output without writing anything.
@@ -208,16 +230,23 @@ pub fn render_to_file<P: AsRef<Path>>(
         &InputHandle::Path(input_path.as_ref().to_string_lossy().into_owned()),
         tracks,
         settings,
+        None,
         &OutputHandle::Path(out_path.as_ref().to_string_lossy().into_owned()),
         progress,
     )
 }
 
 /// [`render_to_file`] over platform handles — paths or raw fds (Android SAF).
+///
+/// With a `reference` profile, reference mastering replaces the loudness
+/// normalisation: pass 1 additionally analyzes the mix, the matching FIRs
+/// are designed in between, and pass 2 filters through them before the
+/// limiter. Costs no extra pass over the (multi-GB) source.
 pub fn render_io(
     input: &InputHandle,
     tracks: &[TrackParams],
     settings: &RenderSettings,
+    reference: Option<&ReferenceProfile>,
     output: &OutputHandle,
     mut progress: impl FnMut(f32),
 ) -> Result<RenderReport> {
@@ -251,6 +280,7 @@ pub fn render_io(
     let mut stereo = Vec::new();
     let mut peak = 0.0f64;
     let mut done: u64 = 0;
+    let mut analyzer = reference.map(|_| MasteringAnalyzer::new(spec.sample_rate));
     loop {
         let want = BLOCK_FRAMES.min((end - start - done) as usize);
         if want == 0 {
@@ -266,32 +296,46 @@ pub fn render_io(
             peak = peak.max(s.abs());
         }
         let _ = ebu_src.add_frames_f64(&stereo);
+        if let Some(an) = &mut analyzer {
+            an.push(&stereo);
+        }
         done += n as u64;
         progress((done as f64 / range_frames * 0.5) as f32);
     }
     let source_lufs = ebu_src.loudness_global().unwrap_or(f64::NEG_INFINITY);
 
-    let norm_gain = match settings.loudness {
-        LoudnessMode::PeakDbfs(target_db) => {
-            if peak > 0.0 {
-                10f64.powf(target_db / 20.0) / peak
-            } else {
-                1.0
+    // Reference mastering owns the output level: the matching FIRs carry the
+    // full gain, so the normalisation stage is bypassed.
+    let mastering_plan = match (analyzer, reference) {
+        (Some(an), Some(profile)) => Some(design_mastering(&an.finish(), profile)?),
+        _ => None,
+    };
+
+    let norm_gain = if mastering_plan.is_some() {
+        1.0
+    } else {
+        match settings.loudness {
+            LoudnessMode::PeakDbfs(target_db) => {
+                if peak > 0.0 {
+                    10f64.powf(target_db / 20.0) / peak
+                } else {
+                    1.0
+                }
             }
-        }
-        LoudnessMode::LufsIntegrated(target_lufs) => {
-            if source_lufs.is_finite() {
-                10f64.powf((target_lufs - source_lufs) / 20.0)
-            } else {
-                1.0
+            LoudnessMode::LufsIntegrated(target_lufs) => {
+                if source_lufs.is_finite() {
+                    10f64.powf((target_lufs - source_lufs) / 20.0)
+                } else {
+                    1.0
+                }
             }
-        }
-        LoudnessMode::None => {
-            // Clip protection is the limiter's job when it is enabled.
-            if !settings.limiter_enabled && peak > 1.0 {
-                1.0 / peak
-            } else {
-                1.0
+            LoudnessMode::None => {
+                // Clip protection is the limiter's job when it is enabled.
+                if !settings.limiter_enabled && peak > 1.0 {
+                    1.0 / peak
+                } else {
+                    1.0
+                }
             }
         }
     };
@@ -315,6 +359,10 @@ pub fn render_io(
     )
     .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
     let mut dither = (settings.dither && settings.format.is_16_bit_int()).then(TpdfDither::default);
+    let mut fir = mastering_plan
+        .as_ref()
+        .map(|p| MsFirStage::new(&p.fir_mid, &p.fir_side));
+    let mut mastered = Vec::new();
     let mut limited = Vec::new();
     reader.seek_to_frame(start)?;
     let mut done: u64 = 0;
@@ -332,18 +380,42 @@ pub fn render_io(
         for s in &mut stereo {
             *s *= norm_gain;
         }
+        let block: &[f64] = match &mut fir {
+            Some(f) => {
+                mastered.clear();
+                f.process(&stereo, &mut mastered);
+                &mastered
+            }
+            None => &stereo,
+        };
         let block: &[f64] = match &mut limiter {
             Some(lim) => {
                 limited.clear();
-                lim.process(&stereo, &mut limited);
+                lim.process(block, &mut limited);
                 &limited
             }
-            None => &stereo,
+            None => block,
         };
         let _ = ebu_out.add_frames_f64(block);
         sink.write_block(block, dither.as_mut())?;
         done += n as u64;
         progress((0.5 + done as f64 / range_frames * 0.5) as f32);
+    }
+    // Flush order mirrors the chain: the FIR tail still passes through the
+    // limiter, then the limiter drains its own delay line.
+    if let Some(f) = &mut fir {
+        mastered.clear();
+        f.flush(&mut mastered);
+        let block: &[f64] = match &mut limiter {
+            Some(lim) => {
+                limited.clear();
+                lim.process(&mastered, &mut limited);
+                &limited
+            }
+            None => &mastered,
+        };
+        let _ = ebu_out.add_frames_f64(block);
+        sink.write_block(block, dither.as_mut())?;
     }
     if let Some(lim) = &mut limiter {
         limited.clear();
@@ -367,5 +439,7 @@ pub fn render_io(
         true_peak_dbtp: linear_to_db(true_peak),
         lra_lu: ebu_out.loudness_range().unwrap_or(0.0),
         source_integrated_lufs: source_lufs,
+        mastering_applied: mastering_plan.is_some(),
+        mastering_gain_db: mastering_plan.as_ref().map_or(0.0, |p| p.gain_db),
     })
 }

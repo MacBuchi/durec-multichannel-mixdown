@@ -244,6 +244,7 @@ fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
         trim_end_frame: m.trim_end_frame,
         fade_in_ms: m.fade_in_ms,
         fade_out_ms: m.fade_out_ms,
+        mastering: None,
     }
 }
 
@@ -384,6 +385,7 @@ pub fn render_mix(
         &input_handle(&wav_path, input_fd),
         &engine_tracks,
         &settings,
+        None,
         &output,
         |p| {
             if p < 1.0 {

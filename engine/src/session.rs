@@ -17,9 +17,9 @@ use crate::ixml::{default_pan_for_name, TrackInfo};
 use crate::mix::TrackParams;
 use crate::render::RenderSettings;
 
-/// v1: tracks + loudness/format. v2: adds per-track EQ (serde defaults keep
-/// v1 files loadable unchanged).
-pub const SESSION_VERSION: u32 = 2;
+/// v1: tracks + loudness/format. v2: adds per-track EQ. v3: adds reference
+/// mastering (serde defaults keep older files loadable unchanged).
+pub const SESSION_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
@@ -101,7 +101,7 @@ impl Session {
         Session {
             version: SESSION_VERSION,
             tracks,
-            settings: self.settings,
+            settings: self.settings.clone(),
         }
     }
 
