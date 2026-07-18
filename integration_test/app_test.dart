@@ -192,10 +192,29 @@ void main() {
     // Reference mastering: use the fixture itself as reference (WAV decode
     // through the real Symphonia path). The export must run the matching
     // stage and say so in the report; the loudness target is bypassed.
-    await state.chooseReference(fixturePath, 'fixture_4ch.wav');
+    await state.addReference(fixturePath, 'fixture_4ch.wav');
     await tester.pumpAndSettle();
     expect(state.error, isNull);
     expect(state.masteringEnabled, isTrue);
+    expect(state.referenceProfile, isNotNull);
+
+    // Multi-reference: a second (different) song merges into an averaged
+    // target curve; removing it falls back to the single profile.
+    // In out/: the browser section below must keep seeing exactly the
+    // two fixtures as direct children of the temp folder.
+    final refBPath = '${tempDir.path}/out/refB.wav';
+    File(refBPath).writeAsBytesSync(_buildFixtureWav(
+      tracks: const [('Pad', 220.0, 0.3, 0.0), ('Hat', 6000.0, 0.1, 0.0)],
+      seconds: 2,
+    ));
+    await state.addReference(refBPath, 'refB.wav');
+    await tester.pumpAndSettle();
+    expect(state.masteringReferences, hasLength(2));
+    expect(state.masteringReferenceName, '2 references');
+    expect(state.referenceProfile, isNotNull);
+    await state.removeReference(state.masteringReferences.last);
+    await tester.pumpAndSettle();
+    expect(state.masteringReferences, hasLength(1));
     expect(state.referenceProfile, isNotNull);
     final masteredPath = '${tempDir.path}/out/mastered.wav';
     await state.export(masteredPath);

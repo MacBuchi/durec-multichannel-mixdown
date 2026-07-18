@@ -968,32 +968,58 @@ class _MixerScreenState extends State<MixerScreen> {
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Master to reference'),
                     value: state.masteringEnabled,
-                    onChanged: state.masteringReferencePath.isEmpty
+                    onChanged: state.masteringReferences.isEmpty
                         ? null
                         : state.setMasteringEnabled,
                   ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.library_music, size: 20),
-                    title: Text(
-                      state.masteringReferenceName.isEmpty
-                          ? 'No reference chosen'
-                          : state.masteringReferenceName,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: profile == null
-                        ? null
-                        : Text(
-                            '${_fmtDuration(profile.durationSeconds)}'
-                            '${profile.sideRms < profile.midRms * 1e-4 ? ' · mono (width kept from mix)' : ''}',
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                    trailing: TextButton(
-                      onPressed:
-                          state.analyzingReference ? null : _pickReference,
-                      child: const Text('Choose…'),
-                    ),
+                  if (state.masteringReferences.isEmpty)
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.library_music, size: 20),
+                      title: Text('No reference chosen'),
+                    )
+                  else
+                    for (final ref in state.masteringReferences)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.library_music, size: 18),
+                        title: Text(ref.name, overflow: TextOverflow.ellipsis),
+                        trailing: IconButton(
+                          tooltip: 'Remove reference',
+                          icon: const Icon(Icons.close, size: 16),
+                          onPressed: state.analyzingReference
+                              ? null
+                              : () => state.removeReference(ref),
+                        ),
+                      ),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed:
+                            state.analyzingReference ? null : _pickReference,
+                        icon: const Icon(Icons.add, size: 16),
+                        label: Text(state.masteringReferences.isEmpty
+                            ? 'Choose reference…'
+                            : 'Add reference…'),
+                      ),
+                      const Spacer(),
+                      if (profile != null)
+                        Text(
+                          '${state.masteringReferences.length > 1 ? 'averaged · ' : ''}'
+                          '${_fmtDuration(profile.durationSeconds)}'
+                          '${profile.sideRms < profile.midRms * 1e-4 ? ' · mono' : ''}',
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.white54),
+                        ),
+                    ],
                   ),
+                  if (state.masteringReferences.length > 1)
+                    const Text(
+                      'Multiple references average into one target curve — '
+                      'one vote per song.',
+                      style: TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
                   if (state.analyzingReference) ...[
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
@@ -1001,9 +1027,10 @@ class _MixerScreenState extends State<MixerScreen> {
                             ? state.referenceProgress
                             : null),
                     const SizedBox(height: 4),
-                    const Text('Analyzing reference…',
-                        style:
-                            TextStyle(fontSize: 11, color: Colors.white54)),
+                    Text(
+                        'Analyzing ${state.analyzingReferenceLabel.isEmpty ? 'reference' : state.analyzingReferenceLabel}…',
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.white54)),
                   ],
                   const Divider(height: 16),
                   SwitchListTile(
@@ -1086,7 +1113,7 @@ class _MixerScreenState extends State<MixerScreen> {
     }
     if (path == null) return;
     try {
-      await state.chooseReference(path, name ?? path.split('/').last);
+      await state.addReference(path, name ?? path.split('/').last);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

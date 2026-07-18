@@ -70,14 +70,44 @@ fn default_dither() -> bool {
     true
 }
 
+/// One chosen reference track (path + display name for the UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MasteringReference {
+    pub path: String,
+    pub name: String,
+}
+
 /// Reference-mastering session state. Only `enabled` influences the engine
-/// (via the `reference` argument of [`render_io`]); path and display name
-/// are persisted so the UI can restore and re-analyze the chosen reference.
+/// (via the `reference` argument of [`render_io`]); paths and display names
+/// are persisted so the UI can restore and re-analyze the chosen
+/// references. v3 sessions stored a single `reference_path`/`reference_name`
+/// pair; v4 stores the `references` list (multi-reference genre curves) and
+/// keeps the legacy fields mirrored to the first entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MasteringSettings {
     pub enabled: bool,
+    #[serde(default)]
     pub reference_path: String,
+    #[serde(default)]
     pub reference_name: String,
+    #[serde(default)]
+    pub references: Vec<MasteringReference>,
+}
+
+impl MasteringSettings {
+    /// The reference list with the v3 single-reference fallback applied.
+    pub fn normalized_references(&self) -> Vec<MasteringReference> {
+        if !self.references.is_empty() {
+            self.references.clone()
+        } else if !self.reference_path.is_empty() {
+            vec![MasteringReference {
+                path: self.reference_path.clone(),
+                name: self.reference_name.clone(),
+            }]
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

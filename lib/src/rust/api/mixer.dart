@@ -63,6 +63,14 @@ Stream<RenderEvent> renderMix({
 Future<int> referenceProfileVersion() =>
     RustLib.instance.api.crateApiMixerReferenceProfileVersion();
 
+/// Average several reference profiles into one mastering target (one vote
+/// per song; spectra merged on the highest sample-rate grid).
+Future<ApiReferenceProfile> mergeReferenceProfiles({
+  required List<ApiReferenceProfile> profiles,
+}) => RustLib.instance.api.crateApiMixerMergeReferenceProfiles(
+  profiles: profiles,
+);
+
 /// Analyze the current mix (same trim/fades as an export) for the mastering
 /// preview. Reads the whole recording once; streams progress.
 Stream<MixStatsEvent> analyzeMixMastering({
@@ -258,10 +266,10 @@ class ApiMaster {
   final double fadeOutMs;
 
   /// Reference mastering (session state; the render acts on the profile
-  /// passed to `render_mix`, not on these fields alone).
+  /// passed to `render_mix`, not on these fields alone). Multiple
+  /// references average into one genre target curve.
   final bool masteringEnabled;
-  final String masteringReferencePath;
-  final String masteringReferenceName;
+  final List<ApiMasteringReference> masteringReferences;
 
   const ApiMaster({
     required this.loudness,
@@ -274,8 +282,7 @@ class ApiMaster {
     required this.fadeInMs,
     required this.fadeOutMs,
     required this.masteringEnabled,
-    required this.masteringReferencePath,
-    required this.masteringReferenceName,
+    required this.masteringReferences,
   });
 
   @override
@@ -290,8 +297,7 @@ class ApiMaster {
       fadeInMs.hashCode ^
       fadeOutMs.hashCode ^
       masteringEnabled.hashCode ^
-      masteringReferencePath.hashCode ^
-      masteringReferenceName.hashCode;
+      masteringReferences.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -308,8 +314,26 @@ class ApiMaster {
           fadeInMs == other.fadeInMs &&
           fadeOutMs == other.fadeOutMs &&
           masteringEnabled == other.masteringEnabled &&
-          masteringReferencePath == other.masteringReferencePath &&
-          masteringReferenceName == other.masteringReferenceName;
+          masteringReferences == other.masteringReferences;
+}
+
+/// One chosen mastering reference (path/URI + display name).
+class ApiMasteringReference {
+  final String path;
+  final String name;
+
+  const ApiMasteringReference({required this.path, required this.name});
+
+  @override
+  int get hashCode => path.hashCode ^ name.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiMasteringReference &&
+          runtimeType == other.runtimeType &&
+          path == other.path &&
+          name == other.name;
 }
 
 /// Loudest-piece statistics of the current mix (mirror of the engine's

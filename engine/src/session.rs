@@ -18,8 +18,9 @@ use crate::mix::TrackParams;
 use crate::render::RenderSettings;
 
 /// v1: tracks + loudness/format. v2: adds per-track EQ. v3: adds reference
-/// mastering (serde defaults keep older files loadable unchanged).
-pub const SESSION_VERSION: u32 = 3;
+/// mastering. v4: multi-reference list (serde defaults keep older files
+/// loadable unchanged).
+pub const SESSION_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {

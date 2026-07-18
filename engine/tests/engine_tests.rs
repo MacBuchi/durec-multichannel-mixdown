@@ -1848,6 +1848,7 @@ fn render_with_reference_masters_the_mix() {
             enabled: true,
             reference_path: "ref".into(),
             reference_name: "Ref Song".into(),
+            references: Vec::new(),
         }),
         ..RenderSettings::default()
     };
@@ -1960,10 +1961,39 @@ fn session_v2_loads_and_v3_roundtrips_mastering() {
         enabled: true,
         reference_path: "/music/ref.mp3".into(),
         reference_name: "ref.mp3".into(),
+        references: vec![
+            durecmix_engine::render::MasteringReference {
+                path: "/music/ref.mp3".into(),
+                name: "ref.mp3".into(),
+            },
+            durecmix_engine::render::MasteringReference {
+                path: "/music/ref2.flac".into(),
+                name: "ref2.flac".into(),
+            },
+        ],
     });
     let json = serde_json::to_string(&session).unwrap();
     let back: Session = serde_json::from_str(&json).unwrap();
     assert_eq!(session, back);
+
+    // v3 sessions (single reference, no list) normalize to a one-item list.
+    let v3 = r#"{
+        "version": 3,
+        "tracks": [],
+        "settings": {
+            "loudness": { "PeakDbfs": -1.0 },
+            "format": "Wav24",
+            "mastering": {
+                "enabled": true,
+                "reference_path": "/music/old.mp3",
+                "reference_name": "old.mp3"
+            }
+        }
+    }"#;
+    let session: Session = serde_json::from_str(v3).unwrap();
+    let refs = session.settings.mastering.unwrap().normalized_references();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].path, "/music/old.mp3");
 }
 
 // ── mastering: preview support ──────────────────────────────────────────────
@@ -2030,4 +2060,50 @@ fn analyze_mix_mastering_matches_direct_analysis() {
         assert!((a - b).abs() < 1e-9);
     }
     assert!((stats.duration_seconds - 16.0).abs() < 0.01);
+}
+
+// ── mastering: multi-reference merge ────────────────────────────────────────
+
+#[test]
+fn merge_profiles_averages_equal_weight() {
+    use durecmix_engine::mastering::merge_profiles;
+    let sr = 44_100u32;
+    let quiet =
+        ReferenceProfile::from_stats(&analyze(&ms_noise(16 * sr as usize, 0.1, 0.02, 100), sr));
+    let loud =
+        ReferenceProfile::from_stats(&analyze(&ms_noise(16 * sr as usize, 0.3, 0.06, 101), sr));
+
+    assert!(merge_profiles(&[]).is_err(), "empty merge must fail");
+    let single = merge_profiles(std::slice::from_ref(&quiet)).unwrap();
+    assert_eq!(single, quiet, "single profile must pass through");
+
+    let merged = merge_profiles(&[quiet.clone(), loud.clone()]).unwrap();
+    // RMS: quadratic mean, one vote per song.
+    let expected = ((quiet.mid_rms * quiet.mid_rms + loud.mid_rms * loud.mid_rms) / 2.0).sqrt();
+    assert!(
+        (merged.mid_rms - expected).abs() < 1e-9,
+        "mid RMS {} vs {expected}",
+        merged.mid_rms
+    );
+    // Spectra: per-bin arithmetic mean (same grid → no interpolation).
+    for k in [10usize, 200, 1000, 2000] {
+        let e = (quiet.mid_spectrum[k] + loud.mid_spectrum[k]) / 2.0;
+        assert!((merged.mid_spectrum[k] - e).abs() < 1e-4);
+    }
+    assert!(
+        (merged.duration_seconds - quiet.duration_seconds - loud.duration_seconds).abs() < 0.01
+    );
+}
+
+#[test]
+fn merge_profiles_mixed_sample_rates_uses_highest_grid() {
+    use durecmix_engine::mastering::merge_profiles;
+    let a = ReferenceProfile::from_stats(&analyze(&ms_noise(16 * 44_100, 0.2, 0.04, 102), 44_100));
+    let b = ReferenceProfile::from_stats(&analyze(&ms_noise(16 * 22_050, 0.2, 0.04, 103), 22_050));
+    let merged = merge_profiles(&[a, b]).unwrap();
+    assert_eq!(merged.sample_rate, 44_100);
+    // The merged profile must be usable as a mastering target.
+    let target = analyze(&ms_noise(16 * 44_100, 0.25, 0.03, 104), 44_100);
+    let plan = design_mastering(&target, &merged).expect("design from merged profile");
+    assert!(plan.fir_mid.iter().all(|t| t.is_finite()));
 }
