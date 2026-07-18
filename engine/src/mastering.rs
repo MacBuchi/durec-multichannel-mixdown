@@ -532,7 +532,7 @@ fn smooth_log_db(db: &[f64], sr: f64) -> Vec<f64> {
     let n = db.len();
     let bin_hz = sr / ANALYSIS_FFT as f64;
     let mut out = vec![0.0; n];
-    for k in 0..n {
+    for (k, o) in out.iter_mut().enumerate() {
         let f = (k as f64).max(0.5) * bin_hz;
         let half_oct = if f <= 1000.0 {
             1.0 / 12.0
@@ -545,7 +545,7 @@ fn smooth_log_db(db: &[f64], sr: f64) -> Vec<f64> {
         let lo = (((f * 2f64.powf(-half_oct)) / bin_hz).floor() as usize).min(k);
         let hi = (((f * 2f64.powf(half_oct)) / bin_hz).ceil() as usize).clamp(k, n - 1);
         let sum: f64 = db[lo..=hi].iter().sum();
-        out[k] = sum / (hi - lo + 1) as f64;
+        *o = sum / (hi - lo + 1) as f64;
     }
     out
 }
