@@ -94,23 +94,32 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          # Verdicts go to stdout (the step log) AND the job summary — a log
+          # that only shows the script and no result is useless to read.
+          note() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+
           VERSION=$(sed -n 's/^version: \([0-9][0-9.]*\).*/\1/p' pubspec.yaml)
           if [ -z "$VERSION" ]; then
+            note "❌ pubspec.yaml has no parsable 'version:' line"
             echo "::error file=pubspec.yaml::no parsable 'version:' line"
             exit 1
           fi
           LATEST=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+          echo "pubspec version: $VERSION"
+          echo "latest tag:      v${LATEST:-none}"
+          echo "event:           $EVENT"
 
           if ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
             # Untagged version → merging releases it. It must be an increase.
             if [ -n "$LATEST" ]; then
               HIGHEST=$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -1)
               if [ "$HIGHEST" != "$VERSION" ]; then
+                note "❌ version $VERSION is not above the latest tag v$LATEST — releases must count upwards"
                 echo "::error file=pubspec.yaml::version $VERSION is not above the latest tag v$LATEST — releases must count upwards"
                 exit 1
               fi
             fi
-            echo "✅ version $VERSION is untagged — merging to main releases v$VERSION (latest tag: v${LATEST:-none})" >> "$GITHUB_STEP_SUMMARY"
+            note "✅ version $VERSION is untagged — merging to main releases v$VERSION (latest tag: v${LATEST:-none})"
             exit 0
           fi
 
@@ -122,9 +131,10 @@ jobs:
           else
             RANGE="v$VERSION..HEAD"
           fi
+          echo "diff range:      $RANGE (shipping files = everything except *.md, docs/, .github/)"
           CHANGED=$(git diff --name-only "$RANGE" -- . ':!*.md' ':!docs' ':!.github' || true)
           if [ -z "$CHANGED" ]; then
-            echo "✅ version $VERSION already tagged, but only docs/CI changed — no bump needed" >> "$GITHUB_STEP_SUMMARY"
+            note "✅ version $VERSION already tagged, but only docs/CI changed — no bump needed"
             exit 0
           fi
           MSG="pubspec version $VERSION is already tagged as v$VERSION: these code changes will NOT produce a release. Bump pubspec.yaml (this PR or the last PR of the chain)."
@@ -136,6 +146,9 @@ jobs:
             echo "$CHANGED" | head -30
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "⚠️ $MSG"
+          echo "shipping files changed without a bump ($(echo "$CHANGED" | wc -l | tr -d ' ')):"
+          echo "$CHANGED" | head -30
           if [ "$EVENT" = "pull_request" ]; then
             # Warning only: intermediate PRs of a stacked chain are allowed
             # to ship without a bump as long as the chain's last PR bumps.
