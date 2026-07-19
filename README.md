@@ -112,6 +112,26 @@ lib/             Flutter app (UI, state, platform file access)
 rust_builder/    cargokit glue that builds the Rust crate inside flutter build
 ```
 
+## Acknowledgements & licenses
+
+DurecMix itself is licensed under the [MIT License](LICENSE).
+
+**Reference mastering** is an independent **clean-room** implementation
+inspired by [Matchering 2.0](https://github.com/sergree/matchering) by Sergey
+Grishakov (GPL-3.0). It was written from the *publicly documented algorithm
+description only* and contains **no Matchering source code** — so it is not a
+derivative work and carries no GPL obligation. The specifics are our own and
+differ from Matchering: log-frequency moving-average smoothing (not LOWESS),
+an analytic Parseval-based level correction (not the iterative RMS loop), a
+true-peak limiter (not Hyrax), and a linear-phase FIR matching-EQ. It was
+validated against Matchering 2.0 with a −23.5 dB null-test depth. Credit and
+thanks to the Matchering project for the original idea.
+
+Bundled third-party components keep their own licenses: [Symphonia](https://github.com/pdeljanov/Symphonia)
+(MPL-2.0) and LAME via [mp3lame-encoder](https://crates.io/crates/mp3lame-encoder)
+(LGPL-2.1) are used unmodified; realfft/rustfft, ebur128, flacenc, hound, cpal
+and flutter_rust_bridge are MIT/Apache-2.0.
+
 ## Workflow
 
 [Conventional Commits](https://www.conventionalcommits.org/); feature branches with squash-merged PRs, merged only on a green CI matrix (macOS/Windows/Android/iOS). Releases are automatic: the last PR of a shipping chain bumps `pubspec.yaml`, and a merge to `main` with an untagged version tags and publishes itself (a CI housekeeping check catches forgotten bumps). Details in `AGENTS.md` and `docs/PLAN.md`.
