@@ -201,11 +201,11 @@ void main() {
     // the two fixtures (the browser lists direct children).
     Directory('${tempDir.path}/out').createSync();
     final outPath = '${tempDir.path}/out/mix.wav';
-    await state.export(outPath);
+    await state.exporter.export(outPath);
     await tester.pumpAndSettle();
 
     expect(state.error, isNull);
-    final report = state.lastReport;
+    final report = state.exporter.lastReport;
     expect(report, isNotNull);
     expect(File(outPath).existsSync(), isTrue);
     // The engine's own tests verify measurement accuracy; here we check the
@@ -217,15 +217,15 @@ void main() {
     // Batch export: two jobs (−14 LUFS MP3 + the current −17.5 LUFS WAV)
     // rendered sequentially into one folder, auto-named per target/format.
     final batchDir = Directory('${tempDir.path}/batch')..createSync();
-    state.addBatchJob();
-    state.batchQueue[0]
+    state.exporter.addBatchJob();
+    state.exporter.batchQueue[0]
       ..loudness = LoudnessChoice.lufs14
       ..format = rust.ApiFormat.mp3;
-    state.addBatchJob(); // copies the current selection: custom LUFS, WAV 24
-    await state.exportBatch(batchDir.path);
+    state.exporter.addBatchJob(); // copies the current selection: custom LUFS, WAV 24
+    await state.exporter.exportBatch(batchDir.path);
     await tester.pumpAndSettle();
     expect(state.error, isNull);
-    expect(state.batchRunning, isFalse);
+    expect(state.exporter.batchRunning, isFalse);
     final batchFiles = batchDir.listSync().map((f) => f.path).toList();
     expect(batchFiles, hasLength(2));
     expect(
@@ -240,11 +240,11 @@ void main() {
     // Reference mastering: use the fixture itself as reference (WAV decode
     // through the real Symphonia path). The export must run the matching
     // stage and say so in the report; the loudness target is bypassed.
-    await state.addReference(fixturePath, 'fixture_4ch.wav');
+    await state.mastering.addReference(fixturePath, 'fixture_4ch.wav');
     await tester.pumpAndSettle();
     expect(state.error, isNull);
-    expect(state.masteringEnabled, isTrue);
-    expect(state.referenceProfile, isNotNull);
+    expect(state.mastering.enabled, isTrue);
+    expect(state.mastering.profile, isNotNull);
 
     // Multi-reference: a second (different) song merges into an averaged
     // target curve; removing it falls back to the single profile.
@@ -257,43 +257,43 @@ void main() {
         seconds: 2,
       ),
     );
-    await state.addReference(refBPath, 'refB.wav');
+    await state.mastering.addReference(refBPath, 'refB.wav');
     await tester.pumpAndSettle();
-    expect(state.masteringReferences, hasLength(2));
-    expect(state.masteringReferenceName, '2 references');
-    expect(state.referenceProfile, isNotNull);
-    await state.removeReference(state.masteringReferences.last);
+    expect(state.mastering.references, hasLength(2));
+    expect(state.mastering.referenceName, '2 references');
+    expect(state.mastering.profile, isNotNull);
+    await state.mastering.removeReference(state.mastering.references.last);
     await tester.pumpAndSettle();
-    expect(state.masteringReferences, hasLength(1));
-    expect(state.referenceProfile, isNotNull);
+    expect(state.mastering.references, hasLength(1));
+    expect(state.mastering.profile, isNotNull);
     final masteredPath = '${tempDir.path}/out/mastered.wav';
-    await state.export(masteredPath);
+    await state.exporter.export(masteredPath);
     await tester.pumpAndSettle();
     expect(state.error, isNull);
-    expect(state.lastReport!.masteringApplied, isTrue);
+    expect(state.exporter.lastReport!.masteringApplied, isTrue);
     expect(File(masteredPath).existsSync(), isTrue);
     expect(find.textContaining('matched to fixture_4ch.wav'), findsOneWidget);
 
     // Mastering preview: enabling analyzes the current mix (real engine
     // pass); mix edits mark the analysis stale; refresh clears it. (No
     // audio device is exercised — CI runners have none.)
-    await state.enableMasteringPreview();
+    await state.mastering.enablePreview();
     await tester.pumpAndSettle();
-    expect(state.masteringPreview, isTrue);
-    expect(state.mixMasteringStats, isNotNull);
-    expect(state.mixStatsStale, isFalse);
+    expect(state.mastering.preview, isTrue);
+    expect(state.mastering.mixStats, isNotNull);
+    expect(state.mastering.mixStatsStale, isFalse);
     state.updateTrack(state.tracks[0], (t) => t.gainDb = -3.0);
     await tester.pump();
     expect(
-      state.mixStatsStale,
+      state.mastering.mixStatsStale,
       isTrue,
       reason: 'mix edit must mark preview stale',
     );
-    await state.refreshMasteringPreview();
+    await state.mastering.refreshPreview();
     await tester.pumpAndSettle();
-    expect(state.mixStatsStale, isFalse);
+    expect(state.mastering.mixStatsStale, isFalse);
     state.updateTrack(state.tracks[0], (t) => t.gainDb = 0.0);
-    state.disableMasteringPreview();
+    state.mastering.disablePreview();
     await tester.pump();
 
     // Reopen: the EQ setting, loudness choice and mastering reference
@@ -303,10 +303,10 @@ void main() {
     expect(state.tracks[0].eq.hpfEnabled, isTrue);
     expect(state.loudness, LoudnessChoice.lufsCustom);
     expect(state.customLufs, -17.5);
-    expect(state.masteringEnabled, isTrue);
-    expect(state.masteringReferenceName, 'fixture_4ch.wav');
+    expect(state.mastering.enabled, isTrue);
+    expect(state.mastering.referenceName, 'fixture_4ch.wav');
     // The rest of the test exercises loudness-driven exports.
-    state.setMasteringEnabled(false);
+    state.mastering.setEnabled(false);
     await tester.pump(const Duration(seconds: 2)); // let the autosave land
 
     // Analysis cache: the first open persisted waveforms+BPM; the reopen
@@ -636,11 +636,11 @@ Future<void> _captureDocScreenshots(
     await tester.pumpAndSettle();
 
     // Mastering dialog with a reference chosen and the preview armed.
-    await state.addReference(
+    await state.mastering.addReference(
       '${tempDir.path}/fixture_4ch.wav',
       'Reference Song.wav',
     );
-    await state.enableMasteringPreview();
+    await state.mastering.enablePreview();
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.auto_fix_high));
     await tester.pumpAndSettle();
@@ -664,14 +664,14 @@ Future<void> _captureDocScreenshots(
     ]);
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
-    state.disableMasteringPreview();
-    state.setMasteringEnabled(false);
+    state.mastering.disablePreview();
+    state.mastering.setEnabled(false);
     await tester.pumpAndSettle();
 
     // Batch-export dialog with two differing jobs queued.
-    state.addBatchJob();
-    state.addBatchJob();
-    state.batchQueue[1]
+    state.exporter.addBatchJob();
+    state.exporter.addBatchJob();
+    state.exporter.batchQueue[1]
       ..loudness = LoudnessChoice.lufs14
       ..format = rust.ApiFormat.mp3;
     await tester.tap(find.byIcon(Icons.playlist_add_check));
