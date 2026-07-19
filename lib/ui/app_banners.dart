@@ -39,27 +39,8 @@ class _AppBannersState extends State<AppBanners> {
   }
 
   Future<void> _openFeedbackDialog() async {
-    final input = await showDialog<(FeedbackType, String)>(
-      context: context,
-      builder: (context) => const _FeedbackDialog(),
-    );
-    if (input == null) return;
-    final (type, message) = input;
-    try {
-      final direct = await submitFeedback(type, message);
+    if (await showFeedbackDialog(context)) {
       setState(() => _feedbackDismissed = true);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(direct
-              ? (type == FeedbackType.bug
-                  ? 'Thanks for the report — filed as an issue! 🐛'
-                  : 'Thanks for your idea — filed as an issue! 💡')
-              : 'Almost done — finish the pre-filled issue in your '
-                  'browser.')));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Sending failed. Are you online?')));
     }
   }
 
@@ -285,6 +266,33 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           ),
       ],
     );
+  }
+}
+
+/// Show the feedback dialog, file the result, and report via SnackBar.
+/// Returns `true` when feedback was actually sent (the banner then hides
+/// itself). Reused by the banner and the About dialog.
+Future<bool> showFeedbackDialog(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final input = await showDialog<(FeedbackType, String)>(
+    context: context,
+    builder: (context) => const _FeedbackDialog(),
+  );
+  if (input == null) return false;
+  final (type, message) = input;
+  try {
+    final direct = await submitFeedback(type, message);
+    messenger.showSnackBar(SnackBar(
+        content: Text(direct
+            ? (type == FeedbackType.bug
+                ? 'Thanks for the report — filed as an issue! 🐛'
+                : 'Thanks for your idea — filed as an issue! 💡')
+            : 'Almost done — finish the pre-filled issue in your browser.')));
+    return true;
+  } catch (_) {
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Sending failed. Are you online?')));
+    return false;
   }
 }
 
