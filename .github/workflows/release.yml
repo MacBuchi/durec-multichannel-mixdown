@@ -65,17 +65,17 @@ jobs:
         include:
           - name: macOS
             os: macos-14
-            build: flutter build macos --release
+            build: flutter build macos --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
             package: ditto -c -k --keepParent build/macos/Build/Products/Release/durecmix.app durecmix-${{ needs.version.outputs.tag }}-macos.zip
             artifact: durecmix-${{ needs.version.outputs.tag }}-macos.zip
           - name: Windows
             os: windows-latest
-            build: flutter build windows --release
+            build: flutter build windows --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
             package: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath durecmix-${{ needs.version.outputs.tag }}-windows.zip
             artifact: durecmix-${{ needs.version.outputs.tag }}-windows.zip
           - name: Android
             os: ubuntu-latest
-            build: flutter build apk --release
+            build: flutter build apk --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
             package: cp build/app/outputs/flutter-apk/app-release.apk durecmix-${{ needs.version.outputs.tag }}-android.apk
             artifact: durecmix-${{ needs.version.outputs.tag }}-android.apk
     runs-on: ${{ matrix.os }}
@@ -116,7 +116,13 @@ jobs:
             echo "keyAlias=durecmix"
           } > android/key.properties
       - run: flutter pub get
+      # bash on every OS so $DURECMIX_FEEDBACK_TOKEN expands uniformly; an
+      # absent secret just builds tokenless (feedback falls back to the
+      # pre-filled browser issue form).
       - run: ${{ matrix.build }}
+        shell: bash
+        env:
+          DURECMIX_FEEDBACK_TOKEN: ${{ secrets.DURECMIX_FEEDBACK_TOKEN }}
       - run: ${{ matrix.package }}
       - uses: actions/upload-artifact@v7
         with:

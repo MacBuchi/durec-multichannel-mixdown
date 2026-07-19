@@ -182,7 +182,23 @@ Framework file descriptors — the multi-GB file is never copied. Grant the
 folder once; the app keeps the permission. Exports can be shared from the
 result snackbar. iOS opens files in place via the system picker.
 
-## 10. Where things live
+## 10. Feedback & updates
+
+Two slim banners can appear above the mixer (each dismissible with ✕ for the
+session):
+
+- **💡 Request a feature or report a bug** — opens a short dialog (Feature or
+  Bug, plus a text field). Submitting files a GitHub issue directly in the
+  [project repo](https://github.com/MacBuchi/durec-multichannel-mixdown/issues),
+  pre-tagged and pre-filled with your app version and platform. On builds
+  without the issue token it opens the pre-filled issue form in your browser
+  instead — same result, one extra click.
+- **🔄 Update to vX.Y.Z available** — appears when a newer release exists.
+  On Android it downloads and installs the APK in-app (with a progress bar);
+  on desktop it opens the release page. The check is best-effort and silent
+  on failure — it never interrupts your work.
+
+## 11. Where things live
 
 | Data | Location |
 |---|---|

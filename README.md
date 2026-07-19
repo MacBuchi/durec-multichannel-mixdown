@@ -38,7 +38,7 @@ Open a DUREC take straight off the USB stick, balance the tracks (fader, pan, po
 
 Screenshots are rendered reproducibly from a synthetic fixture through the real engine, with the callouts drawn from live widget coordinates: `tool/make_screenshots.sh` (desktop) and `tool/make_screenshots.sh -d <emulator>` (Android).
 
-## Features (v0.11)
+## Features (v0.12)
 
 - **Streaming engine** — WAV/RF64/BW64 (16/24/32-bit PCM, 32/64-float), iXML track names, 64 Ki-frame blocks, two-pass render; multi-GB takes never load into RAM
 - **WAV browser** — pick a folder once (USB stick via SAF on Android), see every take with channels · rate · bits · duration · iXML count; tap the app-bar title to switch takes
@@ -49,6 +49,7 @@ Screenshots are rendered reproducibly from a synthetic fixture through the real 
 - **Live preview** — cpal playback (~0.2 s latency), peak / LUFS-M / LUFS-I / true-peak / correlation meters, per-channel waveforms, height-stable transport bar with tap-for-details export report
 - **Export** — WAV 16/24/32f, FLAC 16/24 (streamed), MP3 320 (LAME); trim in/out with 80 ms fades; loudness report (LUFS-I · dBTP · LRA · gain/mastering match); BPM detection; auto-naming like `Take_16LUFS_143BPM_20260712_183000.flac`
 - **Batch & multi-file export** — several loudness/format targets of one take in one go (desktop), or the current mix applied to many ticked takes into a `Mixdown/` folder with per-row progress and an Android share sheet
+- **Feedback & updates** — an in-app banner files a feature request or bug straight to GitHub as a pre-filled, labelled issue (browser-form fallback when no token is baked in); an update banner offers the newer release (in-app APK install on Android, release page on desktop)
 - **Sessions** — every mix auto-saves to the app container and restores on reopen; caches make take-switching and repeated reference use instant
 - **Android** — Storage Access Framework: recordings open via file descriptors, zero copying; exports keep running in the background behind a progress notification; stable APK signature since v0.7.2 (in-place updates)
 - **iOS** — Files-app import in place (security-scoped, zero copying); exports land wherever Files can reach

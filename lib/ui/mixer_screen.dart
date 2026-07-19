@@ -13,6 +13,7 @@ import '../state/batch_export.dart';
 import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
 import 'animated_logo.dart';
+import 'app_banners.dart';
 import 'meters.dart';
 import 'track_strip.dart';
 import 'wav_browser_page.dart';
@@ -416,7 +417,12 @@ class _MixerScreenState extends State<MixerScreen> {
               const SizedBox(width: 8),
             ],
           ),
-          body: rec == null ? _emptyView() : _mixerView(rec),
+          body: Column(
+            children: [
+              const AppBanners(),
+              Expanded(child: rec == null ? _emptyView() : _mixerView(rec)),
+            ],
+          ),
           bottomNavigationBar: rec == null ? null : _transportBar(rec),
         );
       },

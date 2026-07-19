@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- In-app APK update (ota_update hands the download to the installer). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- Foreground service keeps multi-minute renders alive when the app
          goes to the background (progress shows as a notification). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
