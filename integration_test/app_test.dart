@@ -19,9 +19,12 @@ import 'dart:ui' as ui;
 import 'package:durecmix/main.dart';
 import 'package:durecmix/src/rust/api/mixer.dart' as rust;
 import 'package:durecmix/state/app_settings.dart';
+import 'package:durecmix/state/batch_export.dart';
 import 'package:durecmix/state/mixer_state.dart';
+import 'package:durecmix/state/wav_browser.dart';
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/ui/animated_logo.dart';
+import 'package:durecmix/ui/meters.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
 import 'package:durecmix/ui/track_strip.dart';
 import 'package:durecmix/ui/wav_browser_page.dart';
@@ -56,10 +59,17 @@ void main() {
     await tempDir.delete(recursive: true);
   });
 
-  testWidgets('open → mix → EQ → export against the real engine',
-      (tester) async {
+  testWidgets('open → mix → EQ → export against the real engine', (
+    tester,
+  ) async {
+    // The flow below drives the WIDE layout (app-bar selectors, A/B chips,
+    // batch icon). On a phone/emulator the natural surface is narrow, so pin
+    // a desktop-sized test surface; phone-layout sections set their own.
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
     await tester.pumpWidget(
-        RepaintBoundary(key: _shotKey, child: const DurecMixApp()));
+      RepaintBoundary(key: _shotKey, child: const DurecMixApp()),
+    );
     await tester.pumpAndSettle();
     // No separate start screen: the main window's empty track area carries
     // the (idle, static) logo and the folder affordance.
@@ -118,7 +128,9 @@ void main() {
 
     // …until the pair is unlinked via the link chip on its strip.
     final pairChips = find.descendant(
-        of: find.byType(TrackStrip), matching: find.byIcon(Icons.link));
+      of: find.byType(TrackStrip),
+      matching: find.byIcon(Icons.link),
+    );
     expect(pairChips, findsNWidgets(2)); // Keys L + Keys R
     await tester.tap(pairChips.first);
     await tester.pump();
@@ -128,10 +140,14 @@ void main() {
     expect(state.tracks[3].gainDb, -6.0); // partner no longer follows
 
     // Relinking copies the tapped side back onto the partner.
-    await tester.tap(find
-        .descendant(
-            of: find.byType(TrackStrip), matching: find.byIcon(Icons.link_off))
-        .first);
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(TrackStrip),
+            matching: find.byIcon(Icons.link_off),
+          )
+          .first,
+    );
     await tester.pump();
     expect(state.tracks[3].gainDb, -3.0);
 
@@ -184,10 +200,14 @@ void main() {
     expect(state.batchRunning, isFalse);
     final batchFiles = batchDir.listSync().map((f) => f.path).toList();
     expect(batchFiles, hasLength(2));
-    expect(batchFiles.any((p) => p.endsWith('.mp3') && p.contains('_14LUFS')),
-        isTrue);
-    expect(batchFiles.any((p) => p.endsWith('.wav') && p.contains('_17.5LUFS')),
-        isTrue);
+    expect(
+      batchFiles.any((p) => p.endsWith('.mp3') && p.contains('_14LUFS')),
+      isTrue,
+    );
+    expect(
+      batchFiles.any((p) => p.endsWith('.wav') && p.contains('_17.5LUFS')),
+      isTrue,
+    );
 
     // Reference mastering: use the fixture itself as reference (WAV decode
     // through the real Symphonia path). The export must run the matching
@@ -203,10 +223,12 @@ void main() {
     // In out/: the browser section below must keep seeing exactly the
     // two fixtures as direct children of the temp folder.
     final refBPath = '${tempDir.path}/out/refB.wav';
-    File(refBPath).writeAsBytesSync(_buildFixtureWav(
-      tracks: const [('Pad', 220.0, 0.3, 0.0), ('Hat', 6000.0, 0.1, 0.0)],
-      seconds: 2,
-    ));
+    File(refBPath).writeAsBytesSync(
+      _buildFixtureWav(
+        tracks: const [('Pad', 220.0, 0.3, 0.0), ('Hat', 6000.0, 0.1, 0.0)],
+        seconds: 2,
+      ),
+    );
     await state.addReference(refBPath, 'refB.wav');
     await tester.pumpAndSettle();
     expect(state.masteringReferences, hasLength(2));
@@ -234,8 +256,11 @@ void main() {
     expect(state.mixStatsStale, isFalse);
     state.updateTrack(state.tracks[0], (t) => t.gainDb = -3.0);
     await tester.pump();
-    expect(state.mixStatsStale, isTrue,
-        reason: 'mix edit must mark preview stale');
+    expect(
+      state.mixStatsStale,
+      isTrue,
+      reason: 'mix edit must mark preview stale',
+    );
     await state.refreshMasteringPreview();
     await tester.pumpAndSettle();
     expect(state.mixStatsStale, isFalse);
@@ -277,11 +302,11 @@ void main() {
     // the file name in the app bar; entries carry lazily probed metadata;
     // tapping a row switches the recording without restarting.
     final twoChPath = '${tempDir.path}/fixture_2ch.wav';
-    File(twoChPath)
-        .writeAsBytesSync(_buildFixtureWav(tracks: const [
-      ('Left', 220.0, 0.2, 0.0),
-      ('Right', 221.0, 0.2, 0.0),
-    ]));
+    File(twoChPath).writeAsBytesSync(
+      _buildFixtureWav(
+        tracks: const [('Left', 220.0, 0.2, 0.0), ('Right', 221.0, 0.2, 0.0)],
+      ),
+    );
     // Seed BOTH persisted settings — they survive across test runs (that's
     // the feature), so the test must not depend on a previous run's state.
     final settings = await AppSettings.load();
@@ -293,16 +318,20 @@ void main() {
     await tester.tap(find.text('fixture_4ch.wav')); // app-bar title
     await tester.pumpAndSettle();
     expect(find.byType(WavBrowserPage), findsOneWidget);
-    final browser =
-        tester.widget<WavBrowserPage>(find.byType(WavBrowserPage)).browser;
+    final browser = tester
+        .widget<WavBrowserPage>(find.byType(WavBrowserPage))
+        .browser;
     // Wait for the listing + sequential probes to finish (real async I/O).
-    for (var i = 0;
-        i < 100 &&
-            (browser.loading ||
-                browser.entries.isEmpty ||
-                browser.entries
-                    .any((e) => e.probe == null && e.probeError == null));
-        i++) {
+    for (
+      var i = 0;
+      i < 100 &&
+          (browser.loading ||
+              browser.entries.isEmpty ||
+              browser.entries.any(
+                (e) => e.probe == null && e.probeError == null,
+              ));
+      i++
+    ) {
       await tester.pump(const Duration(milliseconds: 100));
     }
     expect(browser.error, isNull);
@@ -343,8 +372,9 @@ void main() {
     // the checklist icon reveals them with multichannel takes pre-ticked.
     await tester.tap(find.text('fixture_4ch.wav')); // app-bar title
     await tester.pumpAndSettle();
-    final browser2 =
-        tester.widget<WavBrowserPage>(find.byType(WavBrowserPage)).browser;
+    final browser2 = tester
+        .widget<WavBrowserPage>(find.byType(WavBrowserPage))
+        .browser;
     expect(find.byType(Checkbox), findsNothing);
     expect(find.byIcon(Icons.chevron_right), findsNWidgets(2));
 
@@ -372,16 +402,21 @@ void main() {
     expect(find.text('.wav'), findsOneWidget);
 
     // In selection mode a row TAP toggles the tick (list convention)…
-    await tester.tap(find.descendant(
+    await tester.tap(
+      find.descendant(
         of: find.byType(WavBrowserPage),
-        matching: find.text('fixture_2ch.wav')));
+        matching: find.text('fixture_2ch.wav'),
+      ),
+    );
     await tester.pump();
     expect(browser2.selectedEntries, hasLength(2));
     expect(find.text('2 selected'), findsOneWidget);
 
     // …and ticked rows expose an editable output name (stem + fixed ext).
     await tester.enterText(
-        find.widgetWithText(TextField, 'fixture_4ch'), 'MeinMix');
+      find.widgetWithText(TextField, 'fixture_4ch'),
+      'MeinMix',
+    );
     await tester.pump();
 
     // Name collisions must not overwrite: pre-plant the target name.
@@ -389,16 +424,20 @@ void main() {
     File('${tempDir.path}/Mixdown/MeinMix.wav').writeAsBytesSync(const [0]);
 
     await tester.tap(find.textContaining('Export (2)'));
-    for (var i = 0;
-        i < 300 && !tester.any(find.textContaining('exported to Mixdown'));
-        i++) {
+    for (
+      var i = 0;
+      i < 300 && !tester.any(find.textContaining('exported to Mixdown'));
+      i++
+    ) {
       await tester.pump(const Duration(milliseconds: 100));
     }
     expect(find.textContaining('2 mixdowns exported'), findsOneWidget);
 
     final mixdownDir = Directory('${tempDir.path}/Mixdown');
-    final mixdowns =
-        mixdownDir.listSync().map((f) => f.path.split('/').last).toSet();
+    final mixdowns = mixdownDir
+        .listSync()
+        .map((f) => f.path.split('/').last)
+        .toSet();
     // The planted dummy survives untouched; the render deduplicated to (1).
     expect(mixdowns, {'MeinMix.wav', 'MeinMix (1).wav', 'fixture_2ch.wav'});
     expect(File('${mixdownDir.path}/MeinMix.wav').lengthSync(), 1);
@@ -408,13 +447,20 @@ void main() {
     }
 
     // Leave selection mode, then a row tap opens the take again.
-    await tester.tap(find.descendant(
-        of: find.byType(WavBrowserPage), matching: find.byIcon(Icons.close)));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(WavBrowserPage),
+        matching: find.byIcon(Icons.close),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(Checkbox), findsNothing);
-    await tester.tap(find.descendant(
+    await tester.tap(
+      find.descendant(
         of: find.byType(WavBrowserPage),
-        matching: find.text('fixture_4ch.wav')));
+        matching: find.text('fixture_4ch.wav'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(WavBrowserPage), findsNothing);
 
@@ -426,11 +472,21 @@ void main() {
 
 // ── documentation screenshots (only with --dart-define=SCREENSHOTS=true) ────
 
-/// Renders README screenshots from a musical-looking 8-track fixture:
-/// wide mixer, open EQ panel, batch-export dialog, phone layout. Captured
-/// through the root RepaintBoundary — real renderer, no OS interaction.
+/// Renders documentation screenshots from a musical-looking 8-track
+/// fixture: mixer, EQ panel, mastering dialog, batch dialog, WAV browser,
+/// phone layouts. Captured through the root RepaintBoundary — real
+/// renderer, no OS interaction.
+///
+/// Next to every PNG a `<name>.json` lands with numbered marker rects
+/// (label + position of each interactive control, in PNG pixels) — the
+/// input for `tool/annotate_screenshots.py`, which draws the numbered
+/// callouts used by docs/GUIDE.md. Coordinates come from the live widget
+/// tree (`tester.getRect`), so they survive layout changes.
 Future<void> _captureDocScreenshots(
-    WidgetTester tester, MixerState state, Directory tempDir) async {
+  WidgetTester tester,
+  MixerState state,
+  Directory tempDir,
+) async {
   final shotsDir = Directory.systemTemp.createTempSync('durecmix_shots');
 
   Future<void> waitForAnalysis() async {
@@ -440,10 +496,14 @@ Future<void> _captureDocScreenshots(
     await tester.pumpAndSettle();
   }
 
-  Future<void> shot(String name) async {
+  Future<void> shot(
+    String name, [
+    List<(String, Finder)> markers = const [],
+  ]) async {
     await tester.pumpAndSettle();
-    final boundary =
-        tester.renderObject<RenderRepaintBoundary>(find.byKey(_shotKey));
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(_shotKey),
+    );
     late final Uint8List bytes;
     await tester.runAsync(() async {
       final image = await boundary.toImage(pixelRatio: 2);
@@ -451,6 +511,25 @@ Future<void> _captureDocScreenshots(
       bytes = data!.buffer.asUint8List();
     });
     File('${shotsDir.path}/$name.png').writeAsBytesSync(bytes);
+    if (markers.isNotEmpty) {
+      final items = <Map<String, Object>>[];
+      var n = 0;
+      for (final (label, finder) in markers) {
+        if (finder.evaluate().isEmpty) continue; // absent on this platform
+        final rect = tester.getRect(finder.first);
+        items.add({
+          'n': ++n,
+          'label': label,
+          'x': rect.left * 2,
+          'y': rect.top * 2,
+          'w': rect.width * 2,
+          'h': rect.height * 2,
+        });
+      }
+      File(
+        '${shotsDir.path}/$name.json',
+      ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(items));
+    }
   }
 
   const docTracks = [
@@ -464,45 +543,197 @@ Future<void> _captureDocScreenshots(
     ('Vocals', 440.0, 0.5, 0.4),
   ];
   final docsWav = '${tempDir.path}/UFX33_01_Demo.wav';
-  File(docsWav)
-      .writeAsBytesSync(_buildFixtureWav(tracks: docTracks, seconds: 8));
+  File(
+    docsWav,
+  ).writeAsBytesSync(_buildFixtureWav(tracks: docTracks, seconds: 8));
 
-  // Wide desktop mixer.
-  tester.view.physicalSize = const Size(1440, 900);
-  tester.view.devicePixelRatio = 1.0;
   await state.open(docsWav);
   await waitForAnalysis();
-  await shot('mixer');
+  // The wide-layout tour only renders on desktop — phones contribute the
+  // real phone shots below (batch/browser widgets differ per platform).
+  if (!Platform.isAndroid) {
+    // Wide desktop mixer.
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    await tester.pumpAndSettle();
+    await shot('mixer', [
+      (
+        'Loaded take — tap to switch to another recording of the folder',
+        find.textContaining('UFX33_01_Demo'),
+      ),
+      (
+        'Reference mastering — match the export to reference songs',
+        find.byIcon(Icons.auto_fix_high),
+      ),
+      (
+        'Loudness target (applied on export)',
+        find.byType(DropdownButton<LoudnessChoice>),
+      ),
+      ('Output format', find.byType(DropdownButton<rust.ApiFormat>)),
+      ('Export the stereo mixdown', find.text('Export')),
+      (
+        'Batch export: several loudness/format targets in one go',
+        find.byIcon(Icons.playlist_add_check),
+      ),
+      (
+        'A/B mix snapshots — tap to store/recall, long-press to overwrite',
+        find.text('A'),
+      ),
+      ('Link stereo pairs (·L/·R)', find.byIcon(Icons.link).first),
+      ('Choose the recordings folder', find.byIcon(Icons.folder_open)),
+      (
+        'Track strip: fader, pan, ø/M/S/mix toggles, EQ, waveform',
+        find.byType(TrackStrip).first,
+      ),
+      ('Play / stop the live preview', find.byIcon(Icons.play_arrow)),
+      (
+        'Set trim-in / trim-out at the playhead (long-press clears)',
+        find.byIcon(Icons.first_page),
+      ),
+    ]);
 
-  // EQ panel expanded on the vocal track.
-  state.toggleEqPanel(state.tracks[7]);
-  state.updateTrack(state.tracks[7], (t) => t.eq.hpfEnabled = true);
-  await tester.pumpAndSettle();
-  await shot('eq');
-  state.toggleEqPanel(state.tracks[7]);
-  await tester.pumpAndSettle();
+    // EQ panel expanded on the vocal track.
+    state.toggleEqPanel(state.tracks[7]);
+    state.updateTrack(state.tracks[7], (t) => t.eq.hpfEnabled = true);
+    await tester.pumpAndSettle();
+    await shot('eq', [
+      ('High-pass filter with 12/24 dB per octave slope', find.text('HPF')),
+      ('Band on/off', find.byType(Switch).first),
+      (
+        'Expanded EQ panel of one track (chip toggles it)',
+        find.text('EQ').first,
+      ),
+    ]);
+    state.toggleEqPanel(state.tracks[7]);
+    await tester.pumpAndSettle();
 
-  // Batch-export dialog with two differing jobs queued.
-  state.addBatchJob();
-  state.addBatchJob();
-  state.batchQueue[1]
-    ..loudness = LoudnessChoice.lufs14
-    ..format = rust.ApiFormat.mp3;
-  await tester.tap(find.byIcon(Icons.playlist_add_check));
-  await tester.pumpAndSettle();
-  await shot('batch');
-  await tester.tap(find.text('Cancel'));
-  await tester.pumpAndSettle();
+    // Mastering dialog with a reference chosen and the preview armed.
+    await state.addReference(
+      '${tempDir.path}/fixture_4ch.wav',
+      'Reference Song.wav',
+    );
+    await state.enableMasteringPreview();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.auto_fix_high));
+    await tester.pumpAndSettle();
+    await shot('mastering', [
+      (
+        'Master the export to the reference set',
+        find.text('Master to reference'),
+      ),
+      (
+        'Chosen reference — several average into one genre curve',
+        find.text('Reference Song.wav'),
+      ),
+      (
+        'Add another reference (WAV/FLAC/MP3)',
+        find.textContaining('reference…'),
+      ),
+      (
+        'Hear the mastered result in the live preview',
+        find.text('Preview mastered playback'),
+      ),
+    ]);
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    state.disableMasteringPreview();
+    state.setMasteringEnabled(false);
+    await tester.pumpAndSettle();
 
-  // Phone layout.
+    // Batch-export dialog with two differing jobs queued.
+    state.addBatchJob();
+    state.addBatchJob();
+    state.batchQueue[1]
+      ..loudness = LoudnessChoice.lufs14
+      ..format = rust.ApiFormat.mp3;
+    await tester.tap(find.byIcon(Icons.playlist_add_check));
+    await tester.pumpAndSettle();
+    await shot('batch', [
+      (
+        'One job = one loudness target + format',
+        find.byType(DropdownButton<LoudnessChoice>).first,
+      ),
+      ('Render all jobs into one folder', find.text('Export all…')),
+    ]);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // WAV browser over the temp folder (three fixtures listed).
+    final browser = WavBrowser(await AppSettings.load());
+    await browser.openFolder(tempDir.path);
+    tester
+        .state<NavigatorState>(find.byType(Navigator))
+        .push(
+          MaterialPageRoute(
+            builder: (_) => WavBrowserPage(
+              browser: browser,
+              currentSource: docsWav,
+              exportConfig: () => MultiExportConfig(
+                tracks: const [],
+                master: state.master,
+                loudness: state.loudness,
+                customLufs: state.customLufs,
+                format: state.format,
+              ),
+            ),
+          ),
+        );
+    // Let the lazy probe queue annotate the rows.
+    for (
+      var i = 0;
+      i < 50 && browser.entries.any((e) => e.probe == null);
+      i++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pumpAndSettle();
+    await shot('browser', [
+      (
+        'Selection mode: tick takes for multi-file export',
+        find.byIcon(Icons.checklist),
+      ),
+      ('Sort by name / date', find.byIcon(Icons.sort_by_alpha)),
+      ('Switch to another folder', find.byIcon(Icons.drive_folder_upload)),
+      ('Currently loaded take', find.byIcon(Icons.graphic_eq)),
+      (
+        'Tap a row to open it in the mixer',
+        find.byIcon(Icons.chevron_right).first,
+      ),
+    ]);
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    browser.dispose();
+  }
+
+  // Phone layout + its overflow menu.
   tester.view.physicalSize = const Size(420, 860);
+  tester.view.devicePixelRatio = 1.0;
   await tester.pumpAndSettle();
-  await shot('phone');
+  await shot('phone', [
+    ('Export (progress shows here while rendering)', find.text('Export')),
+    (
+      'Everything else lives in the overflow menu',
+      find.byType(PopupMenuButton<String>),
+    ),
+    ('Meters idle here and run while playing', find.byType(StereoPeakMeter)),
+  ]);
+  await tester.tap(find.byType(PopupMenuButton<String>));
+  await tester.pumpAndSettle();
+  await shot('phone_menu');
+  tester.state<NavigatorState>(find.byType(Navigator)).pop();
+  await tester.pumpAndSettle();
   tester.view.reset();
   await tester.pumpAndSettle();
 
   // ignore: avoid_print
   print('SCREENSHOT_DIR=${shotsDir.path}');
+  if (Platform.isAndroid) {
+    // Keep the app alive so the host can `run-as`-pull the shots — the
+    // harness uninstalls the app afterwards and code_cache dies with it.
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
 }
 
 /// 16-bit 44.1 kHz WAV with a DUREC-style iXML track list — the same shape
@@ -530,19 +761,22 @@ Uint8List _buildFixtureWav({
       final envelope = pulseHz == 0.0
           ? 1.0
           : math.exp(-5.0 * ((t * pulseHz) - (t * pulseHz).floorToDouble()));
-      final v =
-          (amp * envelope * math.sin(2 * math.pi * freq * t) * 32767).round();
+      final v = (amp * envelope * math.sin(2 * math.pi * freq * t) * 32767)
+          .round();
       data.add([v & 0xFF, (v >> 8) & 0xFF]);
     }
   }
 
   final ixmlTracks = StringBuffer();
   for (var i = 0; i < tracks.length; i++) {
-    ixmlTracks.write('<TRACK><CHANNEL_INDEX>${i + 1}</CHANNEL_INDEX>'
-        '<INTERLEAVE_INDEX>${i + 1}</INTERLEAVE_INDEX>'
-        '<NAME>${tracks[i].$1}</NAME></TRACK>');
+    ixmlTracks.write(
+      '<TRACK><CHANNEL_INDEX>${i + 1}</CHANNEL_INDEX>'
+      '<INTERLEAVE_INDEX>${i + 1}</INTERLEAVE_INDEX>'
+      '<NAME>${tracks[i].$1}</NAME></TRACK>',
+    );
   }
-  final ixml = '<?xml version="1.0" encoding="UTF-8"?><BWFXML>'
+  final ixml =
+      '<?xml version="1.0" encoding="UTF-8"?><BWFXML>'
       '<IXML_VERSION>1.5</IXML_VERSION><TRACK_LIST>'
       '<TRACK_COUNT>$channels</TRACK_COUNT>$ixmlTracks</TRACK_LIST></BWFXML>';
 
@@ -578,5 +812,7 @@ Uint8List _buildFixtureWav({
   return file.toBytes();
 }
 
-Uint8List _u16(int v) => Uint8List(2)..buffer.asByteData().setUint16(0, v, Endian.little);
-Uint8List _u32(int v) => Uint8List(4)..buffer.asByteData().setUint32(0, v, Endian.little);
+Uint8List _u16(int v) =>
+    Uint8List(2)..buffer.asByteData().setUint16(0, v, Endian.little);
+Uint8List _u32(int v) =>
+    Uint8List(4)..buffer.asByteData().setUint32(0, v, Endian.little);

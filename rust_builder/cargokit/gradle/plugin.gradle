@@ -140,7 +140,7 @@ class CargoKitPlugin implements Plugin<Project> {
             }
 
             // Same thing addFlutterDependencies does in flutter.gradle
-            if (buildType == "debug") {
+            if (buildType == "debug" && System.getenv("CARGOKIT_NO_EMULATOR_ABIS") == null) {
                 platforms.add("android-x86")
                 platforms.add("android-x64")
             }
