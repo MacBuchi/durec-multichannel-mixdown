@@ -30,6 +30,22 @@ abstract final class AppColors {
   static const solo = Colors.amber;
   static const inMix = Colors.greenAccent;
 
+  /// Success marks (finished multi-export rows, LUFS readouts).
+  static const success = Colors.greenAccent;
+
+  /// Softened error text on list rows (probe/render failures).
+  static final errorSoft = Colors.redAccent.shade100;
+
+  // Stereo peak meter segments.
+  static final meterOk = Colors.greenAccent.shade400;
+  static const meterOver = Colors.red;
+
+  /// Loading overlay text (a touch brighter than [dim]).
+  static const overlayText = Colors.white70;
+
+  /// Dimming scrim behind the take-switch loading overlay.
+  static const scrim = Colors.black54;
+
   // Banners above the mixer (PilzBuddy-style fixed colors).
   static const updateBanner = Color(0xFF2E7D32);
   static const updateBannerFg = Colors.white;

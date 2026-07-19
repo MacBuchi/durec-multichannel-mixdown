@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../state/feedback.dart';
 import '../state/update_check.dart';
+import 'app_colors.dart';
 
 /// Banner stack above the mixer: update notification (green) and the
 /// feedback bar (cream). Dismissals are deliberately session-only — the
@@ -103,16 +104,16 @@ class _AppBannersState extends State<AppBanners> {
         children: [
           if (update != null && !_updateDismissed)
             _banner(
-              background: const Color(0xFF2E7D32),
-              foreground: Colors.white,
+              background: AppColors.updateBanner,
+              foreground: AppColors.updateBannerFg,
               onTap: () => _openUpdateDialog(update),
               onDismiss: () => setState(() => _updateDismissed = true),
               content: Text('🔄 Update to v${update.latestVersion} available'),
             ),
           if (!_feedbackDismissed)
             _banner(
-              background: const Color(0xFFFFF8E1),
-              foreground: const Color(0xFF6D4C41),
+              background: AppColors.feedbackBanner,
+              foreground: AppColors.feedbackBannerFg,
               onTap: _openFeedbackDialog,
               onDismiss: () => setState(() => _feedbackDismissed = true),
               content: const Text('💡 Request a feature or report a bug!'),

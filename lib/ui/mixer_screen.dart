@@ -14,6 +14,7 @@ import '../state/mixer_scope.dart';
 import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
 import 'animated_logo.dart';
+import 'app_colors.dart';
 import 'app_banners.dart';
 import 'dialogs/about_dialog.dart';
 import 'dialogs/batch_export_dialog.dart';
@@ -237,7 +238,7 @@ class _MixerScreenState extends State<MixerScreen> {
                           ),
                           const SizedBox(width: 4),
                           const Icon(Icons.expand_more,
-                              size: 18, color: Colors.white54),
+                              size: 18, color: AppColors.dim),
                         ],
                       ),
                     ),
@@ -257,10 +258,10 @@ class _MixerScreenState extends State<MixerScreen> {
                   icon: Icon(Icons.auto_fix_high,
                       size: 20,
                       color: state.mastering.preview && state.mastering.mixStatsStale
-                          ? Colors.amberAccent
+                          ? AppColors.warning
                           : state.mastering.enabled
-                              ? Colors.lightBlueAccent
-                              : Colors.white38),
+                              ? AppColors.accent
+                              : AppColors.faint),
                 ),
                 _loudnessSelector(),
                 const SizedBox(width: 8),
@@ -305,8 +306,8 @@ class _MixerScreenState extends State<MixerScreen> {
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: state.hasSnapshot(slot)
-                                    ? Colors.lightBlueAccent
-                                    : Colors.white38,
+                                    ? AppColors.accent
+                                    : AppColors.faint,
                               )),
                         ),
                       ),
@@ -320,8 +321,8 @@ class _MixerScreenState extends State<MixerScreen> {
                   icon: Icon(Icons.link,
                       size: 20,
                       color: state.linkPairs
-                          ? Colors.lightBlueAccent
-                          : Colors.white38),
+                          ? AppColors.accent
+                          : AppColors.faint),
                 ),
               IconButton(
                 tooltip: 'About DurecMix',
@@ -468,11 +469,11 @@ class _MixerScreenState extends State<MixerScreen> {
           if (state.opening)
             Text(
               'Loading ${state.displayName ?? 'recording'}…',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+              style: TextStyle(color: AppColors.dim),
             )
           else ...[
             Text('Choose a folder with DUREC recordings',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
+                style: TextStyle(color: AppColors.dim)),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _openFile,
@@ -482,7 +483,7 @@ class _MixerScreenState extends State<MixerScreen> {
           ],
           if (state.error != null) ...[
             const SizedBox(height: 16),
-            Text(state.error!, style: const TextStyle(color: Colors.redAccent)),
+            Text(state.error!, style: const TextStyle(color: AppColors.error)),
           ],
         ],
       ),
@@ -499,7 +500,7 @@ class _MixerScreenState extends State<MixerScreen> {
       children: [
         content,
         ColoredBox(
-          color: Colors.black.withValues(alpha: 0.55),
+          color: AppColors.scrim,
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -508,7 +509,7 @@ class _MixerScreenState extends State<MixerScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Loading ${state.displayName ?? 'recording'}…',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                  style: TextStyle(color: AppColors.overlayText),
                 ),
               ],
             ),
@@ -530,7 +531,7 @@ class _MixerScreenState extends State<MixerScreen> {
                 '${fmtTime(rec.durationSeconds)}'
                 '${state.bpm != null ? ' · ${state.bpm!.round()} BPM' : ''}'
                 '${state.trimStartSeconds != null || state.trimEndSeconds != null ? ' · trim ${fmtTime(state.trimStartSeconds ?? 0)}–${fmtTime(state.trimEndSeconds ?? rec.durationSeconds)}' : ''}',
-                style: const TextStyle(fontSize: 12, color: Colors.white54),
+                style: const TextStyle(fontSize: 12, color: AppColors.dim),
               ),
               const Spacer(),
               if (state.analyzing)
@@ -541,14 +542,14 @@ class _MixerScreenState extends State<MixerScreen> {
                   AnimatedLogo(size: 26, animate: true, amplitude: 90),
                   SizedBox(width: 6),
                   Text('analysing waveforms…',
-                      style: TextStyle(fontSize: 12, color: Colors.white54)),
+                      style: TextStyle(fontSize: 12, color: AppColors.dim)),
                 ]),
               if (state.error != null)
                 Flexible(
                   child: Text(state.error!,
                       overflow: TextOverflow.ellipsis,
                       style:
-                          const TextStyle(fontSize: 12, color: Colors.redAccent)),
+                          const TextStyle(fontSize: 12, color: AppColors.error)),
                 ),
             ],
           ),
@@ -640,7 +641,7 @@ class _MixerScreenState extends State<MixerScreen> {
               summary,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Colors.white54),
+              style: const TextStyle(fontSize: 11, color: AppColors.dim),
             ),
           ),
         ),
@@ -678,8 +679,8 @@ class _MixerScreenState extends State<MixerScreen> {
           child: Icon(Icons.first_page,
               size: 18,
               color: state.trimStartSeconds != null
-                  ? Colors.lightBlueAccent
-                  : Colors.white38),
+                  ? AppColors.accent
+                  : AppColors.faint),
         ),
       ),
       IconButton(
@@ -690,8 +691,8 @@ class _MixerScreenState extends State<MixerScreen> {
           child: Icon(Icons.last_page,
               size: 18,
               color: state.trimEndSeconds != null
-                  ? Colors.lightBlueAccent
-                  : Colors.white38),
+                  ? AppColors.accent
+                  : AppColors.faint),
         ),
       ),
       const SizedBox(width: 4),
@@ -727,7 +728,7 @@ class _MixerScreenState extends State<MixerScreen> {
       // Never wrap: a second line would change the bar height mid-playback.
       maxLines: oneLine ? 1 : 2,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 10, color: Colors.white54),
+      style: const TextStyle(fontSize: 10, color: AppColors.dim),
     );
   }
 
