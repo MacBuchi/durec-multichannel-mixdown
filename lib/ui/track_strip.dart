@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../src/rust/api/mixer.dart' as rust;
 import '../state/mixer_state.dart';
+import 'app_colors.dart';
 import 'waveform.dart';
 
 /// One track row: toggles, pan, fader, mini waveform.
@@ -103,15 +104,15 @@ class TrackStrip extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _toggleChip('ø', track.polarityInvert, Colors.purpleAccent,
+        _toggleChip('ø', track.polarityInvert, AppColors.polarity,
             () => state.togglePolarity(track), 'Polarity invert'),
-        _toggleChip('M', track.muted, Colors.redAccent,
+        _toggleChip('M', track.muted, AppColors.error,
             () => state.toggleMute(track), 'Mute'),
-        _toggleChip('S', track.solo, Colors.amber,
+        _toggleChip('S', track.solo, AppColors.solo,
             () => state.toggleSolo(track), 'Solo'),
-        _toggleChip('mix', track.inMix, Colors.greenAccent,
+        _toggleChip('mix', track.inMix, AppColors.inMix,
             () => state.toggleInMix(track), 'Include in mixdown'),
-        _toggleChip('EQ', track.eq.isActive, Colors.lightBlueAccent,
+        _toggleChip('EQ', track.eq.isActive, AppColors.accent,
             () => state.toggleEqPanel(track), 'HPF + 3-band EQ'),
         if (state.linkPairs && state.isPaired(track)) _pairLinkChip(),
       ],
@@ -133,7 +134,7 @@ class TrackStrip extends StatelessWidget {
           child: Icon(
             linked ? Icons.link : Icons.link_off,
             size: 16,
-            color: linked ? Colors.lightBlueAccent : Colors.white38,
+            color: linked ? AppColors.accent : AppColors.faint,
           ),
         ),
       ),
@@ -230,7 +231,7 @@ class TrackStrip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                color: enabled ? Colors.lightBlueAccent : Colors.white38,
+                color: enabled ? AppColors.accent : AppColors.faint,
               ),
             ),
           ),
@@ -288,14 +289,14 @@ class TrackStrip extends StatelessWidget {
             decoration: BoxDecoration(
               color: on ? color.withValues(alpha: 0.25) : null,
               border: Border.all(
-                  color: on ? color : Colors.white24, width: on ? 1.2 : 0.8),
+                  color: on ? color : AppColors.outline, width: on ? 1.2 : 0.8),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(label,
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: on ? color : Colors.white38,
+                  color: on ? color : AppColors.faint,
                 )),
           ),
         ),

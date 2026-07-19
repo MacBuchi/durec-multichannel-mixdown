@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'app_colors.dart';
+
 double _linToDb(double v) => v > 0 ? 20 * math.log(v) / math.ln10 : -60;
 
 /// Horizontal stereo peak meter with a dB scale from −60 to +3.
@@ -49,7 +51,7 @@ class _MeterBar extends StatelessWidget {
           widthFactor: frac,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: over ? Colors.red : Colors.greenAccent.shade400,
+              color: over ? AppColors.meterOver : AppColors.meterOk,
               borderRadius: BorderRadius.circular(3),
             ),
           ),

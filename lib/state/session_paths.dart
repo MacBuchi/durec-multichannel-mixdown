@@ -28,7 +28,10 @@ Future<String> sessionPathFor(String wavSource, {String? displayName}) async {
   if (legacy != path && !File(path).existsSync() && File(legacy).existsSync()) {
     try {
       File(legacy).renameSync(path);
-    } catch (_) {}
+    } catch (_) {
+      // Migration is best effort: if the rename fails the legacy session is
+      // simply not carried over and the user starts from a fresh mix.
+    }
   }
   return path;
 }

@@ -4,19 +4,25 @@ import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../io/ios_files.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
-import '../state/app_info.dart';
 import '../state/app_settings.dart';
 import '../state/batch_export.dart';
-import '../state/update_check.dart';
+import '../state/mixer_scope.dart';
 import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
 import 'animated_logo.dart';
+import 'app_colors.dart';
 import 'app_banners.dart';
+import 'dialogs/about_dialog.dart';
+import 'dialogs/batch_export_dialog.dart';
+import 'dialogs/custom_lufs_dialog.dart';
+import 'dialogs/export_report_dialog.dart';
+import 'dialogs/mastering_dialog.dart';
+import 'dialogs/target_pickers.dart';
+import 'formats.dart';
 import 'meters.dart';
 import 'track_strip.dart';
 import 'wav_browser_page.dart';
@@ -29,12 +35,14 @@ class MixerScreen extends StatefulWidget {
 }
 
 class _MixerScreenState extends State<MixerScreen> {
-  final MixerState state = MixerState();
+  /// Provided by the [MixerScope] above the app — the screen renders it but
+  /// does not own it (tests inject their own instance there).
+  late MixerState state;
 
   @override
-  void dispose() {
-    state.dispose();
-    super.dispose();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    state = MixerScope.of(context);
   }
 
   WavBrowser? _browser;
@@ -61,83 +69,6 @@ class _MixerScreenState extends State<MixerScreen> {
       }
     }
     await _showBrowser(browser);
-  }
-
-  Future<void> _openUrl(String url) async {
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-  }
-
-  /// About dialog: installed version + update status, project links, and a
-  /// shortcut into the feedback flow.
-  Future<void> _aboutDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('About DurecMix'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FutureBuilder<String>(
-                future: AppInfo.version(),
-                builder: (context, snap) =>
-                    Text('Version ${snap.data ?? '…'}',
-                        style: Theme.of(context).textTheme.titleMedium),
-              ),
-              const SizedBox(height: 4),
-              // Best-effort, never blocks: shows the update status once the
-              // release check returns (silent on failure / when offline).
-              FutureBuilder<UpdateInfo?>(
-                future: UpdateCheck.check(),
-                builder: (context, snap) {
-                  final text = snap.connectionState != ConnectionState.done
-                      ? 'Checking for updates…'
-                      : snap.data != null
-                          ? 'Update available: v${snap.data!.latestVersion} '
-                              '— see the banner on the mixer.'
-                          : "You're up to date.";
-                  return Text(text,
-                      style: Theme.of(context).textTheme.bodySmall);
-                },
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                leading: const Icon(Icons.code),
-                title: const Text('GitHub project'),
-                subtitle: const Text(AppInfo.githubUrl),
-                onTap: () => _openUrl(AppInfo.githubUrl),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                leading: const Icon(Icons.menu_book),
-                title: const Text('User guide'),
-                onTap: () => _openUrl(AppInfo.guideUrl),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                leading: const Icon(Icons.feedback_outlined),
-                title: const Text('Request a feature or report a bug'),
-                onTap: () {
-                  Navigator.of(dialogContext).pop();
-                  showFeedbackDialog(context);
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
   }
 
   /// App-bar folder icon: switch the target folder directly, then browse it.
@@ -172,10 +103,10 @@ class _MixerScreenState extends State<MixerScreen> {
             format: state.format,
             // Analyzed when the reference was chosen; cache-restored on
             // app restart the first time an export runs.
-            reference: state.referenceProfile,
+            reference: state.mastering.profile,
           ),
-          onPickLoudness: _pickLoudnessDialog,
-          onPickFormat: _pickFormatDialog,
+          onPickLoudness: () => pickLoudnessDialog(context, state),
+          onPickFormat: () => pickFormatDialog(context, state),
         ),
       ),
     );
@@ -220,9 +151,9 @@ class _MixerScreenState extends State<MixerScreen> {
         rust.ApiFormat.mp3 => 'audio/mpeg',
         _ => 'audio/x-wav',
       };
-      final uri = await Saf.createDocument(state.suggestedName(), mime);
+      final uri = await Saf.createDocument(state.exporter.suggestedName(), mime);
       if (uri != null) {
-        await state.export(uri);
+        await state.exporter.export(uri);
         if (state.error == null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: const Text('Export finished'),
@@ -238,22 +169,24 @@ class _MixerScreenState extends State<MixerScreen> {
     if (IosFiles.isAvailable) {
       // iOS: render into tmp, then let the export picker move the finished
       // file wherever the user chooses (Files, iCloud, USB drive).
-      final tempPath = '${Directory.systemTemp.path}/${state.suggestedName()}';
-      await state.export(tempPath);
+      final tempPath = '${Directory.systemTemp.path}/${state.exporter.suggestedName()}';
+      await state.exporter.export(tempPath);
       if (state.error == null) {
         final dest = await IosFiles.exportMove(tempPath);
         if (dest == null) {
           // Cancelled: don't leave a multi-GB orphan in tmp.
           try {
             File(tempPath).deleteSync();
-          } catch (_) {}
+          } catch (_) {
+            // Cleanup only — worst case the OS purges tmp itself.
+          }
         }
       }
       return;
     }
-    final location = await getSaveLocation(suggestedName: state.suggestedName());
+    final location = await getSaveLocation(suggestedName: state.exporter.suggestedName());
     if (location != null) {
-      await state.export(location.path);
+      await state.exporter.export(location.path);
     }
   }
 
@@ -262,111 +195,13 @@ class _MixerScreenState extends State<MixerScreen> {
   /// Android would need a SAF directory tree (planned with the phone work).
   Future<void> _batchExport() async {
     if (state.recording == null) return;
-    if (state.batchQueue.isEmpty) state.addBatchJob();
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Batch export'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Each job renders the current mix at its own loudness '
-                    'target and format, auto-named into one folder.',
-                    style: TextStyle(fontSize: 12, color: Colors.white54),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                for (final job in List.of(state.batchQueue))
-                  Row(
-                    children: [
-                      Expanded(child: _jobLoudnessDropdown(job, setDialogState)),
-                      const SizedBox(width: 8),
-                      _jobFormatDropdown(job, setDialogState),
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline, size: 18),
-                        onPressed: () =>
-                            setDialogState(() => state.removeBatchJob(job)),
-                      ),
-                    ],
-                  ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () => setDialogState(state.addBatchJob),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add job'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: state.batchQueue.isEmpty
-                  ? null
-                  : () => Navigator.of(context).pop(true),
-              child: const Text('Export all…'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (proceed != true || state.batchQueue.isEmpty) return;
+    if (state.exporter.batchQueue.isEmpty) state.exporter.addBatchJob();
+    final proceed = await showBatchExportDialog(context, state);
+    if (proceed != true || state.exporter.batchQueue.isEmpty) return;
     final directory = await getDirectoryPath();
     if (directory != null) {
-      await state.exportBatch(directory);
+      await state.exporter.exportBatch(directory);
     }
-  }
-
-  Widget _jobLoudnessDropdown(BatchJob job, StateSetter setDialogState) {
-    return DropdownButton<LoudnessChoice>(
-      value: job.loudness,
-      isExpanded: true,
-      underline: const SizedBox.shrink(),
-      items: LoudnessChoice.values
-          .map((c) => DropdownMenuItem(
-              value: c,
-              child: Text(
-                  c == LoudnessChoice.lufsCustom && job.loudness == c
-                      ? '${job.customLufs.toStringAsFixed(1)} LUFS'
-                      : c.label,
-                  style: const TextStyle(fontSize: 13))))
-          .toList(),
-      onChanged: (c) async {
-        if (c == null) return;
-        if (c == LoudnessChoice.lufsCustom) {
-          final v = await _askCustomLufs();
-          if (v == null) return;
-          job.customLufs = v;
-        }
-        setDialogState(() => job.loudness = c);
-      },
-    );
-  }
-
-  Widget _jobFormatDropdown(BatchJob job, StateSetter setDialogState) {
-    return DropdownButton<rust.ApiFormat>(
-      value: job.format,
-      underline: const SizedBox.shrink(),
-      items: rust.ApiFormat.values
-          .map((f) => DropdownMenuItem(
-              value: f,
-              child:
-                  Text(formatLabels[f]!, style: const TextStyle(fontSize: 13))))
-          .toList(),
-      onChanged: (f) =>
-          f != null ? setDialogState(() => job.format = f) : null,
-    );
   }
 
   /// Batch export needs a directory picker, which file_selector only
@@ -403,7 +238,7 @@ class _MixerScreenState extends State<MixerScreen> {
                           ),
                           const SizedBox(width: 4),
                           const Icon(Icons.expand_more,
-                              size: 18, color: Colors.white54),
+                              size: 18, color: AppColors.dim),
                         ],
                       ),
                     ),
@@ -411,40 +246,40 @@ class _MixerScreenState extends State<MixerScreen> {
             actions: narrow ? _narrowActions(rec) : [
               if (rec != null) ...[
                 IconButton(
-                  tooltip: state.masteringPreview && state.mixStatsStale
+                  tooltip: state.mastering.preview && state.mastering.mixStatsStale
                       ? 'Mastering preview is stale — mix changed since the '
                           'analysis'
-                      : state.masteringEnabled
+                      : state.mastering.enabled
                           ? 'Reference mastering: '
-                              '${state.masteringReferenceName}'
+                              '${state.mastering.referenceName}'
                           : 'Reference mastering — match the export to a '
                               'reference track',
-                  onPressed: _masteringDialog,
+                  onPressed: () => showMasteringDialog(context, state),
                   icon: Icon(Icons.auto_fix_high,
                       size: 20,
-                      color: state.masteringPreview && state.mixStatsStale
-                          ? Colors.amberAccent
-                          : state.masteringEnabled
-                              ? Colors.lightBlueAccent
-                              : Colors.white38),
+                      color: state.mastering.preview && state.mastering.mixStatsStale
+                          ? AppColors.warning
+                          : state.mastering.enabled
+                              ? AppColors.accent
+                              : AppColors.faint),
                 ),
                 _loudnessSelector(),
                 const SizedBox(width: 8),
                 _formatSelector(),
                 const SizedBox(width: 8),
                 FilledButton.icon(
-                  onPressed: state.rendering ? null : _export,
+                  onPressed: state.exporter.rendering ? null : _export,
                   icon: const Icon(Icons.save_alt, size: 18),
-                  label: Text(state.rendering
-                      ? '${state.batchRunning ? '${state.batchCurrent}/${state.batchTotal} · ' : ''}'
-                          '${(state.renderProgress * 100).round()} %'
+                  label: Text(state.exporter.rendering
+                      ? '${state.exporter.batchRunning ? '${state.exporter.batchCurrent}/${state.exporter.batchTotal} · ' : ''}'
+                          '${(state.exporter.renderProgress * 100).round()} %'
                       : 'Export'),
                 ),
                 if (_batchAvailable)
                   IconButton(
                     tooltip: 'Export multiple formats of this mix into one '
                         'folder (all files of the folder: use the browser)',
-                    onPressed: state.rendering ? null : _batchExport,
+                    onPressed: state.exporter.rendering ? null : _batchExport,
                     icon: const Icon(Icons.playlist_add_check, size: 20),
                   ),
                 const SizedBox(width: 8),
@@ -471,8 +306,8 @@ class _MixerScreenState extends State<MixerScreen> {
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: state.hasSnapshot(slot)
-                                    ? Colors.lightBlueAccent
-                                    : Colors.white38,
+                                    ? AppColors.accent
+                                    : AppColors.faint,
                               )),
                         ),
                       ),
@@ -486,12 +321,12 @@ class _MixerScreenState extends State<MixerScreen> {
                   icon: Icon(Icons.link,
                       size: 20,
                       color: state.linkPairs
-                          ? Colors.lightBlueAccent
-                          : Colors.white38),
+                          ? AppColors.accent
+                          : AppColors.faint),
                 ),
               IconButton(
                 tooltip: 'About DurecMix',
-                onPressed: _aboutDialog,
+                onPressed: () => showAboutDurecMixDialog(context),
                 icon: const Icon(Icons.info_outline),
               ),
               IconButton(
@@ -520,15 +355,15 @@ class _MixerScreenState extends State<MixerScreen> {
     return [
       if (rec != null)
         FilledButton(
-          onPressed: state.rendering ? null : _export,
-          child: Text(state.rendering
-              ? '${state.batchRunning ? '${state.batchCurrent}/${state.batchTotal} · ' : ''}'
-                  '${(state.renderProgress * 100).round()} %'
+          onPressed: state.exporter.rendering ? null : _export,
+          child: Text(state.exporter.rendering
+              ? '${state.exporter.batchRunning ? '${state.exporter.batchCurrent}/${state.exporter.batchTotal} · ' : ''}'
+                  '${(state.exporter.renderProgress * 100).round()} %'
               : 'Export'),
         ),
       IconButton(
         tooltip: 'About DurecMix',
-        onPressed: _aboutDialog,
+        onPressed: () => showAboutDurecMixDialog(context),
         icon: const Icon(Icons.info_outline),
       ),
       IconButton(
@@ -541,11 +376,11 @@ class _MixerScreenState extends State<MixerScreen> {
           onSelected: (v) async {
             switch (v) {
               case 'mastering':
-                await _masteringDialog();
+                await showMasteringDialog(context, state);
               case 'loudness':
-                await _pickLoudnessDialog();
+                await pickLoudnessDialog(context, state);
               case 'format':
-                await _pickFormatDialog();
+                await pickFormatDialog(context, state);
               case 'batch':
                 await _batchExport();
               case 'snapA':
@@ -563,13 +398,13 @@ class _MixerScreenState extends State<MixerScreen> {
           itemBuilder: (_) => [
             PopupMenuItem(
                 value: 'mastering',
-                child: Text(state.masteringEnabled
-                    ? 'Mastering: ${state.masteringReferenceName}'
+                child: Text(state.mastering.enabled
+                    ? 'Mastering: ${state.mastering.referenceName}'
                     : 'Reference mastering…')),
             PopupMenuItem(
                 value: 'loudness',
-                enabled: !state.masteringEnabled,
-                child: Text(state.masteringEnabled
+                enabled: !state.mastering.enabled,
+                child: Text(state.mastering.enabled
                     ? 'Loudness: follows reference'
                     : 'Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}')),
             PopupMenuItem(
@@ -622,61 +457,6 @@ class _MixerScreenState extends State<MixerScreen> {
       ));
   }
 
-  Future<void> _pickLoudnessDialog() async {
-    final choice = await showDialog<LoudnessChoice>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Loudness target'),
-        children: [
-          for (final c in LoudnessChoice.values)
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(c),
-              child: Text(
-                c == LoudnessChoice.lufsCustom &&
-                        state.loudness == LoudnessChoice.lufsCustom
-                    ? '${state.customLufs.toStringAsFixed(1)} LUFS'
-                    : c.label,
-                style: TextStyle(
-                  fontWeight:
-                      c == state.loudness ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-    if (choice == null || !mounted) return;
-    if (choice == LoudnessChoice.lufsCustom) {
-      final v = await _askCustomLufs();
-      if (v == null) return;
-      state.customLufs = v;
-    }
-    state.setLoudness(choice);
-  }
-
-  Future<void> _pickFormatDialog() async {
-    final choice = await showDialog<rust.ApiFormat>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Export format'),
-        children: [
-          for (final f in rust.ApiFormat.values)
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(f),
-              child: Text(
-                formatLabels[f]!,
-                style: TextStyle(
-                  fontWeight:
-                      f == state.format ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-    if (choice != null) state.setFormat(choice);
-  }
-
   /// The main window's empty track area doubles as the start screen: the
   /// logo (animated while a file loads) and a tappable folder affordance.
   Widget _emptyView() {
@@ -689,11 +469,11 @@ class _MixerScreenState extends State<MixerScreen> {
           if (state.opening)
             Text(
               'Loading ${state.displayName ?? 'recording'}…',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+              style: TextStyle(color: AppColors.dim),
             )
           else ...[
             Text('Choose a folder with DUREC recordings',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
+                style: TextStyle(color: AppColors.dim)),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _openFile,
@@ -703,7 +483,7 @@ class _MixerScreenState extends State<MixerScreen> {
           ],
           if (state.error != null) ...[
             const SizedBox(height: 16),
-            Text(state.error!, style: const TextStyle(color: Colors.redAccent)),
+            Text(state.error!, style: const TextStyle(color: AppColors.error)),
           ],
         ],
       ),
@@ -720,7 +500,7 @@ class _MixerScreenState extends State<MixerScreen> {
       children: [
         content,
         ColoredBox(
-          color: Colors.black.withValues(alpha: 0.55),
+          color: AppColors.scrim,
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -729,7 +509,7 @@ class _MixerScreenState extends State<MixerScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Loading ${state.displayName ?? 'recording'}…',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                  style: TextStyle(color: AppColors.overlayText),
                 ),
               ],
             ),
@@ -748,10 +528,10 @@ class _MixerScreenState extends State<MixerScreen> {
             children: [
               Text(
                 '${rec.channels} ch · ${rec.sampleRate} Hz · ${rec.bitsPerSample}-bit · '
-                '${_fmtTime(rec.durationSeconds)}'
+                '${fmtTime(rec.durationSeconds)}'
                 '${state.bpm != null ? ' · ${state.bpm!.round()} BPM' : ''}'
-                '${state.trimStartSeconds != null || state.trimEndSeconds != null ? ' · trim ${_fmtTime(state.trimStartSeconds ?? 0)}–${_fmtTime(state.trimEndSeconds ?? rec.durationSeconds)}' : ''}',
-                style: const TextStyle(fontSize: 12, color: Colors.white54),
+                '${state.trimStartSeconds != null || state.trimEndSeconds != null ? ' · trim ${fmtTime(state.trimStartSeconds ?? 0)}–${fmtTime(state.trimEndSeconds ?? rec.durationSeconds)}' : ''}',
+                style: const TextStyle(fontSize: 12, color: AppColors.dim),
               ),
               const Spacer(),
               if (state.analyzing)
@@ -762,14 +542,14 @@ class _MixerScreenState extends State<MixerScreen> {
                   AnimatedLogo(size: 26, animate: true, amplitude: 90),
                   SizedBox(width: 6),
                   Text('analysing waveforms…',
-                      style: TextStyle(fontSize: 12, color: Colors.white54)),
+                      style: TextStyle(fontSize: 12, color: AppColors.dim)),
                 ]),
               if (state.error != null)
                 Flexible(
                   child: Text(state.error!,
                       overflow: TextOverflow.ellipsis,
                       style:
-                          const TextStyle(fontSize: 12, color: Colors.redAccent)),
+                          const TextStyle(fontSize: 12, color: AppColors.error)),
                 ),
             ],
           ),
@@ -812,7 +592,9 @@ class _MixerScreenState extends State<MixerScreen> {
                 Row(children: _transportControls(rec)),
                 Row(
                   children: [
-                    StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
+                    StereoPeakMeter(
+                        peakL: state.playback.peakL,
+                        peakR: state.playback.peakR),
                     const SizedBox(width: 12),
                     Expanded(child: _meterText(oneLine: true)),
                   ],
@@ -822,7 +604,9 @@ class _MixerScreenState extends State<MixerScreen> {
                   children: [
                     ..._transportControls(rec),
                     const SizedBox(width: 16),
-                    StereoPeakMeter(peakL: state.peakL, peakR: state.peakR),
+                    StereoPeakMeter(
+                        peakL: state.playback.peakL,
+                        peakR: state.playback.peakR),
                     const SizedBox(width: 12),
                     SizedBox(width: 170, child: _meterText()),
                   ],
@@ -839,25 +623,25 @@ class _MixerScreenState extends State<MixerScreen> {
   /// full text, tapping opens the detail dialog, which is the phone's
   /// hover replacement), otherwise blank.
   Widget _statusSlot() {
-    final report = state.lastReport;
+    final report = state.exporter.lastReport;
     final Widget child;
-    if (state.rendering) {
+    if (state.exporter.rendering) {
       child = Center(
-        child: LinearProgressIndicator(value: state.renderProgress),
+        child: LinearProgressIndicator(value: state.exporter.renderProgress),
       );
     } else if (report != null) {
       final summary = _reportSummary(report);
       child = Tooltip(
         message: summary,
         child: InkWell(
-          onTap: () => _showReportDialog(report),
+          onTap: () => showExportReportDialog(context, state, report),
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
               summary,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Colors.white54),
+              style: const TextStyle(fontSize: 11, color: AppColors.dim),
             ),
           ),
         ),
@@ -868,145 +652,89 @@ class _MixerScreenState extends State<MixerScreen> {
     return SizedBox(height: 20, child: child);
   }
 
-  String _signedDb(double v) => '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)}';
-
   String _reportSummary(rust.ApiRenderReport report) =>
-      'Exported: ${_fmtLufs(report.integratedLufs)} LUFS-I · '
+      'Exported: ${fmtLufs(report.integratedLufs)} LUFS-I · '
       'TP ${report.truePeakDbtp.toStringAsFixed(1)} dBTP · '
       'LRA ${report.lraLu.toStringAsFixed(1)} LU · '
-      '${report.masteringApplied ? 'matched to ${state.masteringReferenceName} '
-          '(${_signedDb(report.masteringGainDb)} dB) ' : 'gain ${_signedDb(report.gainAppliedDb)} dB '}'
-      '→ ${state.lastOutputPath ?? ''}';
-
-  void _showReportDialog(rust.ApiRenderReport report) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Last export'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _reportRow('Loudness', '${_fmtLufs(report.integratedLufs)} LUFS-I'),
-            _reportRow(
-                'True peak', '${report.truePeakDbtp.toStringAsFixed(2)} dBTP'),
-            _reportRow(
-                'Loudness range', '${report.lraLu.toStringAsFixed(1)} LU'),
-            if (report.masteringApplied)
-              _reportRow(
-                  'Mastering',
-                  'matched to ${state.masteringReferenceName} '
-                      '(${_signedDb(report.masteringGainDb)} dB)')
-            else
-              _reportRow('Gain', '${_signedDb(report.gainAppliedDb)} dB'),
-            _reportRow('Source loudness',
-                '${_fmtLufs(report.sourceIntegratedLufs)} LUFS-I'),
-            _reportRow('Duration', _fmtTime(report.durationSeconds)),
-            const SizedBox(height: 8),
-            SelectableText(
-              state.lastOutputPath ?? '',
-              style: const TextStyle(fontSize: 11, color: Colors.white54),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _reportRow(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 130,
-              child: Text(label,
-                  style:
-                      const TextStyle(fontSize: 12, color: Colors.white54)),
-            ),
-            Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
-          ],
-        ),
-      );
+      '${report.masteringApplied ? 'matched to ${state.mastering.referenceName} '
+          '(${signedDb(report.masteringGainDb)} dB) ' : 'gain ${signedDb(report.gainAppliedDb)} dB '}'
+      '→ ${state.exporter.lastOutputPath ?? ''}';
 
   List<Widget> _transportControls(rust.RecordingInfo rec) {
     return [
       IconButton.filled(
-        onPressed: state.togglePlay,
-        icon: Icon(state.playing ? Icons.stop : Icons.play_arrow),
+        onPressed: state.playback.togglePlay,
+        icon: Icon(state.playback.playing ? Icons.stop : Icons.play_arrow),
       ),
       const SizedBox(width: 6),
       // The logo doubles as the "signal is flowing" light: still when
       // stopped, channels swinging while the mix plays.
-      AnimatedLogo(size: 30, animate: state.playing, amplitude: 90),
+      AnimatedLogo(size: 30, animate: state.playback.playing, amplitude: 90),
       const SizedBox(width: 2),
       IconButton(
         tooltip: 'Set trim-in at playhead (long-press to clear)',
-        onPressed: () => state.setTrimStart(state.positionSeconds),
+        onPressed: () => state.setTrimStart(state.playback.positionSeconds),
         icon: GestureDetector(
           onLongPress: () => state.setTrimStart(null),
           child: Icon(Icons.first_page,
               size: 18,
               color: state.trimStartSeconds != null
-                  ? Colors.lightBlueAccent
-                  : Colors.white38),
+                  ? AppColors.accent
+                  : AppColors.faint),
         ),
       ),
       IconButton(
         tooltip: 'Set trim-out at playhead (long-press to clear)',
-        onPressed: () => state.setTrimEnd(state.positionSeconds),
+        onPressed: () => state.setTrimEnd(state.playback.positionSeconds),
         icon: GestureDetector(
           onLongPress: () => state.setTrimEnd(null),
           child: Icon(Icons.last_page,
               size: 18,
               color: state.trimEndSeconds != null
-                  ? Colors.lightBlueAccent
-                  : Colors.white38),
+                  ? AppColors.accent
+                  : AppColors.faint),
         ),
       ),
       const SizedBox(width: 4),
-      Text(_fmtTime(state.positionSeconds),
+      Text(fmtTime(state.playback.positionSeconds),
           style:
               const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
       Expanded(
         child: Slider(
-          value:
-              state.positionSeconds.clamp(0, rec.durationSeconds).toDouble(),
+          value: state.playback.positionSeconds
+              .clamp(0, rec.durationSeconds)
+              .toDouble(),
           max: rec.durationSeconds,
-          onChanged: state.seek,
+          onChanged: state.playback.seek,
         ),
       ),
-      Text(_fmtTime(rec.durationSeconds),
+      Text(fmtTime(rec.durationSeconds),
           style:
               const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
     ];
   }
 
   Widget _meterText({bool oneLine = false}) {
-    final tp = state.truePeak > 0
-        ? (20 * math.log(state.truePeak) / math.ln10).toStringAsFixed(1)
+    final tp = state.playback.truePeak > 0
+        ? (20 * math.log(state.playback.truePeak) / math.ln10)
+            .toStringAsFixed(1)
         : '−∞';
     final separator = oneLine ? ' · ' : '\n';
     return Text(
-      state.playing
-          ? '${_fmtLufs(state.lufsMomentary)} LUFS-M · ${_fmtLufs(state.lufsIntegrated)} LUFS-I$separator'
-              'TP $tp dBTP · corr ${state.correlation.toStringAsFixed(2)}'
+      state.playback.playing
+          ? '${fmtLufs(state.playback.lufsMomentary)} LUFS-M · ${fmtLufs(state.playback.lufsIntegrated)} LUFS-I$separator'
+              'TP $tp dBTP · corr ${state.playback.correlation.toStringAsFixed(2)}'
           : '',
       // Never wrap: a second line would change the bar height mid-playback.
       maxLines: oneLine ? 1 : 2,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 10, color: Colors.white54),
+      style: const TextStyle(fontSize: 10, color: AppColors.dim),
     );
   }
 
   Widget _loudnessSelector() {
     return Tooltip(
-      message: state.masteringEnabled
+      message: state.mastering.enabled
           ? 'Level follows the mastering reference'
           : 'Applied on export; preview plays pre-normalisation',
       child: DropdownButton<LoudnessChoice>(
@@ -1021,257 +749,17 @@ class _MixerScreenState extends State<MixerScreen> {
                     : c.label)))
             .toList(),
         // Greyed out while mastering: the reference owns the level.
-        onChanged: state.masteringEnabled
+        onChanged: state.mastering.enabled
             ? null
             : (c) async {
                 if (c == null) return;
                 if (c == LoudnessChoice.lufsCustom) {
-                  final v = await _askCustomLufs();
+                  final v = await askCustomLufs(context, state.customLufs);
                   if (v == null) return;
                   state.customLufs = v;
                 }
                 state.setLoudness(c);
               },
-      ),
-    );
-  }
-
-  // ── reference mastering ─────────────────────────────────────────────────
-
-  Future<void> _masteringDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Reference mastering'),
-        content: SizedBox(
-          width: 400,
-          child: ListenableBuilder(
-            listenable: state,
-            builder: (context, _) {
-              final profile = state.referenceProfile;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Matches the export to a reference track: loudness, tone '
-                    '(matching EQ) and stereo width. The loudness target is '
-                    'ignored while active; the true-peak limiter stays on.',
-                    style: TextStyle(fontSize: 12, color: Colors.white54),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Master to reference'),
-                    value: state.masteringEnabled,
-                    onChanged: state.masteringReferences.isEmpty
-                        ? null
-                        : state.setMasteringEnabled,
-                  ),
-                  if (state.masteringReferences.isEmpty)
-                    const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.library_music, size: 20),
-                      title: Text('No reference chosen'),
-                    )
-                  else
-                    for (final ref in state.masteringReferences)
-                      ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.library_music, size: 18),
-                        title: Text(ref.name, overflow: TextOverflow.ellipsis),
-                        trailing: IconButton(
-                          tooltip: 'Remove reference',
-                          icon: const Icon(Icons.close, size: 16),
-                          onPressed: state.analyzingReference
-                              ? null
-                              : () => state.removeReference(ref),
-                        ),
-                      ),
-                  Row(
-                    children: [
-                      TextButton.icon(
-                        onPressed:
-                            state.analyzingReference ? null : _pickReference,
-                        icon: const Icon(Icons.add, size: 16),
-                        label: Text(state.masteringReferences.isEmpty
-                            ? 'Choose reference…'
-                            : 'Add reference…'),
-                      ),
-                      const Spacer(),
-                      if (profile != null)
-                        Text(
-                          '${state.masteringReferences.length > 1 ? 'averaged · ' : ''}'
-                          '${_fmtDuration(profile.durationSeconds)}'
-                          '${profile.sideRms < profile.midRms * 1e-4 ? ' · mono' : ''}',
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.white54),
-                        ),
-                    ],
-                  ),
-                  if (state.masteringReferences.length > 1)
-                    const Text(
-                      'Multiple references average into one target curve — '
-                      'one vote per song.',
-                      style: TextStyle(fontSize: 11, color: Colors.white54),
-                    ),
-                  if (state.analyzingReference) ...[
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                        value: state.referenceProgress > 0
-                            ? state.referenceProgress
-                            : null),
-                    const SizedBox(height: 4),
-                    Text(
-                        'Analyzing ${state.analyzingReferenceLabel.isEmpty ? 'reference' : state.analyzingReferenceLabel}…',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.white54)),
-                  ],
-                  const Divider(height: 16),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Preview mastered playback'),
-                    subtitle: const Text(
-                      'Analyzes the current mix once; meters then show the '
-                      'mastered signal',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    value: state.masteringPreview,
-                    onChanged: !state.masteringEnabled || state.analyzingMix
-                        ? null
-                        : (v) => v
-                            ? _enableMasteringPreview()
-                            : state.disableMasteringPreview(),
-                  ),
-                  if (state.analyzingMix) ...[
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                        value: state.mixAnalysisProgress > 0
-                            ? state.mixAnalysisProgress
-                            : null),
-                    const SizedBox(height: 4),
-                    const Text('Analyzing mix…',
-                        style:
-                            TextStyle(fontSize: 11, color: Colors.white54)),
-                  ],
-                  if (state.masteringPreview && state.mixStatsStale)
-                    Row(
-                      children: [
-                        const Icon(Icons.warning_amber,
-                            size: 16, color: Colors.amberAccent),
-                        const SizedBox(width: 6),
-                        const Expanded(
-                          child: Text(
-                            'Mix changed — preview uses the old analysis',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.amberAccent),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: state.analyzingMix
-                              ? null
-                              : _refreshMasteringPreview,
-                          child: const Text('Refresh'),
-                        ),
-                      ],
-                    ),
-                ],
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Done'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _pickReference() async {
-    String? path;
-    String? name;
-    if (Saf.isAvailable) {
-      path = await Saf.pickAudio();
-      if (path != null) name = await Saf.displayName(path);
-    } else if (IosFiles.isAvailable) {
-      path = await IosFiles.pickAudio();
-    } else {
-      const group = XTypeGroup(
-          label: 'Audio',
-          extensions: ['wav', 'flac', 'mp3', 'ogg', 'WAV', 'FLAC', 'MP3']);
-      final file = await openFile(acceptedTypeGroups: [group]);
-      path = file?.path;
-      name = file?.name;
-    }
-    if (path == null) return;
-    try {
-      await state.addReference(path, name ?? path.split('/').last);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Reference analysis failed: $e')));
-    }
-  }
-
-  Future<void> _enableMasteringPreview() async {
-    try {
-      await state.enableMasteringPreview();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Mix analysis failed: $e')));
-    }
-  }
-
-  Future<void> _refreshMasteringPreview() async {
-    try {
-      await state.refreshMasteringPreview();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Mix analysis failed: $e')));
-    }
-  }
-
-  String _fmtDuration(double seconds) {
-    final m = seconds ~/ 60;
-    final s = (seconds % 60).round();
-    return '$m:${s.toString().padLeft(2, '0')} min';
-  }
-
-  Future<double?> _askCustomLufs() async {
-    final controller =
-        TextEditingController(text: state.customLufs.toStringAsFixed(1));
-    return showDialog<double>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Custom LUFS target'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType:
-              const TextInputType.numberWithOptions(signed: true, decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Integrated loudness (−30 … −6 LUFS)',
-          ),
-          onSubmitted: (_) => Navigator.of(context)
-              .pop(double.tryParse(controller.text)?.clamp(-30.0, -6.0)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context)
-                .pop(double.tryParse(controller.text)?.clamp(-30.0, -6.0)),
-            child: const Text('OK'),
-          ),
-        ],
       ),
     );
   }
@@ -1286,15 +774,4 @@ class _MixerScreenState extends State<MixerScreen> {
       onChanged: (f) => f != null ? state.setFormat(f) : null,
     );
   }
-}
-
-
-
-String _fmtLufs(double v) => v <= -70 ? '−∞' : v.toStringAsFixed(1);
-
-String _fmtTime(double seconds) {
-  final s = seconds.clamp(0, double.infinity);
-  final m = s ~/ 60;
-  final rest = (s - m * 60).floor();
-  return '$m:${rest.toString().padLeft(2, '0')}';
 }
