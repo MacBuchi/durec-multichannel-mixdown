@@ -13,6 +13,7 @@ import '../state/app_info.dart';
 import '../state/app_settings.dart';
 import '../state/batch_export.dart';
 import '../state/update_check.dart';
+import '../state/mixer_scope.dart';
 import '../state/mixer_state.dart';
 import '../state/wav_browser.dart';
 import 'animated_logo.dart';
@@ -29,12 +30,14 @@ class MixerScreen extends StatefulWidget {
 }
 
 class _MixerScreenState extends State<MixerScreen> {
-  final MixerState state = MixerState();
+  /// Provided by the [MixerScope] above the app — the screen renders it but
+  /// does not own it (tests inject their own instance there).
+  late MixerState state;
 
   @override
-  void dispose() {
-    state.dispose();
-    super.dispose();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    state = MixerScope.of(context);
   }
 
   WavBrowser? _browser;

@@ -26,7 +26,6 @@ import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/state/update_check.dart';
 import 'package:durecmix/ui/animated_logo.dart';
 import 'package:durecmix/ui/meters.dart';
-import 'package:durecmix/ui/mixer_screen.dart';
 import 'package:durecmix/ui/track_strip.dart';
 import 'package:durecmix/ui/wav_browser_page.dart';
 import 'package:flutter/material.dart';
@@ -69,8 +68,12 @@ void main() {
     // a desktop-sized test surface; phone-layout sections set their own.
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1.0;
+    // Injected through the MixerScope seam — the test owns the state and
+    // never reaches into widget internals.
+    final state = MixerState();
+    addTearDown(state.dispose);
     await tester.pumpWidget(
-      RepaintBoundary(key: _shotKey, child: const DurecMixApp()),
+      RepaintBoundary(key: _shotKey, child: DurecMixApp(state: state)),
     );
     await tester.pumpAndSettle();
     // No separate start screen: the main window's empty track area carries
@@ -106,8 +109,6 @@ void main() {
 
     // Open the fixture (the picker's target API; the native panel itself
     // cannot be driven headlessly).
-    final dynamic screenState = tester.state(find.byType(MixerScreen));
-    final MixerState state = screenState.state as MixerState;
     await state.open(fixturePath);
     await tester.pumpAndSettle();
 
