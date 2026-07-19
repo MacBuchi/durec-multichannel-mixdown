@@ -54,6 +54,8 @@ picker instead of the in-app browser.
 11. **Play / stop** the live preview ([section 4](#4-playback--metering)).
 12. **Trim-in / trim-out** at the playhead; long-press clears
     ([section 5](#5-trimming)).
+13. **About** — installed version, update status, project links and
+    feedback ([section 10](#10-feedback--updates)).
 
 Fresh sessions automatically exclude obvious monitor feeds (In Ear, Phones,
 IEM, Talkback, Line Out, Monitor) from the mix — DUREC also records those

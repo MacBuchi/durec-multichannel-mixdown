@@ -618,6 +618,10 @@ Future<void> _captureDocScreenshots(
         'Set trim-in / trim-out at the playhead (long-press clears)',
         find.byIcon(Icons.first_page),
       ),
+      (
+        'About — version, update status, feedback',
+        find.byIcon(Icons.info_outline),
+      ),
     ]);
 
     // EQ panel expanded on the vocal track.
