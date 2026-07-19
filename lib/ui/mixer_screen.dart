@@ -246,7 +246,9 @@ class _MixerScreenState extends State<MixerScreen> {
           // Cancelled: don't leave a multi-GB orphan in tmp.
           try {
             File(tempPath).deleteSync();
-          } catch (_) {}
+          } catch (_) {
+            // Cleanup only — worst case the OS purges tmp itself.
+          }
         }
       }
       return;

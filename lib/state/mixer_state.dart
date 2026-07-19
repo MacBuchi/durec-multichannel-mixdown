@@ -305,6 +305,8 @@ class MixerState extends ChangeNotifier {
       unawaited(
           AnalysisCache.save(source, numFrames, _waveformBuckets, analysis));
     } catch (_) {
+      // Analysis is decoration (waveforms + BPM badge) — a failure must
+      // never block mixing, so the strips simply render without waveforms.
       waveforms = null;
       bpm = null;
     }
@@ -549,6 +551,8 @@ class MixerState extends ChangeNotifier {
             masteringStats: stats,
             reference: stats != null ? referenceProfile : null,
           )
+          // Racing a player stop is harmless — the next start resends the
+          // full parameter set anyway.
           .catchError((_) {}));
     }
   }
@@ -834,7 +838,10 @@ class MixerState extends ChangeNotifier {
       // Remaining profiles come from the cache — re-merge is instant.
       try {
         await ensureReferenceProfile();
-      } catch (_) {}
+      } catch (_) {
+        // The removal itself already applied; a failed re-merge surfaces
+        // on the next export, which re-runs ensureReferenceProfile.
+      }
     }
     _pushLiveParams(mixEdited: false);
   }
