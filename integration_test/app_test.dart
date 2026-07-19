@@ -94,6 +94,16 @@ void main() {
     await tester.pump();
     expect(find.textContaining('Request a feature'), findsNothing);
 
+    // About dialog: reachable from the app bar, shows the version and the
+    // up-to-date status (the update check is disabled, so no banner).
+    await tester.tap(find.byIcon(Icons.info_outline).first);
+    await tester.pumpAndSettle();
+    expect(find.text('About DurecMix'), findsOneWidget);
+    expect(find.textContaining('Version'), findsWidgets);
+    expect(find.text('GitHub project'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
     // Open the fixture (the picker's target API; the native panel itself
     // cannot be driven headlessly).
     final dynamic screenState = tester.state(find.byType(MixerScreen));

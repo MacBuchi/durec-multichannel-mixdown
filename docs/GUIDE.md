@@ -198,6 +198,10 @@ session):
   on desktop it opens the release page. The check is best-effort and silent
   on failure — it never interrupts your work.
 
+The **ⓘ About** button in the app bar always shows your installed version and
+whether you're up to date, with links to the GitHub project and this guide,
+plus the same feedback shortcut.
+
 ## 11. Where things live
 
 | Data | Location |
