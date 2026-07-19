@@ -1,0 +1,26 @@
+name: Feature request
+description: An idea or wish for DurecMix
+title: "Feature request: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is missing, what would be practical?
+      placeholder: e.g. "A spectrum analyzer view while playing would be great"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+        - Android
+        - iOS

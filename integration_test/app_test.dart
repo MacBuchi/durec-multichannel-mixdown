@@ -23,6 +23,7 @@ import 'package:durecmix/state/batch_export.dart';
 import 'package:durecmix/state/mixer_state.dart';
 import 'package:durecmix/state/wav_browser.dart';
 import 'package:durecmix/src/rust/frb_generated.dart';
+import 'package:durecmix/state/update_check.dart';
 import 'package:durecmix/ui/animated_logo.dart';
 import 'package:durecmix/ui/meters.dart';
 import 'package:durecmix/ui/mixer_screen.dart';
@@ -50,6 +51,7 @@ void main() {
 
   setUpAll(() async {
     await RustLib.init();
+    UpdateCheck.enabled = false; // no network / GitHub call in tests
     tempDir = await Directory.systemTemp.createTemp('durecmix_test');
     fixturePath = '${tempDir.path}/fixture_4ch.wav';
     File(fixturePath).writeAsBytesSync(_buildFixtureWav());
@@ -75,6 +77,22 @@ void main() {
     // the (idle, static) logo and the folder affordance.
     expect(find.text('Choose folder'), findsOneWidget);
     expect(find.byType(AnimatedLogo), findsOneWidget);
+
+    // Feedback banner: shown once per start (update banner stays hidden —
+    // the check is disabled). Opening it validates empty input, then
+    // dismissing hides it for the session.
+    expect(find.textContaining('Request a feature'), findsOneWidget);
+    await tester.tap(find.textContaining('Request a feature'));
+    await tester.pumpAndSettle();
+    expect(find.text('Make a wish!'), findsOneWidget);
+    await tester.tap(find.text('Send')); // too short → stays open
+    await tester.pump();
+    expect(find.text('Make a wish!'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.close).first); // dismiss the banner
+    await tester.pump();
+    expect(find.textContaining('Request a feature'), findsNothing);
 
     // Open the fixture (the picker's target API; the native panel itself
     // cannot be driven headlessly).

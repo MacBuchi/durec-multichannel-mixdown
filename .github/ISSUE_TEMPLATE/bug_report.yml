@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in DurecMix does not work as expected
+title: "Bug report: "
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What did you do, and what happened instead?
+      placeholder: e.g. "Export at −14 LUFS produces a silent file when …"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Optional — how can the problem be triggered?
+    validations:
+      required: false
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: e.g. 0.12.0
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+        - Android
+        - iOS
