@@ -744,6 +744,8 @@ Future<void> _captureDocScreenshots(
   await tester.pumpAndSettle();
   await shot('phone', [
     ('Export (progress shows here while rendering)', find.text('Export')),
+    ('About — version, update status, feedback',
+        find.byIcon(Icons.info_outline)),
     (
       'Everything else lives in the overflow menu',
       find.byType(PopupMenuButton<String>),
