@@ -80,6 +80,17 @@ void main() {
     // the (idle, static) logo and the folder affordance.
     expect(find.text('Choose folder'), findsOneWidget);
     expect(find.byType(AnimatedLogo), findsOneWidget);
+    // Exactly ONE folder affordance here — the centre button. Two controls
+    // with the same icon but different behaviour is what #74 reported.
+    expect(
+        find.descendant(
+            of: find.byType(FilledButton),
+            matching: find.byIcon(Icons.folder_open)),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.byIcon(Icons.folder_open)),
+        findsNothing);
 
     // Feedback banner: shown once per start (update banner stays hidden —
     // the check is disabled). Opening it validates empty input, then
@@ -136,6 +147,13 @@ void main() {
     expect(find.text('Kick'), findsOneWidget);
     expect(state.tracks[2].pan, -1.0); // "Keys L"
     expect(state.tracks[3].pan, 1.0); // "Keys R"
+
+    // …and with a recording open the app-bar folder icon is back (#74): it
+    // is the "switch folder" control, not a second start-screen button.
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.byIcon(Icons.folder_open)),
+        findsOneWidget);
 
     // Mute toggle through a real tap on the first track's M chip.
     await tester.tap(find.text('M').first);
