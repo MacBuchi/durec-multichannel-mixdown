@@ -34,6 +34,13 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # A dependency change that forgets to regenerate the bundled crate
+      # notices ships stale attribution. Only the recorded Cargo.lock hash is
+      # compared: neither the licence texts nor `cargo tree` are reproducible
+      # across machines, since both depend on which crates and rustup targets
+      # the local toolchain has (see the script's docstring).
+      - name: Crate notices generated from the current Cargo.lock
+        run: python3 tool/gen_rust_licenses.py --check
 
   flutter-analyze:
     name: Flutter analyze
