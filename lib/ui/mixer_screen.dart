@@ -463,13 +463,15 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   /// The main window's empty track area doubles as the start screen: the
-  /// logo (animated while a file loads) and a tappable folder affordance.
+  /// logo (continuously animated) and a tappable folder affordance.
   Widget _emptyView() {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedLogo(size: 160, animate: state.opening),
+          // Always running (#73). The loading state is still legible from
+          // the text below, which the idle screen does not show.
+          const AnimatedLogo(size: 160, animate: true),
           const SizedBox(height: 8),
           if (state.opening)
             Text(

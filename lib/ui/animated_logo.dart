@@ -22,6 +22,13 @@ class AnimatedLogo extends StatefulWidget {
   /// with [size] and turns subpixel otherwise — ~90 works at 26 px).
   final double amplitude;
 
+  /// Test seam, mirroring `UpdateCheck.enabled`: `pumpAndSettle()` waits for
+  /// the frame queue to drain and therefore never returns while a repeating
+  /// animation is on screen. Since the start-screen logo runs continuously,
+  /// the integration test switches the motion off — the painter still draws
+  /// the logo, it just stops asking for frames.
+  static bool enabled = true;
+
   @override
   State<AnimatedLogo> createState() => _AnimatedLogoState();
 }
@@ -33,18 +40,20 @@ class _AnimatedLogoState extends State<AnimatedLogo>
     duration: const Duration(seconds: 2),
   );
 
+  bool get _shouldAnimate => widget.animate && AnimatedLogo.enabled;
+
   @override
   void initState() {
     super.initState();
-    if (widget.animate) _controller.repeat();
+    if (_shouldAnimate) _controller.repeat();
   }
 
   @override
   void didUpdateWidget(AnimatedLogo old) {
     super.didUpdateWidget(old);
-    if (widget.animate && !_controller.isAnimating) {
+    if (_shouldAnimate && !_controller.isAnimating) {
       _controller.repeat();
-    } else if (!widget.animate && _controller.isAnimating) {
+    } else if (!_shouldAnimate && _controller.isAnimating) {
       _controller.stop();
       _controller.value = 0;
     }
