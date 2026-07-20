@@ -329,11 +329,14 @@ class _MixerScreenState extends State<MixerScreen> {
                 onPressed: () => showSettingsDialog(context),
                 icon: const Icon(Icons.settings_outlined),
                 ),
-              IconButton(
-                tooltip: 'Choose recordings folder',
-                onPressed: _changeFolder,
-                icon: const Icon(Icons.folder_open),
-              ),
+              // Only once a recording is open: on the start screen the
+              // centre button is the single folder affordance (#74).
+              if (rec != null)
+                IconButton(
+                  tooltip: 'Choose recordings folder',
+                  onPressed: _changeFolder,
+                  icon: const Icon(Icons.folder_open),
+                ),
               const SizedBox(width: 8),
             ],
           ),
@@ -366,11 +369,13 @@ class _MixerScreenState extends State<MixerScreen> {
         onPressed: () => showSettingsDialog(context),
         icon: const Icon(Icons.settings_outlined),
         ),
-      IconButton(
-        tooltip: 'Choose recordings folder',
-        onPressed: _changeFolder,
-        icon: const Icon(Icons.folder_open),
-      ),
+      // See the wide layout: hidden on the start screen (#74).
+      if (rec != null)
+        IconButton(
+          tooltip: 'Choose recordings folder',
+          onPressed: _changeFolder,
+          icon: const Icon(Icons.folder_open),
+        ),
       if (rec != null)
         PopupMenuButton<String>(
           onSelected: (v) async {
@@ -475,8 +480,12 @@ class _MixerScreenState extends State<MixerScreen> {
             Text('Choose a folder with DUREC recordings',
                 style: TextStyle(color: AppColors.of(context).dim)),
             const SizedBox(height: 16),
+            // Always asks which folder, rather than silently reopening the
+            // remembered one: on the start screen this is the ONLY folder
+            // control, and a remembered SAF grant can be dead after an
+            // update — which looked like a button that does nothing (#74).
             FilledButton.icon(
-              onPressed: _openFile,
+              onPressed: _changeFolder,
               icon: const Icon(Icons.folder_open),
               label: const Text('Choose folder'),
             ),
