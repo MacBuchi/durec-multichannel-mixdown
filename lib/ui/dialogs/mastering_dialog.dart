@@ -25,11 +25,11 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Matches the export to a reference track: loudness, tone '
                   '(matching EQ) and stereo width. The loudness target is '
                   'ignored while active; the true-peak limiter stays on.',
-                  style: TextStyle(fontSize: 12, color: AppColors.dim),
+                  style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
                 ),
                 const SizedBox(height: 8),
                 SwitchListTile(
@@ -78,16 +78,16 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                         '${mastering.references.length > 1 ? 'averaged · ' : ''}'
                         '${fmtDuration(profile.durationSeconds)}'
                         '${profile.sideRms < profile.midRms * 1e-4 ? ' · mono' : ''}',
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.dim),
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.of(context).dim),
                       ),
                   ],
                 ),
                 if (mastering.references.length > 1)
-                  const Text(
+                  Text(
                     'Multiple references average into one target curve — '
                     'one vote per song.',
-                    style: TextStyle(fontSize: 11, color: AppColors.dim),
+                    style: TextStyle(fontSize: 11, color: AppColors.of(context).dim),
                   ),
                 if (mastering.analyzingReference) ...[
                   const SizedBox(height: 8),
@@ -98,8 +98,8 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                   const SizedBox(height: 4),
                   Text(
                       'Analyzing ${mastering.analyzingReferenceLabel.isEmpty ? 'reference' : mastering.analyzingReferenceLabel}…',
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.dim)),
+                      style: TextStyle(
+                          fontSize: 11, color: AppColors.of(context).dim)),
                 ],
                 const Divider(height: 16),
                 SwitchListTile(
@@ -124,21 +124,21 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                           ? mastering.mixAnalysisProgress
                           : null),
                   const SizedBox(height: 4),
-                  const Text('Analyzing mix…',
+                  Text('Analyzing mix…',
                       style:
-                          TextStyle(fontSize: 11, color: AppColors.dim)),
+                          TextStyle(fontSize: 11, color: AppColors.of(context).dim)),
                 ],
                 if (mastering.preview && mastering.mixStatsStale)
                   Row(
                     children: [
-                      const Icon(Icons.warning_amber,
-                          size: 16, color: AppColors.warning),
+                      Icon(Icons.warning_amber,
+                          size: 16, color: AppColors.of(context).warning),
                       const SizedBox(width: 6),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Mix changed — preview uses the old analysis',
                           style: TextStyle(
-                              fontSize: 11, color: AppColors.warning),
+                              fontSize: 11, color: AppColors.of(context).warning),
                         ),
                       ),
                       TextButton(

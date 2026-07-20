@@ -51,7 +51,7 @@ class _MeterBar extends StatelessWidget {
           widthFactor: frac,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: over ? AppColors.meterOver : AppColors.meterOk,
+              color: over ? AppColors.meterOver : AppColors.of(context).meterOk,
               borderRadius: BorderRadius.circular(3),
             ),
           ),

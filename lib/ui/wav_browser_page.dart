@@ -178,7 +178,7 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           children: [
             Text(b.error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.error)),
+                style: TextStyle(color: AppColors.of(context).error)),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _changeFolder,
@@ -202,9 +202,9 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (b.entries.isEmpty) {
-      return const Center(
+      return Center(
         child: Text('No .wav files in this folder',
-            style: TextStyle(color: AppColors.dim)),
+            style: TextStyle(color: AppColors.of(context).dim)),
       );
     }
     return Center(
@@ -243,19 +243,19 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              border: Border.all(color: AppColors.outline),
+              border: Border.all(color: AppColors.of(context).outline),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(label,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.accent)),
+                style: TextStyle(
+                    fontSize: 12, color: AppColors.of(context).accent)),
           ),
         );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(children: [
-        const Text('Export target:',
-            style: TextStyle(fontSize: 12, color: AppColors.dim)),
+        Text('Export target:',
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).dim)),
         const SizedBox(width: 8),
         chip(loudnessLabel, widget.onPickLoudness),
         const SizedBox(width: 6),
@@ -272,7 +272,7 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(children: [
-          const Icon(Icons.check_circle, size: 18, color: AppColors.success),
+          Icon(Icons.check_circle, size: 18, color: AppColors.of(context).success),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -309,7 +309,7 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           : null,
       trailing: mode
           ? null
-          : const Icon(Icons.chevron_right, size: 18, color: AppColors.faint),
+          : Icon(Icons.chevron_right, size: 18, color: AppColors.of(context).faint),
       title: Row(children: [
         Flexible(
           child: Text(
@@ -317,13 +317,13 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w500,
-              color: isCurrent ? AppColors.accent : null,
+              color: isCurrent ? AppColors.of(context).accent : null,
             ),
           ),
         ),
         if (isCurrent) ...[
           const SizedBox(width: 6),
-          const Icon(Icons.graphic_eq, size: 14, color: AppColors.accent),
+          Icon(Icons.graphic_eq, size: 14, color: AppColors.of(context).accent),
         ],
       ]),
       subtitle: _subtitle(e),
@@ -355,12 +355,12 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(vertical: 4),
             suffixText: ext,
-            suffixStyle: const TextStyle(fontSize: 13, color: AppColors.faint),
+            suffixStyle: TextStyle(fontSize: 13, color: AppColors.of(context).faint),
           ),
         ),
         const SizedBox(height: 2),
         Text(e.name,
-            style: const TextStyle(fontSize: 11, color: AppColors.faint)),
+            style: TextStyle(fontSize: 11, color: AppColors.of(context).faint)),
       ],
     );
   }
@@ -375,33 +375,33 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
             ),
             const SizedBox(width: 8),
             Text('${(st.progress * 100).round()} %',
-                style: const TextStyle(fontSize: 12, color: AppColors.dim)),
+                style: TextStyle(fontSize: 12, color: AppColors.of(context).dim)),
           ]),
         EntryPhase.done => Text(
             'exported'
             '${st.integratedLufs != null ? ' · ${st.integratedLufs!.toStringAsFixed(1)} LUFS-I' : ''}',
-            style: const TextStyle(fontSize: 12, color: AppColors.success),
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).success),
           ),
         EntryPhase.failed => Text('failed: ${st.error}',
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: AppColors.errorSoft)),
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).errorSoft)),
         EntryPhase.pending => const SizedBox.shrink(),
       };
     }
     if (e.probeError != null) {
       return Text('Not readable as WAV',
-          style: TextStyle(fontSize: 12, color: AppColors.errorSoft));
+          style: TextStyle(fontSize: 12, color: AppColors.of(context).errorSoft));
     }
     if (widget.browser.selectionMode && e.selected) {
       return _nameField(e);
     }
     final probe = e.probe;
     if (probe == null) {
-      return const Row(children: [
+      return Row(children: [
         SizedBox(
             width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5)),
         SizedBox(width: 6),
-        Text('reading…', style: TextStyle(fontSize: 12, color: AppColors.faint)),
+        Text('reading…', style: TextStyle(fontSize: 12, color: AppColors.of(context).faint)),
       ]);
     }
     final multichannel = probe.channels > 2;
@@ -411,7 +411,7 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           text: '${probe.channels} ch',
           style: TextStyle(
             fontWeight: multichannel ? FontWeight.bold : FontWeight.normal,
-            color: multichannel ? AppColors.accent : AppColors.faint,
+            color: multichannel ? AppColors.of(context).accent : AppColors.of(context).faint,
           ),
         ),
         TextSpan(
@@ -421,7 +421,7 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
               '${_fmtTail(e)}',
         ),
       ]),
-      style: const TextStyle(fontSize: 12, color: AppColors.dim),
+      style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
     );
   }
 
