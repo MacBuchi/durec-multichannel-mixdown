@@ -8,13 +8,12 @@
 use std::fs::File;
 use std::path::Path;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 use crate::error::{EngineError, Result};
 use crate::mastering::{MasteringAnalyzer, ReferenceProfile};
@@ -54,47 +53,52 @@ pub fn analyze_reference(
     };
 
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
-    let probed = symphonia::default::get_probe()
-        .format(
+    let mut format = symphonia::default::get_probe()
+        .probe(
             &hint,
             stream,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(|e| ref_err("unsupported reference format", e))?;
-    let mut format = probed.format;
 
+    // `default_track` falls back to the first track with a known codec, so a
+    // container that flags nothing (plain WAV/MP3) still resolves.
     let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .default_track(TrackType::Audio)
         .ok_or_else(|| EngineError::Mastering("reference has no audio track".into()))?;
     let track_id = track.id;
-    let sample_rate = track
+    // Timing moved from the codec parameters onto the track in Symphonia 0.6.
+    let total_frames = track.num_frames;
+    let audio_params = track
         .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or_else(|| EngineError::Mastering("reference has no audio track".into()))?;
+    let sample_rate = audio_params
         .sample_rate
         .ok_or_else(|| EngineError::Mastering("reference sample rate unknown".into()))?;
-    let total_frames = track.codec_params.n_frames;
     let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
+        .make_audio_decoder(audio_params, &AudioDecoderOptions::default())
         .map_err(|e| ref_err("unsupported reference codec", e))?;
 
     let mut analyzer = MasteringAnalyzer::new(sample_rate);
-    let mut sample_buf: Option<SampleBuffer<f64>> = None;
+    let mut samples: Vec<f64> = Vec::new();
     let mut stereo: Vec<f64> = Vec::new();
     let mut decoded_frames: u64 = 0;
     let mut next_progress: u64 = 0;
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
-            // Symphonia signals a clean end of stream as an unexpected-EOF
-            // I/O error; chained/reset streams end the analysis too.
-            Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            // Since 0.6 a clean end of stream is `Ok(None)` rather than an
+            // unexpected-EOF I/O error. Chained/reset streams still end the
+            // analysis — the profile is statistical, a partial one is fine.
+            Ok(Some(p)) => p,
+            Ok(None) => break,
             Err(SymError::ResetRequired) => break,
             Err(e) => return Err(ref_err("reference read failed", e)),
         };
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
         let decoded = match decoder.decode(&packet) {
@@ -105,25 +109,20 @@ pub fn analyze_reference(
             Err(e) => return Err(ref_err("reference decode failed", e)),
         };
 
-        let spec = *decoded.spec();
-        let channels = spec.channels.count();
+        let channels = decoded.spec().channels().count();
         if channels == 0 {
             continue;
         }
-        let buf = sample_buf
-            .get_or_insert_with(|| SampleBuffer::<f64>::new(decoded.capacity() as u64, spec));
-        if buf.capacity() < decoded.capacity() * channels {
-            *buf = SampleBuffer::<f64>::new(decoded.capacity() as u64, spec);
-        }
-        buf.copy_interleaved_ref(decoded);
-        let samples = buf.samples();
+        // 0.6 sizes the destination itself, so the manual capacity juggling
+        // the old SampleBuffer needed is gone. Conversion to f64 is implied.
+        decoded.copy_to_vec_interleaved(&mut samples);
         let frames = samples.len() / channels;
 
         stereo.clear();
         stereo.reserve(frames * 2);
         match channels {
             1 => {
-                for &s in samples {
+                for &s in &samples {
                     stereo.push(s);
                     stereo.push(s);
                 }
