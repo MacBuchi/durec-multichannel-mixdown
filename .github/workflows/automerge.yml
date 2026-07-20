@@ -18,12 +18,19 @@ on:
 
 permissions: {}
 
+# Per PR: the 'edited' trigger can fire twice in quick succession (retarget +
+# title edit) and arming auto-merge twice is pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   automerge:
     # Base guard: never arm a PR that still targets another feature branch —
     # auto-merging those merges into the stack, not into main.
     if: github.event.pull_request.base.ref == 'main' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Enable auto-merge (squash)
         env:
