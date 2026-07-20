@@ -136,8 +136,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Version'), findsWidgets);
     expect(find.text('GitHub project'), findsOneWidget);
-    await tester.tap(find.text('Close'));
-    await tester.pumpAndSettle();
+
+    // The licence page proves both halves of #68 at once: the Rust notices
+    // are bundled as an asset AND registered with LicenseRegistry. Either
+    // one missing and this entry never appears.
+    await tester.tap(find.text('Open-source licenses'));
+    // No pumpAndSettle here: the page shows a CircularProgressIndicator
+    // while the registry is collected, and a spinner never settles. Poll
+    // for the entry instead, with a bound so a real regression still fails.
+    final rustEntry = find.text('DurecMix Rust engine');
+    for (var i = 0; i < 100 && rustEntry.evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    // findsWidgets, not findsOneWidget: on a wide surface the licence page
+    // is master-detail and renders the name in both panes.
+    expect(rustEntry, findsWidgets);
+    await tester.pageBack(); // leaves the licence page (About already popped)
+    await tester.pump(const Duration(milliseconds: 500));
 
     // Open the fixture (the picker's target API; the native panel itself
     // cannot be driven headlessly).

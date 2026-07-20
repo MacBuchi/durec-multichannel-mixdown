@@ -60,6 +60,23 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
             ListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
+              leading: const Icon(Icons.gavel),
+              title: const Text('Open-source licenses'),
+              subtitle: const Text('Flutter, Dart packages and Rust crates'),
+              onTap: () async {
+                final version = await AppInfo.version();
+                if (!dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop();
+                showLicensePage(
+                  context: context,
+                  applicationName: 'DurecMix',
+                  applicationVersion: version,
+                );
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
               leading: const Icon(Icons.feedback_outlined),
               title: const Text('Request a feature or report a bug'),
               onTap: () {
