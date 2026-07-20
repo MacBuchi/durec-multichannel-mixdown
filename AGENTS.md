@@ -2,6 +2,8 @@
 
 Cross-platform (macOS/Windows/Android/iOS), fully offline downmixer for RME DUREC multichannel WAV recordings. Successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer) (Python, stays untouched). The approved rework plan with the full audio-engineering gap analysis lives in `docs/PLAN.md` — read it before large changes.
 
+Cross-project guidelines (architecture, state, testing, CI, signing, in-app update/feedback) live in the DocuHub at `/Volumes/MacStore/Programming/ProgrammingGuidelineDocuHub/`. This file covers what DurecMix does differently or additionally.
+
 ## Architecture rules
 
 ```
@@ -61,11 +63,23 @@ User docs live in `docs/GUIDE.md` (annotated walkthrough) and README. Screenshot
 
 ## In-app feedback & update check
 
-`lib/state/feedback.dart` files GitHub issues; `lib/state/update_check.dart` polls the latest release; `lib/ui/app_banners.dart` renders the two dismissible banners above the mixer (session-only dismissal, PilzBuddy-style — no Supabase). The repo is public, so the update check is tokenless. Feedback uses a fine-grained PAT (this repo only, Issues: read+write) injected at build time via `--dart-define=DURECMIX_FEEDBACK_TOKEN` (release.yml, from the same-named repo secret); **without the secret the app builds fine and falls back to opening the pre-filled issue-form URL in the browser** — so PR/debug builds never carry a token. Issue bodies mirror the `.github/ISSUE_TEMPLATE/*.yml` form sections (Description / App version / Platform) so API- and browser-filed issues look identical. To set up direct filing: create the PAT, add it as secret `DURECMIX_FEEDBACK_TOKEN`; rotate by replacing the secret (no app change). Integration/CI never hits the network — `UpdateCheck.enabled=false` in the test setup. Deps added: `package_info_plus`, `url_launcher`, `ota_update` (needs `REQUEST_INSTALL_PACKAGES` in AndroidManifest).
+`lib/state/feedback.dart` files GitHub issues; `lib/state/update_check.dart` polls the latest release; `lib/ui/app_banners.dart` renders the two dismissible banners above the mixer (session-only dismissal, PilzBuddy-style — no Supabase). The repo is public, so the update check is tokenless. Feedback uses a fine-grained PAT (this repo only, Issues: read+write) injected at build time via `--dart-define=DURECMIX_FEEDBACK_TOKEN` (release.yml, from the same-named repo secret); **without the secret the app builds fine and falls back to opening the pre-filled issue-form URL in the browser** — so PR/debug builds never carry a token. Issue bodies mirror the `.github/ISSUE_TEMPLATE/*.yml` form sections (Description / App version / Platform) so API- and browser-filed issues look identical. To set up direct filing: create the PAT, add it as secret `DURECMIX_FEEDBACK_TOKEN`; rotate by replacing the secret (no app change). Integration/CI never hits the network — `UpdateCheck.enabled=false` in the test setup. Deps added: `package_info_plus`, `url_launcher`, `ota_update`.
+
+**Android in-app install requires FOUR manifest/Gradle pieces that must stay together — see issue #56, currently incomplete:** `INTERNET` and `REQUEST_INSTALL_PACKAGES` permissions; a `<provider>` for `androidx.core.content.FileProvider` with authority **exactly** `${applicationId}.ota_update_provider`; `android/app/src/main/res/xml/filepaths.xml` containing `<files-path name="ota_update" path="ota_update/"/>` (the plugin writes the APK to internal `files/ota_update/`); and a `<queries>` entry for `VIEW`/`https` so the browser fallback survives Android 11+ package visibility. Core library desugaring is already enabled in `build.gradle.kts` — it is required by the plugin. **Without the FileProvider the app dies with a native `IllegalArgumentException` right after the download completes** — the failure never appears in a debug run, only on a user's first real update (PilzBuddy hit exactly this: MacBuchi/pilzbuddy#21). Guard these with a manifest regression test (see Testing) and verify on a real device before shipping an update-related change.
 
 ## Release signing (Android)
 
 Release APKs are signed with a **stable keystore** so downloaded APKs update an existing installation (before v0.7.2 every CI run used a fresh debug key → signature mismatch, uninstall required). The keystore lives on the user's machine at `~/durecmix-keys/` (keystore + PASSWORDS.txt — **must be backed up; losing it permanently breaks updates**) and in the repo secrets `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD`. `android/key.properties` (gitignored) activates it locally; without it builds fall back to debug signing (PR CI, `flutter run --release`). The release workflow hard-fails if the secrets are missing. `applicationId`/`namespace` is `de.macbuchi.durecmix` (renamed from com.example in v0.7.2 — same forced reinstall); iOS/macOS bundle ids deliberately stay `com.example.durecmix` (a macOS change would orphan the sandbox container with the user's sessions).
+
+## Testing
+
+Rust carries the correctness load (79 engine tests: pan law, limiter ceiling, LUFS targets, session migration). On the Dart side:
+
+- `flutter analyze` + `flutter test` after every change; the macOS integration test (`flutter test integration_test -d macos`) is the flow guard and runs in CI.
+- **Keep the integration test in ONE file** — several app launches per run are flaky on macOS. Build synthetic fixtures inline (the doc fixture WAV with iXML), never the user's multi-GB recordings. Network stays off.
+- Dart unit coverage is thin (issue #49): pure-ish logic (`_syncPair`, `suggestedExportName`, batch queue) deserves unit tests rather than being exercised only through the E2E run.
+- **Widget tests are GUI tests** — assert layout relationships (`tester.getSize`/`getTopLeft`), responsive breakpoints (set `tester.view.physicalSize`, reset via `addTearDown`) and states without screenshots; a RenderFlex overflow fails the test by itself.
+- **Release-only traps get a configuration regression test.** Manifest permissions, the FileProvider authority, `filepaths.xml` and the desugaring flags are exactly the kind of thing that compiles fine and fails at a user's device — assert their presence by reading the files in a plain Dart test (see the Fahrgemeinschaft project's `test/android_manifest_test.dart` for the pattern, one `reason:` per test describing the real-world failure).
 
 ## Workflow
 
