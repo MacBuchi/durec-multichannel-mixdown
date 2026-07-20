@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Grants the installer read access to the downloaded APK. ota_update writes
+     it to <dataDir>/files/ota_update/, so the internal files-path below is the
+     only entry the provider needs. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="internal_apk_storage" path="ota_update/"/>
+</paths>
