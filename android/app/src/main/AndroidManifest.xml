@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declared here rather than inherited from a plugin manifest: the update
+         check and the APK download both need it, and dropping ota_update must
+         not silently take all networking with it. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- In-app APK update (ota_update hands the download to the installer). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- Foreground service keeps multi-minute renders alive when the app
@@ -36,6 +40,19 @@
             android:name=".ExportService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- ota_update calls FileProvider.getUriForFile() with this exact
+             authority to hand the downloaded APK to the installer. The plugin
+             manifest does not declare the provider — the app must, or the
+             install throws IllegalArgumentException at 100 % download. -->
+        <provider
+            android:name="sk.fourq.otaupdate.OtaUpdateFileProvider"
+            android:authorities="${applicationId}.ota_update_provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -51,6 +68,13 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Without this, package visibility on Android 11+ hides the browser
+             and launchUrl() returns false — which is exactly the path the
+             update dialog falls back to when the in-app install fails. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>
