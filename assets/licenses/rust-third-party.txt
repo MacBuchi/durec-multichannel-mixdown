@@ -5,7 +5,7 @@ graph (cargo tree -e normal --target all). DurecMix's own licence is
 the MIT LICENSE in the repository root.
 
 181 crates, 92 licence texts.
-Generated from Cargo.lock sha256 1b8725d3d940f752bc4945ac4be3977b5b810c4bebc3db65f4f06df472789cbd
+Generated from Cargo.lock sha256 a75ca129a2b364a0eb3aab5841b3514da181b824dcfb82a9a83214c18d75a72a
 
 ========================================================================
   addr2line 0.25.1 — Apache-2.0 OR MIT
@@ -5279,7 +5279,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-  quick-xml 0.38.4 — MIT
+  quick-xml 0.41.0 — MIT
 ========================================================================
 
 The MIT License (MIT)
