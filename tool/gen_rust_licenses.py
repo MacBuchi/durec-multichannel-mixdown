@@ -7,17 +7,25 @@ link-time dependency graph and copies each crate's own licence text into one
 bundled asset.
 
     tool/gen_rust_licenses.py            # rewrite the asset
-    tool/gen_rust_licenses.py --check    # fail if the crate inventory moved
+    tool/gen_rust_licenses.py --check    # fail if Cargo.lock moved
 
-`--check` compares the **crate inventory** — every name, version and SPDX
-expression — against the line recorded in the asset header, and not the
-licence texts. That is deliberate: the texts are read out of
-`~/.cargo/registry/src/`, which only holds crates this machine has actually
-unpacked. A Linux CI runner never unpacks the macOS, Windows, iOS and
-Android subtrees, so a byte comparison would fail there for every developer
-who did. The inventory is derived from Cargo.lock and is the same
-everywhere — and it is what actually drifts: a licence text does not change
-under a version that is already pinned.
+`--check` compares a hash of **Cargo.lock**, recorded in the asset header.
+Nothing else is environment-independent:
+
+* the licence texts come from `~/.cargo/registry/src/`, which only holds
+  crates this machine has unpacked;
+* `cargo tree --target all` enumerates the *installed* rustup targets, so a
+  runner with one target sees a different crate set than a dev box with six.
+
+Cargo.lock is the same file everywhere and is what actually moves when
+dependencies change. A licence text does not change under a version that is
+already pinned.
+
+**Regenerate on a machine with all shipping targets installed**
+(`aarch64-apple-darwin`, `aarch64-apple-ios`, the three Android triples,
+plus a Windows target if you have one). On a bare Linux box the
+platform-specific crates — cpal's CoreAudio and NDK subtrees above all —
+silently drop out of the notices.
 
 Scope decisions worth knowing:
 
@@ -30,6 +38,8 @@ Scope decisions worth knowing:
 * Identical licence texts are emitted once, with every crate that uses them
   listed above — 100+ crates share a handful of MIT/Apache texts verbatim.
 """
+
+from __future__ import annotations  # `str | None` on macOS' system Python 3.9
 
 import argparse
 import hashlib
@@ -122,21 +132,19 @@ def license_texts(directory: pathlib.Path) -> list[str]:
     return texts
 
 
-INVENTORY_PREFIX = "Crate inventory: "
+LOCK_PREFIX = "Generated from Cargo.lock sha256 "
 
 
-def inventory_line(crates: list[tuple[str, str, str]]) -> str:
-    digest = hashlib.sha256(
-        "\n".join(f"{n} {v} {s}" for n, v, s in crates).encode()
-    ).hexdigest()
-    return f"{INVENTORY_PREFIX}{len(crates)} crates, sha256 {digest}"
+def lock_line() -> str:
+    digest = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
+    return f"{LOCK_PREFIX}{digest}"
 
 
-def recorded_inventory() -> str | None:
+def recorded_lock_line() -> str | None:
     if not OUT.exists():
         return None
     for line in OUT.read_text().splitlines():
-        if line.startswith(INVENTORY_PREFIX):
+        if line.startswith(LOCK_PREFIX):
             return line
     return None
 
@@ -174,7 +182,7 @@ def build() -> str:
         "the MIT LICENSE in the repository root.",
         "",
         f"{len(crates)} crates, {len(grouped) + len(fallbacks)} licence texts.",
-        inventory_line(crates),
+        lock_line(),
         "",
     ]
 
@@ -215,14 +223,14 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.check:
-        want = inventory_line(linked_crates())
-        have = recorded_inventory()
+        want = lock_line()
+        have = recorded_lock_line()
         if have != want:
             print(f"{OUT.relative_to(ROOT)} is stale — run tool/gen_rust_licenses.py")
             print(f"  recorded: {have or '(no inventory line)'}")
             print(f"  actual:   {want}")
             return 1
-        print(f"{OUT.relative_to(ROOT)}: crate inventory matches Cargo.lock")
+        print(f"{OUT.relative_to(ROOT)}: generated from the current Cargo.lock")
         return 0
 
     content = build()
