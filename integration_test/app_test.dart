@@ -51,6 +51,10 @@ void main() {
   setUpAll(() async {
     await RustLib.init();
     UpdateCheck.enabled = false; // no network / GitHub call in tests
+    // The start-screen logo animates continuously (#73); a repeating
+    // animation keeps the frame queue non-empty, so pumpAndSettle() below
+    // would spin until its timeout. The logo still renders, just still.
+    AnimatedLogo.enabled = false;
     tempDir = await Directory.systemTemp.createTemp('durecmix_test');
     fixturePath = '${tempDir.path}/fixture_4ch.wav';
     File(fixturePath).writeAsBytesSync(_buildFixtureWav());
@@ -77,7 +81,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     // No separate start screen: the main window's empty track area carries
-    // the (idle, static) logo and the folder affordance.
+    // the (continuously animated) logo and the folder affordance.
     expect(find.text('Choose folder'), findsOneWidget);
     expect(find.byType(AnimatedLogo), findsOneWidget);
     // Exactly ONE folder affordance here — the centre button. Two controls
