@@ -1,0 +1,71 @@
+version: 2
+
+# Two things to know before merging what Dependabot opens here:
+#
+# 1. pubspec.yaml and Cargo.lock are SHIPPING files for the Housekeeping
+#    job. It warns on the PR and fails the `main` run when a dependency
+#    change lands without a version bump — same rule as any other shipping
+#    change, so a dependency PR needs the bump before it is merged.
+# 2. A cargo update changes Cargo.lock, which the crate-notices check keys
+#    on: `tool/gen_rust_licenses.py --check` then fails until the asset is
+#    regenerated. Regenerate on a machine with all shipping rustup targets
+#    installed, or the macOS/iOS/Android-only crates drop out of the
+#    bundled licences (see that script's docstring).
+#
+# Monthly, grouped, and capped: this is a solo project, and a weekly drip
+# of single-crate PRs would cost more attention than it saves.
+
+updates:
+  # Dart/Flutter side.
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      pub:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Pinned to exactly 2.12.0 and version-coupled with the generated
+      # bindings in lib/src/rust/. Bumping it without rerunning
+      # `flutter_rust_bridge_codegen generate` desynchronises them silently
+      # (AGENTS.md), so this one moves by hand, together with the crate.
+      - dependency-name: "flutter_rust_bridge"
+
+  # Rust side. ONE entry: rust/ and engine/ are members of the workspace
+  # rooted here, so the root Cargo.lock is the only live lockfile — a second
+  # entry per member would have nothing of its own to resolve.
+  #
+  # This is the more valuable half: cpal, the codec crates and the LAME and
+  # FLAC bindings all parse user-supplied WAV files, which is exactly where
+  # a memory-safety advisory would matter.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # See above — the crate is pinned with `=2.12.0` for the same reason.
+      - dependency-name: "flutter_rust_bridge"
+
+  # Workflow actions. Kept separate so their bumps read as `ci:` and stay
+  # out of the release-relevant history.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      actions:
+        patterns: ["*"]
