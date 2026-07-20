@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart' show ThemeMode, ValueNotifier;
 import 'package:path_provider/path_provider.dart';
 
 /// Tiny persisted app settings at `<Application Support>/settings.json` —
@@ -8,7 +9,9 @@ import 'package:path_provider/path_provider.dart';
 class AppSettings {
   AppSettings._(this._file, Map<String, dynamic> data)
       : lastFolder = data['lastFolder'] as String?,
-        sortByDate = data['sortByDate'] as bool? ?? false;
+        sortByDate = data['sortByDate'] as bool? ?? false {
+    themeMode.value = _parseThemeMode(data['themeMode'] as String?);
+  }
 
   static AppSettings? _instance;
 
@@ -19,6 +22,29 @@ class AppSettings {
 
   /// Browser sort order: false = name A→Z, true = newest first.
   bool sortByDate;
+
+  /// Live theme selection: the app listens, the settings dialog writes.
+  ///
+  /// Static and eagerly initialised because the widget tree is built
+  /// synchronously (`DurecMixApp` takes no settings argument) while [load]
+  /// is async — the app starts on the system default and [load] applies the
+  /// stored choice before the first frame in `main`.
+  static final ValueNotifier<ThemeMode> themeMode =
+      ValueNotifier(ThemeMode.system);
+
+  static ThemeMode _parseThemeMode(String? name) {
+    for (final mode in ThemeMode.values) {
+      if (mode.name == name) return mode;
+    }
+    return ThemeMode.system;
+  }
+
+  /// Apply and persist a theme choice. Applies immediately even if the
+  /// write fails — this is a preference, not a transaction.
+  Future<void> setThemeMode(ThemeMode mode) async {
+    themeMode.value = mode;
+    await save();
+  }
 
   static Future<AppSettings> load() async {
     if (_instance != null) return _instance!;
@@ -38,6 +64,7 @@ class AppSettings {
       await _file.writeAsString(jsonEncode({
         'lastFolder': lastFolder,
         'sortByDate': sortByDate,
+        'themeMode': themeMode.value.name,
       }));
     } catch (_) {
       // Settings are a convenience; never surface write failures.

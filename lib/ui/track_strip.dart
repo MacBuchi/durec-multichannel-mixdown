@@ -50,7 +50,7 @@ class TrackStrip extends StatelessWidget {
       children: [
         SizedBox(width: 28, child: Text('${track.index}', style: _dim(context))),
         SizedBox(width: 150, child: _name(context)),
-        _toggles(),
+        _toggles(context),
         const SizedBox(width: 8),
         _panControl(context, width: 110),
         const SizedBox(width: 8),
@@ -69,7 +69,7 @@ class TrackStrip extends StatelessWidget {
           children: [
             SizedBox(width: 24, child: Text('${track.index}', style: _dim(context))),
             Expanded(child: _name(context)),
-            _toggles(),
+            _toggles(context),
           ],
         ),
         Row(
@@ -100,27 +100,27 @@ class TrackStrip extends StatelessWidget {
     ),
   );
 
-  Widget _toggles() {
+  Widget _toggles(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _toggleChip('ø', track.polarityInvert, AppColors.polarity,
+        _toggleChip(context, 'ø', track.polarityInvert, AppColors.of(context).polarity,
             () => state.togglePolarity(track), 'Polarity invert'),
-        _toggleChip('M', track.muted, AppColors.error,
+        _toggleChip(context, 'M', track.muted, AppColors.of(context).error,
             () => state.toggleMute(track), 'Mute'),
-        _toggleChip('S', track.solo, AppColors.solo,
+        _toggleChip(context, 'S', track.solo, AppColors.of(context).solo,
             () => state.toggleSolo(track), 'Solo'),
-        _toggleChip('mix', track.inMix, AppColors.inMix,
+        _toggleChip(context, 'mix', track.inMix, AppColors.of(context).inMix,
             () => state.toggleInMix(track), 'Include in mixdown'),
-        _toggleChip('EQ', track.eq.isActive, AppColors.accent,
+        _toggleChip(context, 'EQ', track.eq.isActive, AppColors.of(context).accent,
             () => state.toggleEqPanel(track), 'HPF + 3-band EQ'),
-        if (state.linkPairs && state.isPaired(track)) _pairLinkChip(),
+        if (state.linkPairs && state.isPaired(track)) _pairLinkChip(context),
       ],
     );
   }
 
   /// Per-pair link toggle, shown only while global pair linking is on.
-  Widget _pairLinkChip() {
+  Widget _pairLinkChip(BuildContext context) {
     final linked = state.isPairLinked(track);
     return Tooltip(
       message: linked
@@ -134,7 +134,7 @@ class TrackStrip extends StatelessWidget {
           child: Icon(
             linked ? Icons.link : Icons.link_off,
             size: 16,
-            color: linked ? AppColors.accent : AppColors.faint,
+            color: linked ? AppColors.of(context).accent : AppColors.of(context).faint,
           ),
         ),
       ),
@@ -231,7 +231,7 @@ class TrackStrip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                color: enabled ? AppColors.accent : AppColors.faint,
+                color: enabled ? AppColors.of(context).accent : AppColors.of(context).faint,
               ),
             ),
           ),
@@ -275,8 +275,8 @@ class TrackStrip extends StatelessWidget {
     );
   }
 
-  Widget _toggleChip(
-      String label, bool on, Color color, VoidCallback onTap, String tip) {
+  Widget _toggleChip(BuildContext context, String label, bool on, Color color,
+      VoidCallback onTap, String tip) {
     return Tooltip(
       message: tip,
       child: Padding(
@@ -289,14 +289,14 @@ class TrackStrip extends StatelessWidget {
             decoration: BoxDecoration(
               color: on ? color.withValues(alpha: 0.25) : null,
               border: Border.all(
-                  color: on ? color : AppColors.outline, width: on ? 1.2 : 0.8),
+                  color: on ? color : AppColors.of(context).outline, width: on ? 1.2 : 0.8),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(label,
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: on ? color : AppColors.faint,
+                  color: on ? color : AppColors.of(context).faint,
                 )),
           ),
         ),
