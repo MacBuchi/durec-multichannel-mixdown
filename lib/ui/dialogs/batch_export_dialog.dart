@@ -18,12 +18,12 @@ Future<bool?> showBatchExportDialog(BuildContext context, MixerState state) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Align(
+              Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Each job renders the current mix at its own loudness '
                   'target and format, auto-named into one folder.',
-                  style: TextStyle(fontSize: 12, color: AppColors.dim),
+                  style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
                 ),
               ),
               const SizedBox(height: 8),

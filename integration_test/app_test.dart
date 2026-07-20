@@ -97,11 +97,28 @@ void main() {
     await tester.pump();
     expect(find.textContaining('Request a feature'), findsNothing);
 
-    // About dialog: reachable from the app bar, shows the version and the
-    // up-to-date status (the update check is disabled, so no banner).
-    await tester.tap(find.byIcon(Icons.info_outline).first);
+    // Settings: the gear in the app bar opens appearance + the way to About.
+    await tester.tap(find.byIcon(Icons.settings_outlined).first);
     await tester.pumpAndSettle();
-    expect(find.text('About DurecMix'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Appearance'), findsOneWidget);
+
+    // Theme choice round-trips through the notifier the app listens to.
+    expect(AppSettings.themeMode.value, ThemeMode.system);
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+    expect(AppSettings.themeMode.value, ThemeMode.light);
+    expect(Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+        Brightness.light);
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+    expect(AppSettings.themeMode.value, ThemeMode.dark);
+    expect(Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+        Brightness.dark);
+
+    // About sits at the bottom of Settings and still shows version + links.
+    await tester.tap(find.text('About DurecMix'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('Version'), findsWidgets);
     expect(find.text('GitHub project'), findsOneWidget);
     await tester.tap(find.text('Close'));
@@ -516,6 +533,12 @@ Future<void> _captureDocScreenshots(
   MixerState state,
   Directory tempDir,
 ) async {
+  // Docs are a dark-theme set. Pinned explicitly rather than inherited from
+  // whatever the flow left behind: under ThemeMode.system the test binding
+  // reports LIGHT, which would silently flip every screenshot in docs/.
+  AppSettings.themeMode.value = ThemeMode.dark;
+  await tester.pumpAndSettle();
+
   final shotsDir = Directory.systemTemp.createTempSync('durecmix_shots');
 
   Future<void> waitForAnalysis() async {
@@ -620,8 +643,8 @@ Future<void> _captureDocScreenshots(
         find.byIcon(Icons.first_page),
       ),
       (
-        'About — version, update status, feedback',
-        find.byIcon(Icons.info_outline),
+        'Settings — appearance, About, links, feedback',
+        find.byIcon(Icons.settings_outlined),
       ),
     ]);
 
@@ -744,8 +767,8 @@ Future<void> _captureDocScreenshots(
   await tester.pumpAndSettle();
   await shot('phone', [
     ('Export (progress shows here while rendering)', find.text('Export')),
-    ('About — version, update status, feedback',
-        find.byIcon(Icons.info_outline)),
+    ('Settings — appearance, About, links, feedback',
+        find.byIcon(Icons.settings_outlined)),
     (
       'Everything else lives in the overflow menu',
       find.byType(PopupMenuButton<String>),
