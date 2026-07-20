@@ -35,8 +35,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       # The bundled crate notices are generated from Cargo.lock; a dependency
-      # change that forgets to regenerate them ships stale attribution.
-      - name: Third-party licence asset is current
+      # change that forgets to regenerate them ships stale attribution. Only
+      # the crate inventory is compared — the licence texts come from the
+      # local registry checkout, and this runner only ever unpacks the Linux
+      # subtree (see the script's docstring).
+      - name: Third-party licence inventory matches Cargo.lock
         run: python3 tool/gen_rust_licenses.py --check
 
   flutter-analyze:

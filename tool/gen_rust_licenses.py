@@ -7,7 +7,17 @@ link-time dependency graph and copies each crate's own licence text into one
 bundled asset.
 
     tool/gen_rust_licenses.py            # rewrite the asset
-    tool/gen_rust_licenses.py --check    # fail if it would change (CI use)
+    tool/gen_rust_licenses.py --check    # fail if the crate inventory moved
+
+`--check` compares the **crate inventory** — every name, version and SPDX
+expression — against the line recorded in the asset header, and not the
+licence texts. That is deliberate: the texts are read out of
+`~/.cargo/registry/src/`, which only holds crates this machine has actually
+unpacked. A Linux CI runner never unpacks the macOS, Windows, iOS and
+Android subtrees, so a byte comparison would fail there for every developer
+who did. The inventory is derived from Cargo.lock and is the same
+everywhere — and it is what actually drifts: a licence text does not change
+under a version that is already pinned.
 
 Scope decisions worth knowing:
 
@@ -112,6 +122,25 @@ def license_texts(directory: pathlib.Path) -> list[str]:
     return texts
 
 
+INVENTORY_PREFIX = "Crate inventory: "
+
+
+def inventory_line(crates: list[tuple[str, str, str]]) -> str:
+    digest = hashlib.sha256(
+        "\n".join(f"{n} {v} {s}" for n, v, s in crates).encode()
+    ).hexdigest()
+    return f"{INVENTORY_PREFIX}{len(crates)} crates, sha256 {digest}"
+
+
+def recorded_inventory() -> str | None:
+    if not OUT.exists():
+        return None
+    for line in OUT.read_text().splitlines():
+        if line.startswith(INVENTORY_PREFIX):
+            return line
+    return None
+
+
 def build() -> str:
     info = package_info()
     crates = linked_crates()
@@ -145,6 +174,7 @@ def build() -> str:
         "the MIT LICENSE in the repository root.",
         "",
         f"{len(crates)} crates, {len(grouped) + len(fallbacks)} licence texts.",
+        inventory_line(crates),
         "",
     ]
 
@@ -184,15 +214,18 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    content = build()
     if args.check:
-        current = OUT.read_text() if OUT.exists() else ""
-        if current != content:
+        want = inventory_line(linked_crates())
+        have = recorded_inventory()
+        if have != want:
             print(f"{OUT.relative_to(ROOT)} is stale — run tool/gen_rust_licenses.py")
+            print(f"  recorded: {have or '(no inventory line)'}")
+            print(f"  actual:   {want}")
             return 1
-        print(f"{OUT.relative_to(ROOT)} is up to date")
+        print(f"{OUT.relative_to(ROOT)}: crate inventory matches Cargo.lock")
         return 0
 
+    content = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(content)
     print(f"wrote {OUT.relative_to(ROOT)} ({len(content) // 1024} KiB)")
