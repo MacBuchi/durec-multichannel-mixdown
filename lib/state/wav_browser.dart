@@ -100,8 +100,10 @@ class WavBrowser extends ChangeNotifier {
   /// batch export paused it, remaining rows must not stay "reading…" forever.
   void resumeProbing() => _probeAll(++_generation);
 
-  List<WavEntry> get selectedEntries =>
-      [for (final e in entries) if (e.selected) e];
+  List<WavEntry> get selectedEntries => [
+    for (final e in entries)
+      if (e.selected) e,
+  ];
 
   void toggleSelected(WavEntry e) {
     e.selected = !e.selected;
@@ -133,10 +135,14 @@ class WavBrowser extends ChangeNotifier {
 
   void _sort() {
     if (sortByDate) {
-      entries.sort((a, b) => (b.modified ?? DateTime(0))
-          .compareTo(a.modified ?? DateTime(0))); // newest first
+      entries.sort(
+        (a, b) =>
+            (b.modified ?? DateTime(0)).compareTo(a.modified ?? DateTime(0)),
+      ); // newest first
     } else {
-      entries.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      entries.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
     }
   }
 
@@ -149,8 +155,7 @@ class WavBrowser extends ChangeNotifier {
           name: m['name']! as String,
           sizeBytes: m['size'] as int?,
           modified: switch (m['modified']) {
-            final int ms when ms > 0 =>
-              DateTime.fromMillisecondsSinceEpoch(ms),
+            final int ms when ms > 0 => DateTime.fromMillisecondsSinceEpoch(ms),
             _ => null,
           },
         ),
@@ -162,12 +167,14 @@ class WavBrowser extends ChangeNotifier {
     await for (final f in Directory(dirPath).list()) {
       if (f is! File || !f.path.toLowerCase().endsWith('.wav')) continue;
       final stat = await f.stat();
-      listed.add(WavEntry(
-        source: f.path,
-        name: f.path.split(Platform.pathSeparator).last,
-        sizeBytes: stat.size,
-        modified: stat.modified,
-      ));
+      listed.add(
+        WavEntry(
+          source: f.path,
+          name: f.path.split(Platform.pathSeparator).last,
+          sizeBytes: stat.size,
+          modified: stat.modified,
+        ),
+      );
     }
     return listed;
   }
@@ -185,8 +192,9 @@ class WavBrowser extends ChangeNotifier {
         continue;
       }
       try {
-        final fd =
-            Saf.isContentUri(e.source) ? await Saf.openFd(e.source) : null;
+        final fd = Saf.isContentUri(e.source)
+            ? await Saf.openFd(e.source)
+            : null;
         final probe = await rust.probeRecording(path: e.source, fd: fd);
         if (generation != _generation) return;
         e.probe = probe;

@@ -21,8 +21,9 @@ Future<void> pickLoudnessDialog(BuildContext context, MixerState state) async {
                   ? '${state.customLufs.toStringAsFixed(1)} LUFS'
                   : c.label,
               style: TextStyle(
-                fontWeight:
-                    c == state.loudness ? FontWeight.bold : FontWeight.normal,
+                fontWeight: c == state.loudness
+                    ? FontWeight.bold
+                    : FontWeight.normal,
               ),
             ),
           ),
@@ -51,8 +52,9 @@ Future<void> pickFormatDialog(BuildContext context, MixerState state) async {
             child: Text(
               formatLabels[f]!,
               style: TextStyle(
-                fontWeight:
-                    f == state.format ? FontWeight.bold : FontWeight.normal,
+                fontWeight: f == state.format
+                    ? FontWeight.bold
+                    : FontWeight.normal,
               ),
             ),
           ),

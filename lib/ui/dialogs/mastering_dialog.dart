@@ -29,7 +29,10 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                   'Matches the export to a reference track: loudness, tone '
                   '(matching EQ) and stereo width. The loudness target is '
                   'ignored while active; the true-peak limiter stays on.',
-                  style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.of(context).dim,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 SwitchListTile(
@@ -68,9 +71,11 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                           ? null
                           : () => _pickReference(context, state),
                       icon: const Icon(Icons.add, size: 16),
-                      label: Text(mastering.references.isEmpty
-                          ? 'Choose reference…'
-                          : 'Add reference…'),
+                      label: Text(
+                        mastering.references.isEmpty
+                            ? 'Choose reference…'
+                            : 'Add reference…',
+                      ),
                     ),
                     const Spacer(),
                     if (profile != null)
@@ -79,7 +84,9 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                         '${fmtDuration(profile.durationSeconds)}'
                         '${profile.sideRms < profile.midRms * 1e-4 ? ' · mono' : ''}',
                         style: TextStyle(
-                            fontSize: 11, color: AppColors.of(context).dim),
+                          fontSize: 11,
+                          color: AppColors.of(context).dim,
+                        ),
                       ),
                   ],
                 ),
@@ -87,19 +94,26 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                   Text(
                     'Multiple references average into one target curve — '
                     'one vote per song.',
-                    style: TextStyle(fontSize: 11, color: AppColors.of(context).dim),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.of(context).dim,
+                    ),
                   ),
                 if (mastering.analyzingReference) ...[
                   const SizedBox(height: 8),
                   LinearProgressIndicator(
-                      value: mastering.referenceProgress > 0
-                          ? mastering.referenceProgress
-                          : null),
+                    value: mastering.referenceProgress > 0
+                        ? mastering.referenceProgress
+                        : null,
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                      'Analyzing ${mastering.analyzingReferenceLabel.isEmpty ? 'reference' : mastering.analyzingReferenceLabel}…',
-                      style: TextStyle(
-                          fontSize: 11, color: AppColors.of(context).dim)),
+                    'Analyzing ${mastering.analyzingReferenceLabel.isEmpty ? 'reference' : mastering.analyzingReferenceLabel}…',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.of(context).dim,
+                    ),
+                  ),
                 ],
                 const Divider(height: 16),
                 SwitchListTile(
@@ -114,31 +128,41 @@ Future<void> showMasteringDialog(BuildContext context, MixerState state) {
                   onChanged: !mastering.enabled || mastering.analyzingMix
                       ? null
                       : (v) => v
-                          ? _enablePreview(context, state)
-                          : mastering.disablePreview(),
+                            ? _enablePreview(context, state)
+                            : mastering.disablePreview(),
                 ),
                 if (mastering.analyzingMix) ...[
                   const SizedBox(height: 8),
                   LinearProgressIndicator(
-                      value: mastering.mixAnalysisProgress > 0
-                          ? mastering.mixAnalysisProgress
-                          : null),
+                    value: mastering.mixAnalysisProgress > 0
+                        ? mastering.mixAnalysisProgress
+                        : null,
+                  ),
                   const SizedBox(height: 4),
-                  Text('Analyzing mix…',
-                      style:
-                          TextStyle(fontSize: 11, color: AppColors.of(context).dim)),
+                  Text(
+                    'Analyzing mix…',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.of(context).dim,
+                    ),
+                  ),
                 ],
                 if (mastering.preview && mastering.mixStatsStale)
                   Row(
                     children: [
-                      Icon(Icons.warning_amber,
-                          size: 16, color: AppColors.of(context).warning),
+                      Icon(
+                        Icons.warning_amber,
+                        size: 16,
+                        color: AppColors.of(context).warning,
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           'Mix changed — preview uses the old analysis',
                           style: TextStyle(
-                              fontSize: 11, color: AppColors.of(context).warning),
+                            fontSize: 11,
+                            color: AppColors.of(context).warning,
+                          ),
                         ),
                       ),
                       TextButton(
@@ -175,8 +199,9 @@ Future<void> _pickReference(BuildContext context, MixerState state) async {
     path = await IosFiles.pickAudio();
   } else {
     const group = XTypeGroup(
-        label: 'Audio',
-        extensions: ['wav', 'flac', 'mp3', 'ogg', 'WAV', 'FLAC', 'MP3']);
+      label: 'Audio',
+      extensions: ['wav', 'flac', 'mp3', 'ogg', 'WAV', 'FLAC', 'MP3'],
+    );
     final file = await openFile(acceptedTypeGroups: [group]);
     path = file?.path;
     name = file?.name;
@@ -186,7 +211,8 @@ Future<void> _pickReference(BuildContext context, MixerState state) async {
     await state.mastering.addReference(path, name ?? path.split('/').last);
   } catch (e) {
     messenger.showSnackBar(
-        SnackBar(content: Text('Reference analysis failed: $e')));
+      SnackBar(content: Text('Reference analysis failed: $e')),
+    );
   }
 }
 

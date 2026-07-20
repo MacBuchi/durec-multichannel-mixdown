@@ -26,10 +26,9 @@ void registerRustLicenses() {
   if (_rustLicensesRegistered) return;
   _rustLicensesRegistered = true;
   LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(
-      const ['DurecMix Rust engine'],
-      await rootBundle.loadString('assets/licenses/rust-third-party.txt'),
-    );
+    yield LicenseEntryWithLineBreaks(const [
+      'DurecMix Rust engine',
+    ], await rootBundle.loadString('assets/licenses/rust-third-party.txt'));
   });
 }
 
@@ -65,19 +64,16 @@ class _DurecMixAppState extends State<DurecMixApp> {
   static const _seed = Color(0xFF00B4D8);
 
   ThemeData _theme(Brightness brightness, AppColors colors) => ThemeData(
-        brightness: brightness,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: _seed,
-          brightness: brightness,
-        ),
-        sliderTheme: const SliderThemeData(
-          trackHeight: 3,
-          thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-          overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
-        ),
-        visualDensity: VisualDensity.compact,
-        extensions: [colors],
-      );
+    brightness: brightness,
+    colorScheme: ColorScheme.fromSeed(seedColor: _seed, brightness: brightness),
+    sliderTheme: const SliderThemeData(
+      trackHeight: 3,
+      thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
+      overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
+    ),
+    visualDensity: VisualDensity.compact,
+    extensions: [colors],
+  );
 
   @override
   void dispose() {

@@ -27,9 +27,11 @@ class _AppBannersState extends State<AppBanners> {
   @override
   void initState() {
     super.initState();
-    unawaited(UpdateCheck.check().then((info) {
-      if (mounted && info != null) setState(() => _update = info);
-    }));
+    unawaited(
+      UpdateCheck.check().then((info) {
+        if (mounted && info != null) setState(() => _update = info);
+      }),
+    );
   }
 
   Future<void> _openUpdateDialog(UpdateInfo info) {
@@ -67,10 +69,9 @@ class _AppBannersState extends State<AppBanners> {
               children: [
                 Flexible(
                   child: DefaultTextStyle(
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium!
-                        .copyWith(color: foreground),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium!.copyWith(color: foreground),
                     child: content,
                   ),
                 ),
@@ -153,41 +154,47 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     setState(() => _phase = _UpdatePhase.downloading);
     try {
       _subscription = OtaUpdate()
-          .execute(widget.info.apkUrl!,
-              destinationFilename: 'durecmix-update.apk')
+          .execute(
+            widget.info.apkUrl!,
+            destinationFilename: 'durecmix-update.apk',
+          )
           .listen(
-        (event) {
-          if (!mounted) return;
-          switch (event.status) {
-            case OtaStatus.DOWNLOADING:
-              setState(() {
-                _phase = _UpdatePhase.downloading;
-                _progress = (double.tryParse(event.value ?? '') ?? 0) / 100;
-              });
-            case OtaStatus.INSTALLING:
-              setState(() => _phase = _UpdatePhase.installing);
-            default:
-              setState(() => _phase = _UpdatePhase.error);
-          }
-        },
-        onError: (Object _) {
-          if (mounted) setState(() => _phase = _UpdatePhase.error);
-        },
-      );
+            (event) {
+              if (!mounted) return;
+              switch (event.status) {
+                case OtaStatus.DOWNLOADING:
+                  setState(() {
+                    _phase = _UpdatePhase.downloading;
+                    _progress = (double.tryParse(event.value ?? '') ?? 0) / 100;
+                  });
+                case OtaStatus.INSTALLING:
+                  setState(() => _phase = _UpdatePhase.installing);
+                default:
+                  setState(() => _phase = _UpdatePhase.error);
+              }
+            },
+            onError: (Object _) {
+              if (mounted) setState(() => _phase = _UpdatePhase.error);
+            },
+          );
     } catch (_) {
       setState(() => _phase = _UpdatePhase.error);
     }
   }
 
   Future<void> _openReleasePage() async {
-    await launchUrl(Uri.parse(widget.info.htmlUrl),
-        mode: LaunchMode.externalApplication);
+    await launchUrl(
+      Uri.parse(widget.info.htmlUrl),
+      mode: LaunchMode.externalApplication,
+    );
     if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _browserFallback() async {
-    await launchUrl(Uri.parse(widget.info.apkUrl ?? widget.info.htmlUrl),
-        mode: LaunchMode.externalApplication);
+    await launchUrl(
+      Uri.parse(widget.info.apkUrl ?? widget.info.htmlUrl),
+      mode: LaunchMode.externalApplication,
+    );
   }
 
   @override
@@ -201,38 +208,47 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             switch (_phase) {
-              _UpdatePhase.idle => Text(_inAppInstall
-                  ? 'The update downloads inside the app and then opens the '
-                      'Android installer — your mixes are kept. Android asks '
-                      'for permission once.'
-                  : 'Opens the GitHub release page — download the package '
-                      'for your platform there.'),
+              _UpdatePhase.idle => Text(
+                _inAppInstall
+                    ? 'The update downloads inside the app and then opens the '
+                          'Android installer — your mixes are kept. Android asks '
+                          'for permission once.'
+                    : 'Opens the GitHub release page — download the package '
+                          'for your platform there.',
+              ),
               _UpdatePhase.downloading => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Downloading … ${(_progress * 100).round()} %'),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                        value: _progress > 0 ? _progress : null),
-                  ],
-                ),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Downloading … ${(_progress * 100).round()} %'),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: _progress > 0 ? _progress : null,
+                  ),
+                ],
+              ),
               _UpdatePhase.installing => const Text(
-                  'Download finished — Android now asks whether to update '
-                  'DurecMix. Just confirm!'),
+                'Download finished — Android now asks whether to update '
+                'DurecMix. Just confirm!',
+              ),
               _UpdatePhase.error => const Text(
-                  'The direct download failed. You can load the update via '
-                  'your browser instead — tap the file in the notification '
-                  'after the download.'),
+                'The direct download failed. You can load the update via '
+                'your browser instead — tap the file in the notification '
+                'after the download.',
+              ),
             },
             if (_phase == _UpdatePhase.idle &&
                 info.releaseNotes != null &&
                 info.releaseNotes!.trim().isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text("What's new:",
-                  style: Theme.of(context).textTheme.titleSmall),
+              Text(
+                "What's new:",
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
               const SizedBox(height: 4),
-              Text(info.releaseNotes!.trim(),
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                info.releaseNotes!.trim(),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ],
         ),
@@ -245,8 +261,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           ),
           FilledButton.icon(
             onPressed: _inAppInstall ? _startAndroidInstall : _openReleasePage,
-            icon: Icon(_inAppInstall ? Icons.download : Icons.open_in_browser,
-                size: 18),
+            icon: Icon(
+              _inAppInstall ? Icons.download : Icons.open_in_browser,
+              size: 18,
+            ),
             label: Text(_inAppInstall ? 'Update now' : 'Open download page'),
           ),
         ] else if (_phase == _UpdatePhase.error) ...[
@@ -283,15 +301,21 @@ Future<void> showFeedbackDialog(BuildContext context) async {
   final (type, message) = input;
   try {
     final direct = await submitFeedback(type, message);
-    messenger.showSnackBar(SnackBar(
-        content: Text(direct
-            ? (type == FeedbackType.bug
-                ? 'Thanks for the report — filed as an issue! 🐛'
-                : 'Thanks for your idea — filed as an issue! 💡')
-            : 'Almost done — finish the pre-filled issue in your browser.')));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          direct
+              ? (type == FeedbackType.bug
+                    ? 'Thanks for the report — filed as an issue! 🐛'
+                    : 'Thanks for your idea — filed as an issue! 💡')
+              : 'Almost done — finish the pre-filled issue in your browser.',
+        ),
+      ),
+    );
   } catch (_) {
-    messenger.showSnackBar(const SnackBar(
-        content: Text('Sending failed. Are you online?')));
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Sending failed. Are you online?')),
+    );
   }
 }
 
@@ -315,8 +339,9 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
   void _submit() {
     final text = _textController.text.trim();
     if (text.length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please write a few more words. 🙂')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please write a few more words. 🙂')),
+      );
       return;
     }
     Navigator.of(context).pop((_type, text));
@@ -334,7 +359,9 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
             SegmentedButton<FeedbackType>(
               segments: const [
                 ButtonSegment(
-                    value: FeedbackType.feature, label: Text('💡 Feature')),
+                  value: FeedbackType.feature,
+                  label: Text('💡 Feature'),
+                ),
                 ButtonSegment(value: FeedbackType.bug, label: Text('🐛 Bug')),
               ],
               selected: {_type},
@@ -345,10 +372,10 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
             Text(
               _type == FeedbackType.bug
                   ? 'What went wrong? Briefly describe what you did and '
-                      'what happened instead.'
+                        'what happened instead.'
                   : 'What is missing, what is annoying, what would be '
-                      'practical? Every idea lands directly with the '
-                      'developer.',
+                        'practical? Every idea lands directly with the '
+                        'developer.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
@@ -376,10 +403,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Send'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Send')),
       ],
     );
   }

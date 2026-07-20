@@ -22,9 +22,8 @@ class Saf {
       _channel.invokeMethod<String>('pickAudio');
 
   /// Open the system save dialog; returns a content URI or null.
-  static Future<String?> createDocument(String name, String mime) =>
-      _channel.invokeMethod<String>(
-          'createDocument', {'name': name, 'mime': mime});
+  static Future<String?> createDocument(String name, String mime) => _channel
+      .invokeMethod<String>('createDocument', {'name': name, 'mime': mime});
 
   /// A fresh raw fd for the URI. Ownership passes to the engine.
   /// Mode 'r' for reading, 'rwt' for writing (truncate).
@@ -43,29 +42,41 @@ class Saf {
 
   /// The tree's direct children that end in .wav:
   /// `{uri, name, size, modified}` maps (modified = epoch millis).
-  static Future<List<Map<Object?, Object?>>> listDirectory(String treeUri) async {
-    final raw = await _channel
-        .invokeListMethod<Map<Object?, Object?>>('listDirectory', {'uri': treeUri});
+  static Future<List<Map<Object?, Object?>>> listDirectory(
+    String treeUri,
+  ) async {
+    final raw = await _channel.invokeListMethod<Map<Object?, Object?>>(
+      'listDirectory',
+      {'uri': treeUri},
+    );
     return raw ?? const [];
   }
 
   /// Find or create a subfolder (e.g. `Mixdown`) of the granted tree;
   /// returns its document URI.
   static Future<String> ensureDirectory(String treeUri, String name) async =>
-      (await _channel.invokeMethod<String>(
-          'ensureDirectory', {'uri': treeUri, 'name': name}))!;
+      (await _channel.invokeMethod<String>('ensureDirectory', {
+        'uri': treeUri,
+        'name': name,
+      }))!;
 
   /// Create a file inside a directory document URI; returns the new file's
   /// document URI (the provider may de-duplicate the name — use the URI).
   static Future<String> createFileInDirectory(
-          String dirUri, String name, String mime) async =>
-      (await _channel.invokeMethod<String>('createFileInDirectory',
-          {'dirUri': dirUri, 'name': name, 'mime': mime}))!;
+    String dirUri,
+    String name,
+    String mime,
+  ) async => (await _channel.invokeMethod<String>('createFileInDirectory', {
+    'dirUri': dirUri,
+    'name': name,
+    'mime': mime,
+  }))!;
 
   /// Hand finished files to the system share sheet (Nextcloud, Drive, …).
-  static Future<void> shareFiles(List<String> uris,
-          {String mime = 'audio/*'}) =>
-      _channel.invokeMethod('shareFiles', {'uris': uris, 'mime': mime});
+  static Future<void> shareFiles(
+    List<String> uris, {
+    String mime = 'audio/*',
+  }) => _channel.invokeMethod('shareFiles', {'uris': uris, 'mime': mime});
 
   // ── export foreground service ─────────────────────────────────────────────
   // Renders take minutes on a phone; the service keeps the process alive
@@ -77,6 +88,5 @@ class Saf {
   static Future<void> exportProgress(String name, int progress) => _channel
       .invokeMethod('exportProgress', {'name': name, 'progress': progress});
 
-  static Future<void> exportStopped() =>
-      _channel.invokeMethod('exportStopped');
+  static Future<void> exportStopped() => _channel.invokeMethod('exportStopped');
 }

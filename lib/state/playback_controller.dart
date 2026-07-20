@@ -32,9 +32,12 @@ class PlaybackController {
     if (rec == null) return;
     _owner.error = null;
     try {
-      final startFrame = BigInt.from((positionSeconds * rec.sampleRate)
-          .round()
-          .clamp(0, rec.numFrames.toInt()));
+      final startFrame = BigInt.from(
+        (positionSeconds * rec.sampleRate).round().clamp(
+          0,
+          rec.numFrames.toInt(),
+        ),
+      );
       final stats = _owner.mastering.previewStats;
       await rust.playerStart(
         path: rec.path,
@@ -57,7 +60,8 @@ class PlaybackController {
     positionSeconds = seconds.clamp(0, _owner.durationSeconds);
     if (playing) {
       rust.playerSeek(
-          frame: BigInt.from((positionSeconds * _owner.sampleRate).round()));
+        frame: BigInt.from((positionSeconds * _owner.sampleRate).round()),
+      );
     }
     _owner.notify();
   }
@@ -67,16 +71,18 @@ class PlaybackController {
   void pushLiveParams() {
     if (!playing) return;
     final stats = _owner.mastering.previewStats;
-    unawaited(rust
-        .playerUpdateParams(
-          tracks: _owner.tracks.map((t) => t.toApi()).toList(),
-          master: _owner.master,
-          masteringStats: stats,
-          reference: stats != null ? _owner.mastering.profile : null,
-        )
-        // Racing a player stop is harmless — the next start resends the
-        // full parameter set anyway.
-        .catchError((_) {}));
+    unawaited(
+      rust
+          .playerUpdateParams(
+            tracks: _owner.tracks.map((t) => t.toApi()).toList(),
+            master: _owner.master,
+            masteringStats: stats,
+            reference: stats != null ? _owner.mastering.profile : null,
+          )
+          // Racing a player stop is harmless — the next start resends the
+          // full parameter set anyway.
+          .catchError((_) {}),
+    );
   }
 
   /// Stop playback and the meter poll (take switch, dispose, stop button).

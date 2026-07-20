@@ -30,8 +30,10 @@ class ExportController {
   /// `outTarget` is a filesystem path, or a `content://` URI on Android
   /// (SAF CREATE_DOCUMENT result) written through a raw fd. `masterOverride`
   /// lets batch jobs swap the loudness target / format per render.
-  Future<void> export(String outTarget,
-      {rust.ApiMaster? masterOverride}) async {
+  Future<void> export(
+    String outTarget, {
+    rust.ApiMaster? masterOverride,
+  }) async {
     final rec = _owner.recording;
     if (rec == null || rendering) return;
     rendering = true;
@@ -45,8 +47,12 @@ class ExportController {
     final exportName = _owner.displayName ?? outTarget.split('/').last;
     int? iosBgTask;
     try {
-      if (Saf.isAvailable) await Saf.exportStarted(exportName);
-      if (IosFiles.isAvailable) iosBgTask = await IosFiles.beginBackgroundTask();
+      if (Saf.isAvailable) {
+        await Saf.exportStarted(exportName);
+      }
+      if (IosFiles.isAvailable) {
+        iosBgTask = await IosFiles.beginBackgroundTask();
+      }
       // Resolve the mastering reference first (cache hit is instant; a
       // fresh analysis streams its own progress).
       rust.ApiReferenceProfile? reference;
@@ -95,10 +101,13 @@ class ExportController {
   }
 
   void addBatchJob() {
-    batchQueue.add(BatchJob(
+    batchQueue.add(
+      BatchJob(
         loudness: _owner.loudness,
         customLufs: _owner.customLufs,
-        format: _owner.format));
+        format: _owner.format,
+      ),
+    );
     _owner.notify();
   }
 
@@ -118,14 +127,18 @@ class ExportController {
       _owner.notify();
       final job = batchQueue[i];
       final name = suggestedName(
+        loudness: job.loudness,
+        customLufs: job.customLufs,
+        format: job.format,
+      );
+      await export(
+        '$directory/$name',
+        masterOverride: _owner.masterFor(
           loudness: job.loudness,
           customLufs: job.customLufs,
-          format: job.format);
-      await export('$directory/$name',
-          masterOverride: _owner.masterFor(
-              loudness: job.loudness,
-              customLufs: job.customLufs,
-              format: job.format));
+          format: job.format,
+        ),
+      );
       if (_owner.error != null) break;
     }
     lastOutputPath = directory;
@@ -141,13 +154,11 @@ class ExportController {
     LoudnessChoice? loudness,
     double? customLufs,
     rust.ApiFormat? format,
-  }) =>
-      suggestedExportName(
-        baseName:
-            _owner.displayName ?? _owner.recording!.path.split('/').last,
-        loudness: loudness ?? _owner.loudness,
-        customLufs: customLufs ?? _owner.customLufs,
-        format: format ?? _owner.format,
-        bpm: _owner.bpm,
-      );
+  }) => suggestedExportName(
+    baseName: _owner.displayName ?? _owner.recording!.path.split('/').last,
+    loudness: loudness ?? _owner.loudness,
+    customLufs: customLufs ?? _owner.customLufs,
+    format: format ?? _owner.format,
+    bpm: _owner.bpm,
+  );
 }

@@ -77,7 +77,10 @@ void main() {
     final state = MixerState();
     addTearDown(state.dispose);
     await tester.pumpWidget(
-      RepaintBoundary(key: _shotKey, child: DurecMixApp(state: state)),
+      RepaintBoundary(
+        key: _shotKey,
+        child: DurecMixApp(state: state),
+      ),
     );
     await tester.pumpAndSettle();
     // No separate start screen: the main window's empty track area carries
@@ -87,14 +90,19 @@ void main() {
     // Exactly ONE folder affordance here — the centre button. Two controls
     // with the same icon but different behaviour is what #74 reported.
     expect(
-        find.descendant(
-            of: find.byType(FilledButton),
-            matching: find.byIcon(Icons.folder_open)),
-        findsOneWidget);
+      find.descendant(
+        of: find.byType(FilledButton),
+        matching: find.byIcon(Icons.folder_open),
+      ),
+      findsOneWidget,
+    );
     expect(
-        find.descendant(
-            of: find.byType(AppBar), matching: find.byIcon(Icons.folder_open)),
-        findsNothing);
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.folder_open),
+      ),
+      findsNothing,
+    );
 
     // Feedback banner: shown once per start (update banner stays hidden —
     // the check is disabled). Opening it validates empty input, then
@@ -123,13 +131,17 @@ void main() {
     await tester.tap(find.text('Light'));
     await tester.pumpAndSettle();
     expect(AppSettings.themeMode.value, ThemeMode.light);
-    expect(Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
-        Brightness.light);
+    expect(
+      Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+      Brightness.light,
+    );
     await tester.tap(find.text('Dark'));
     await tester.pumpAndSettle();
     expect(AppSettings.themeMode.value, ThemeMode.dark);
-    expect(Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
-        Brightness.dark);
+    expect(
+      Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+      Brightness.dark,
+    );
 
     // About sits at the bottom of Settings and still shows version + links.
     await tester.tap(find.text('About DurecMix'));
@@ -170,9 +182,12 @@ void main() {
     // …and with a recording open the app-bar folder icon is back (#74): it
     // is the "switch folder" control, not a second start-screen button.
     expect(
-        find.descendant(
-            of: find.byType(AppBar), matching: find.byIcon(Icons.folder_open)),
-        findsOneWidget);
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.folder_open),
+      ),
+      findsOneWidget,
+    );
 
     // Mute toggle through a real tap on the first track's M chip.
     await tester.tap(find.text('M').first);
@@ -276,7 +291,8 @@ void main() {
     state.exporter.batchQueue[0]
       ..loudness = LoudnessChoice.lufs14
       ..format = rust.ApiFormat.mp3;
-    state.exporter.addBatchJob(); // copies the current selection: custom LUFS, WAV 24
+    state.exporter
+        .addBatchJob(); // copies the current selection: custom LUFS, WAV 24
     await state.exporter.exportBatch(batchDir.path);
     await tester.pumpAndSettle();
     expect(state.error, isNull);
@@ -804,8 +820,10 @@ Future<void> _captureDocScreenshots(
   await tester.pumpAndSettle();
   await shot('phone', [
     ('Export (progress shows here while rendering)', find.text('Export')),
-    ('Settings — appearance, About, links, feedback',
-        find.byIcon(Icons.settings_outlined)),
+    (
+      'Settings — appearance, About, links, feedback',
+      find.byIcon(Icons.settings_outlined),
+    ),
     (
       'Everything else lives in the overflow menu',
       find.byType(PopupMenuButton<String>),

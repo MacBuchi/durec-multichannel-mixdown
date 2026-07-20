@@ -56,8 +56,10 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   }
 
   TextEditingController _stemController(WavEntry e) =>
-      _stemControllers.putIfAbsent(e.source,
-          () => TextEditingController(text: e.outputStem ?? e.defaultStem));
+      _stemControllers.putIfAbsent(
+        e.source,
+        () => TextEditingController(text: e.outputStem ?? e.defaultStem),
+      );
 
   Future<void> _exportSelected() async {
     final config = widget.exportConfig?.call();
@@ -157,7 +159,8 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           )
         else if (b.selectedEntries.isNotEmpty)
           Tooltip(
-            message: 'Render the ticked takes with the current mix into '
+            message:
+                'Render the ticked takes with the current mix into '
                 'the Mixdown folder',
             child: FilledButton.icon(
               onPressed: _exportSelected,
@@ -176,9 +179,11 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(b.error!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.of(context).error)),
+            Text(
+              b.error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.of(context).error),
+            ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _changeFolder,
@@ -203,24 +208,27 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     }
     if (b.entries.isEmpty) {
       return Center(
-        child: Text('No .wav files in this folder',
-            style: TextStyle(color: AppColors.of(context).dim)),
+        child: Text(
+          'No .wav files in this folder',
+          style: TextStyle(color: AppColors.of(context).dim),
+        ),
       );
     }
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720),
-        child: Column(children: [
-          if (b.selectionMode && widget.exportConfig != null) _targetBar(),
-          if (!_runner.running && _runner.outputs.isNotEmpty)
-            _resultBar(),
-          Expanded(
-            child: ListView.builder(
-              itemCount: b.entries.length,
-              itemBuilder: (context, i) => _row(b.entries[i]),
+        child: Column(
+          children: [
+            if (b.selectionMode && widget.exportConfig != null) _targetBar(),
+            if (!_runner.running && _runner.outputs.isNotEmpty) _resultBar(),
+            Expanded(
+              child: ListView.builder(
+                itemCount: b.entries.length,
+                itemBuilder: (context, i) => _row(b.entries[i]),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -233,34 +241,39 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
         ? '${config.customLufs.toStringAsFixed(1)} LUFS'
         : config.loudness.label;
     Widget chip(String label, Future<void> Function()? onTap) => InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: onTap == null || _runner.running
+          ? null
+          : () async {
+              await onTap();
+              if (mounted) setState(() {});
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.of(context).outline),
           borderRadius: BorderRadius.circular(4),
-          onTap: onTap == null || _runner.running
-              ? null
-              : () async {
-                  await onTap();
-                  if (mounted) setState(() {});
-                },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.of(context).outline),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 12, color: AppColors.of(context).accent)),
-          ),
-        );
+        ),
+        child: Text(
+          label,
+          style: TextStyle(fontSize: 12, color: AppColors.of(context).accent),
+        ),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(children: [
-        Text('Export target:',
-            style: TextStyle(fontSize: 12, color: AppColors.of(context).dim)),
-        const SizedBox(width: 8),
-        chip(loudnessLabel, widget.onPickLoudness),
-        const SizedBox(width: 6),
-        chip(formatLabels[config.format]!, widget.onPickFormat),
-      ]),
+      child: Row(
+        children: [
+          Text(
+            'Export target:',
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
+          ),
+          const SizedBox(width: 8),
+          chip(loudnessLabel, widget.onPickLoudness),
+          const SizedBox(width: 6),
+          chip(formatLabels[config.format]!, widget.onPickFormat),
+        ],
+      ),
     );
   }
 
@@ -271,23 +284,29 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Row(children: [
-          Icon(Icons.check_circle, size: 18, color: AppColors.of(context).success),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '${_runner.outputs.length} mixdown'
-              '${_runner.outputs.length == 1 ? '' : 's'} exported to Mixdown/',
-              style: const TextStyle(fontSize: 13),
+        child: Row(
+          children: [
+            Icon(
+              Icons.check_circle,
+              size: 18,
+              color: AppColors.of(context).success,
             ),
-          ),
-          if (Saf.isAvailable)
-            TextButton.icon(
-              onPressed: () => Saf.shareFiles(_runner.outputs),
-              icon: const Icon(Icons.share, size: 16),
-              label: const Text('Share'),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${_runner.outputs.length} mixdown'
+                '${_runner.outputs.length == 1 ? '' : 's'} exported to Mixdown/',
+                style: const TextStyle(fontSize: 13),
+              ),
             ),
-        ]),
+            if (Saf.isAvailable)
+              TextButton.icon(
+                onPressed: () => Saf.shareFiles(_runner.outputs),
+                icon: const Icon(Icons.share, size: 16),
+                label: const Text('Share'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -309,23 +328,33 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           : null,
       trailing: mode
           ? null
-          : Icon(Icons.chevron_right, size: 18, color: AppColors.of(context).faint),
-      title: Row(children: [
-        Flexible(
-          child: Text(
-            e.name,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontWeight: FontWeight.w500,
-              color: isCurrent ? AppColors.of(context).accent : null,
+          : Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: AppColors.of(context).faint,
+            ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              e.name,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: isCurrent ? AppColors.of(context).accent : null,
+              ),
             ),
           ),
-        ),
-        if (isCurrent) ...[
-          const SizedBox(width: 6),
-          Icon(Icons.graphic_eq, size: 14, color: AppColors.of(context).accent),
+          if (isCurrent) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.graphic_eq,
+              size: 14,
+              color: AppColors.of(context).accent,
+            ),
+          ],
         ],
-      ]),
+      ),
       subtitle: _subtitle(e),
       // Selection mode follows list-selection convention: tapping the row
       // toggles the tick; outside it, tapping opens the take in the mixer.
@@ -342,7 +371,9 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   /// original file name sits underneath for reference.
   Widget _nameField(WavEntry e) {
     final format = widget.exportConfig?.call().format;
-    final ext = format != null ? MultiExportRunner.extensionFor(format) : '.wav';
+    final ext = format != null
+        ? MultiExportRunner.extensionFor(format)
+        : '.wav';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -355,12 +386,17 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(vertical: 4),
             suffixText: ext,
-            suffixStyle: TextStyle(fontSize: 13, color: AppColors.of(context).faint),
+            suffixStyle: TextStyle(
+              fontSize: 13,
+              color: AppColors.of(context).faint,
+            ),
           ),
         ),
         const SizedBox(height: 2),
-        Text(e.name,
-            style: TextStyle(fontSize: 11, color: AppColors.of(context).faint)),
+        Text(
+          e.name,
+          style: TextStyle(fontSize: 11, color: AppColors.of(context).faint),
+        ),
       ],
     );
   }
@@ -369,58 +405,82 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     final st = _runner.status[e.source];
     if (st != null && st.phase != EntryPhase.pending) {
       return switch (st.phase) {
-        EntryPhase.rendering => Row(children: [
+        EntryPhase.rendering => Row(
+          children: [
             Expanded(
               child: LinearProgressIndicator(value: st.progress, minHeight: 3),
             ),
             const SizedBox(width: 8),
-            Text('${(st.progress * 100).round()} %',
-                style: TextStyle(fontSize: 12, color: AppColors.of(context).dim)),
-          ]),
+            Text(
+              '${(st.progress * 100).round()} %',
+              style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
+            ),
+          ],
+        ),
         EntryPhase.done => Text(
-            'exported'
-            '${st.integratedLufs != null ? ' · ${st.integratedLufs!.toStringAsFixed(1)} LUFS-I' : ''}',
-            style: TextStyle(fontSize: 12, color: AppColors.of(context).success),
+          'exported'
+          '${st.integratedLufs != null ? ' · ${st.integratedLufs!.toStringAsFixed(1)} LUFS-I' : ''}',
+          style: TextStyle(fontSize: 12, color: AppColors.of(context).success),
+        ),
+        EntryPhase.failed => Text(
+          'failed: ${st.error}',
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            color: AppColors.of(context).errorSoft,
           ),
-        EntryPhase.failed => Text('failed: ${st.error}',
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: AppColors.of(context).errorSoft)),
+        ),
         EntryPhase.pending => const SizedBox.shrink(),
       };
     }
     if (e.probeError != null) {
-      return Text('Not readable as WAV',
-          style: TextStyle(fontSize: 12, color: AppColors.of(context).errorSoft));
+      return Text(
+        'Not readable as WAV',
+        style: TextStyle(fontSize: 12, color: AppColors.of(context).errorSoft),
+      );
     }
     if (widget.browser.selectionMode && e.selected) {
       return _nameField(e);
     }
     final probe = e.probe;
     if (probe == null) {
-      return Row(children: [
-        SizedBox(
-            width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5)),
-        SizedBox(width: 6),
-        Text('reading…', style: TextStyle(fontSize: 12, color: AppColors.of(context).faint)),
-      ]);
+      return Row(
+        children: [
+          SizedBox(
+            width: 10,
+            height: 10,
+            child: CircularProgressIndicator(strokeWidth: 1.5),
+          ),
+          SizedBox(width: 6),
+          Text(
+            'reading…',
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).faint),
+          ),
+        ],
+      );
     }
     final multichannel = probe.channels > 2;
     return Text.rich(
-      TextSpan(children: [
-        TextSpan(
-          text: '${probe.channels} ch',
-          style: TextStyle(
-            fontWeight: multichannel ? FontWeight.bold : FontWeight.normal,
-            color: multichannel ? AppColors.of(context).accent : AppColors.of(context).faint,
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '${probe.channels} ch',
+            style: TextStyle(
+              fontWeight: multichannel ? FontWeight.bold : FontWeight.normal,
+              color: multichannel
+                  ? AppColors.of(context).accent
+                  : AppColors.of(context).faint,
+            ),
           ),
-        ),
-        TextSpan(
-          text: ' · ${_fmtKhz(probe.sampleRate)} · ${probe.bitsPerSample}-bit'
-              ' · ${_fmtTime(probe.durationSeconds)}'
-              '${probe.ixmlTrackCount > 0 ? ' · ${probe.ixmlTrackCount} trk' : ''}'
-              '${_fmtTail(e)}',
-        ),
-      ]),
+          TextSpan(
+            text:
+                ' · ${_fmtKhz(probe.sampleRate)} · ${probe.bitsPerSample}-bit'
+                ' · ${_fmtTime(probe.durationSeconds)}'
+                '${probe.ixmlTrackCount > 0 ? ' · ${probe.ixmlTrackCount} trk' : ''}'
+                '${_fmtTail(e)}',
+          ),
+        ],
+      ),
       style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
     );
   }
@@ -442,15 +502,19 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
     final parts = <String>[];
     final size = e.sizeBytes;
     if (size != null && size > 0) {
-      parts.add(size >= 1 << 30
-          ? '${(size / (1 << 30)).toStringAsFixed(1)} GB'
-          : '${(size / (1 << 20)).round()} MB');
+      parts.add(
+        size >= 1 << 30
+            ? '${(size / (1 << 30)).toStringAsFixed(1)} GB'
+            : '${(size / (1 << 20)).round()} MB',
+      );
     }
     final mod = e.modified;
     if (mod != null) {
       String two(int v) => v.toString().padLeft(2, '0');
-      parts.add('${mod.year}-${two(mod.month)}-${two(mod.day)} '
-          '${two(mod.hour)}:${two(mod.minute)}');
+      parts.add(
+        '${mod.year}-${two(mod.month)}-${two(mod.day)} '
+        '${two(mod.hour)}:${two(mod.minute)}',
+      );
     }
     return parts.isEmpty ? '' : ' · ${parts.join(' · ')}';
   }

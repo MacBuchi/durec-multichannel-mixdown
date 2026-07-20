@@ -55,6 +55,15 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
+      # The formatter is versioned by the pubspec SDK constraint (^3.11.0 —
+      # so "tall style", Dart 3.7+). Nothing enforced it before, and the tree
+      # had drifted 30 files back to the pre-3.7 style; unchecked, every
+      # IDE-on-save touch would show up as unrelated churn in the next diff.
+      - run: dart format --output=none --set-exit-if-changed .
+      # The widget tests ran nowhere on CI: the Rust job runs `cargo test`,
+      # but the Dart side only ever ran `flutter analyze` here and the
+      # integration test on the macOS build.
+      - run: flutter test
 
   build:
     name: Build (${{ matrix.name }})

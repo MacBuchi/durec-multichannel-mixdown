@@ -22,8 +22,10 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
           children: [
             FutureBuilder<String>(
               future: AppInfo.version(),
-              builder: (context, snap) => Text('Version ${snap.data ?? '…'}',
-                  style: Theme.of(context).textTheme.titleMedium),
+              builder: (context, snap) => Text(
+                'Version ${snap.data ?? '…'}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
             const SizedBox(height: 4),
             // Best-effort, never blocks: shows the update status once the
@@ -34,11 +36,10 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
                 final text = snap.connectionState != ConnectionState.done
                     ? 'Checking for updates…'
                     : snap.data != null
-                        ? 'Update available: v${snap.data!.latestVersion} '
-                            '— see the banner on the mixer.'
-                        : "You're up to date.";
-                return Text(text,
-                    style: Theme.of(context).textTheme.bodySmall);
+                    ? 'Update available: v${snap.data!.latestVersion} '
+                          '— see the banner on the mixer.'
+                    : "You're up to date.";
+                return Text(text, style: Theme.of(context).textTheme.bodySmall);
               },
             ),
             const SizedBox(height: 8),

@@ -29,8 +29,9 @@ class ReferenceProfileCache {
       final file = await _fileFor(source);
       if (!file.existsSync()) return null;
       final m = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      Float32List spectrum(String key) =>
-          Float32List.fromList((m[key] as List).cast<num>().map((v) => v.toDouble()).toList());
+      Float32List spectrum(String key) => Float32List.fromList(
+        (m[key] as List).cast<num>().map((v) => v.toDouble()).toList(),
+      );
       return rust.ApiReferenceProfile(
         version: m['version'] as int,
         sampleRate: m['sampleRate'] as int,
@@ -50,17 +51,19 @@ class ReferenceProfileCache {
   static Future<void> save(String source, rust.ApiReferenceProfile p) async {
     try {
       final file = await _fileFor(source);
-      await file.writeAsString(jsonEncode({
-        'version': p.version,
-        'sampleRate': p.sampleRate,
-        'fftSize': p.fftSize,
-        'pieceSeconds': p.pieceSeconds,
-        'durationSeconds': p.durationSeconds,
-        'midRms': p.midRms,
-        'sideRms': p.sideRms,
-        'midSpectrum': p.midSpectrum,
-        'sideSpectrum': p.sideSpectrum,
-      }));
+      await file.writeAsString(
+        jsonEncode({
+          'version': p.version,
+          'sampleRate': p.sampleRate,
+          'fftSize': p.fftSize,
+          'pieceSeconds': p.pieceSeconds,
+          'durationSeconds': p.durationSeconds,
+          'midRms': p.midRms,
+          'sideRms': p.sideRms,
+          'midSpectrum': p.midSpectrum,
+          'sideSpectrum': p.sideSpectrum,
+        }),
+      );
     } catch (_) {
       // Cache writes are best effort — never surface failures.
     }

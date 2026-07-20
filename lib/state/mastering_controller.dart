@@ -23,8 +23,8 @@ class MasteringController {
   String get referenceName => references.isEmpty
       ? ''
       : references.length == 1
-          ? references.first.name
-          : '${references.length} references';
+      ? references.first.name
+      : '${references.length} references';
 
   /// Analyzed profile of the chosen reference (runtime only; backed by
   /// [ReferenceProfileCache]).
@@ -62,8 +62,10 @@ class MasteringController {
   /// Adopt the mastering part of a freshly loaded session's master.
   void restoreFromMaster(rust.ApiMaster m) {
     enabled = m.masteringEnabled;
-    if (!listEquals(references.map((r) => r.path).toList(),
-        m.masteringReferences.map((r) => r.path).toList())) {
+    if (!listEquals(
+      references.map((r) => r.path).toList(),
+      m.masteringReferences.map((r) => r.path).toList(),
+    )) {
       profile = null; // different reference set → profile is stale
     }
     references = List.of(m.masteringReferences);
@@ -149,10 +151,15 @@ class MasteringController {
   }
 
   Future<rust.ApiReferenceProfile?> _analyzeSingleReference(
-      rust.ApiMasteringReference ref, int index, int total) async {
+    rust.ApiMasteringReference ref,
+    int index,
+    int total,
+  ) async {
     analyzingReference = true;
     referenceProgress = 0;
-    analyzingReferenceLabel = total > 1 ? '${ref.name} ($index/$total)' : ref.name;
+    analyzingReferenceLabel = total > 1
+        ? '${ref.name} ($index/$total)'
+        : ref.name;
     _owner.notify();
     rust.ApiReferenceProfile? result;
     try {
