@@ -36,9 +36,7 @@ class TrackStrip extends StatelessWidget {
             final wide = constraints.maxWidth >= 700;
             final row = wide ? _wideRow(context) : _narrowCard(context);
             if (!eqOpen) return row;
-            return Column(
-              children: [row, _eqPanel(context)],
-            );
+            return Column(children: [row, _eqPanel(context)]);
           },
         ),
       ),
@@ -48,7 +46,10 @@ class TrackStrip extends StatelessWidget {
   Widget _wideRow(BuildContext context) {
     return Row(
       children: [
-        SizedBox(width: 28, child: Text('${track.index}', style: _dim(context))),
+        SizedBox(
+          width: 28,
+          child: Text('${track.index}', style: _dim(context)),
+        ),
         SizedBox(width: 150, child: _name(context)),
         _toggles(context),
         const SizedBox(width: 8),
@@ -67,7 +68,10 @@ class TrackStrip extends StatelessWidget {
       children: [
         Row(
           children: [
-            SizedBox(width: 24, child: Text('${track.index}', style: _dim(context))),
+            SizedBox(
+              width: 24,
+              child: Text('${track.index}', style: _dim(context)),
+            ),
             Expanded(child: _name(context)),
             _toggles(context),
           ],
@@ -104,16 +108,46 @@ class TrackStrip extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _toggleChip(context, 'ø', track.polarityInvert, AppColors.of(context).polarity,
-            () => state.togglePolarity(track), 'Polarity invert'),
-        _toggleChip(context, 'M', track.muted, AppColors.of(context).error,
-            () => state.toggleMute(track), 'Mute'),
-        _toggleChip(context, 'S', track.solo, AppColors.of(context).solo,
-            () => state.toggleSolo(track), 'Solo'),
-        _toggleChip(context, 'mix', track.inMix, AppColors.of(context).inMix,
-            () => state.toggleInMix(track), 'Include in mixdown'),
-        _toggleChip(context, 'EQ', track.eq.isActive, AppColors.of(context).accent,
-            () => state.toggleEqPanel(track), 'HPF + 3-band EQ'),
+        _toggleChip(
+          context,
+          'ø',
+          track.polarityInvert,
+          AppColors.of(context).polarity,
+          () => state.togglePolarity(track),
+          'Polarity invert',
+        ),
+        _toggleChip(
+          context,
+          'M',
+          track.muted,
+          AppColors.of(context).error,
+          () => state.toggleMute(track),
+          'Mute',
+        ),
+        _toggleChip(
+          context,
+          'S',
+          track.solo,
+          AppColors.of(context).solo,
+          () => state.toggleSolo(track),
+          'Solo',
+        ),
+        _toggleChip(
+          context,
+          'mix',
+          track.inMix,
+          AppColors.of(context).inMix,
+          () => state.toggleInMix(track),
+          'Include in mixdown',
+        ),
+        _toggleChip(
+          context,
+          'EQ',
+          track.eq.isActive,
+          AppColors.of(context).accent,
+          () => state.toggleEqPanel(track),
+          'HPF + 3-band EQ',
+        ),
         if (state.linkPairs && state.isPaired(track)) _pairLinkChip(context),
       ],
     );
@@ -134,7 +168,9 @@ class TrackStrip extends StatelessWidget {
           child: Icon(
             linked ? Icons.link : Icons.link_off,
             size: 16,
-            color: linked ? AppColors.of(context).accent : AppColors.of(context).faint,
+            color: linked
+                ? AppColors.of(context).accent
+                : AppColors.of(context).faint,
           ),
         ),
       ),
@@ -170,10 +206,8 @@ class TrackStrip extends StatelessWidget {
                 visualDensity: VisualDensity(horizontal: -4, vertical: -4),
               ),
               segments: const [
-                ButtonSegment(
-                    value: rust.ApiHpfSlope.db12, label: Text('12')),
-                ButtonSegment(
-                    value: rust.ApiHpfSlope.db24, label: Text('24')),
+                ButtonSegment(value: rust.ApiHpfSlope.db12, label: Text('12')),
+                ButtonSegment(value: rust.ApiHpfSlope.db24, label: Text('24')),
               ],
               selected: {eq.hpfSlope},
               onSelectionChanged: (s) =>
@@ -189,7 +223,12 @@ class TrackStrip extends StatelessWidget {
   }
 
   Widget _bandRow(
-      BuildContext context, String label, EqBandUi band, double lo, double hi) {
+    BuildContext context,
+    String label,
+    EqBandUi band,
+    double lo,
+    double hi,
+  ) {
     return _eqRow(
       context,
       label: label,
@@ -231,7 +270,9 @@ class TrackStrip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                color: enabled ? AppColors.of(context).accent : AppColors.of(context).faint,
+                color: enabled
+                    ? AppColors.of(context).accent
+                    : AppColors.of(context).faint,
               ),
             ),
           ),
@@ -244,12 +285,12 @@ class TrackStrip extends StatelessWidget {
         Expanded(
           child: Slider(
             value: _toLog(freq, freqLo, freqHi),
-            onChanged:
-                enabled ? (v) => onFreq(_fromLog(v, freqLo, freqHi)) : null,
+            onChanged: enabled
+                ? (v) => onFreq(_fromLog(v, freqLo, freqHi))
+                : null,
           ),
         ),
-        SizedBox(
-            width: 54, child: Text('$freqLabel Hz', style: _dim(context))),
+        SizedBox(width: 54, child: Text('$freqLabel Hz', style: _dim(context))),
         if (gainDb != null && onGain != null) ...[
           Expanded(
             child: GestureDetector(
@@ -275,8 +316,14 @@ class TrackStrip extends StatelessWidget {
     );
   }
 
-  Widget _toggleChip(BuildContext context, String label, bool on, Color color,
-      VoidCallback onTap, String tip) {
+  Widget _toggleChip(
+    BuildContext context,
+    String label,
+    bool on,
+    Color color,
+    VoidCallback onTap,
+    String tip,
+  ) {
     return Tooltip(
       message: tip,
       child: Padding(
@@ -289,15 +336,19 @@ class TrackStrip extends StatelessWidget {
             decoration: BoxDecoration(
               color: on ? color.withValues(alpha: 0.25) : null,
               border: Border.all(
-                  color: on ? color : AppColors.of(context).outline, width: on ? 1.2 : 0.8),
+                color: on ? color : AppColors.of(context).outline,
+                width: on ? 1.2 : 0.8,
+              ),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Text(label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: on ? color : AppColors.of(context).faint,
-                )),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: on ? color : AppColors.of(context).faint,
+              ),
+            ),
           ),
         ),
       ),
@@ -308,8 +359,8 @@ class TrackStrip extends StatelessWidget {
     final label = track.pan.abs() < 0.01
         ? 'C'
         : track.pan < 0
-            ? 'L${(track.pan.abs() * 100).round()}'
-            : 'R${(track.pan * 100).round()}';
+        ? 'L${(track.pan.abs() * 100).round()}'
+        : 'R${(track.pan * 100).round()}';
     return SizedBox(
       width: width,
       child: Row(

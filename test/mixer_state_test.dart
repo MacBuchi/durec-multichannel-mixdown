@@ -12,17 +12,17 @@ import 'package:flutter_test/flutter_test.dart';
 EqBandUi _band() => EqBandUi(enabled: false, freq: 100, gainDb: 0, q: 1);
 
 TrackUi _track(int index, String name) => TrackUi(
-      index: index,
-      name: name,
-      eq: TrackEqUi(
-        hpfEnabled: false,
-        hpfFreq: 80,
-        hpfSlope: rust.ApiHpfSlope.db12,
-        low: _band(),
-        mid: _band(),
-        high: _band(),
-      ),
-    );
+  index: index,
+  name: name,
+  eq: TrackEqUi(
+    hpfEnabled: false,
+    hpfFreq: 80,
+    hpfSlope: rust.ApiHpfSlope.db12,
+    low: _band(),
+    mid: _band(),
+    high: _band(),
+  ),
+);
 
 MixerState _stateWithPair() {
   final state = MixerState();
@@ -41,11 +41,18 @@ void main() {
       expect(pairBaseOf('Keys R'), 'Keys');
       expect(pairBaseOf('Vocals'), isNull);
       expect(pairBaseOf('KeysL'), isNull); // no space → no pair
-      expect(pairBaseOf('L'), isNull); // needs a base name? "L" ends with nothing valid
+      expect(
+        pairBaseOf('L'),
+        isNull,
+      ); // needs a base name? "L" ends with nothing valid
     });
 
     test('pairPartnerOf finds the opposite side or nothing', () {
-      final tracks = [_track(1, 'Keys L'), _track(2, 'Keys R'), _track(3, 'Gtr L')];
+      final tracks = [
+        _track(1, 'Keys L'),
+        _track(2, 'Keys R'),
+        _track(3, 'Gtr L'),
+      ];
       expect(pairPartnerOf(tracks, tracks[0])!.name, 'Keys R');
       expect(pairPartnerOf(tracks, tracks[1])!.name, 'Keys L');
       expect(pairPartnerOf(tracks, tracks[2]), isNull); // Gtr R missing
@@ -193,12 +200,12 @@ void main() {
 
     test('custom LUFS keeps a decimal, integral values drop it', () {
       String name(double lufs) => suggestedExportName(
-            baseName: 'Take.wav',
-            loudness: LoudnessChoice.lufsCustom,
-            customLufs: lufs,
-            format: rust.ApiFormat.flac24,
-            now: stamp,
-          );
+        baseName: 'Take.wav',
+        loudness: LoudnessChoice.lufsCustom,
+        customLufs: lufs,
+        format: rust.ApiFormat.flac24,
+        now: stamp,
+      );
       expect(name(-17.5), 'Take_17.5LUFS_20260719_143005.flac');
       expect(name(-17.0), 'Take_17LUFS_20260719_143005.flac');
     });
@@ -231,9 +238,10 @@ void main() {
     test('maps loudness choices and trim/fades into the DTO', () {
       final state = _stateWithPair();
       final m14 = state.masterFor(
-          loudness: LoudnessChoice.lufs14,
-          customLufs: -17,
-          format: rust.ApiFormat.wav24);
+        loudness: LoudnessChoice.lufs14,
+        customLufs: -17,
+        format: rust.ApiFormat.wav24,
+      );
       expect(m14.loudness.mode, rust.ApiLoudnessMode.lufsIntegrated);
       expect(m14.loudness.value, -14);
       expect(m14.fadeInMs, 0); // untrimmed → no fades
@@ -246,9 +254,10 @@ void main() {
       state.trimStartSeconds = 1.0;
       state.trimEndSeconds = 2.0;
       final trimmed = state.masterFor(
-          loudness: LoudnessChoice.none,
-          customLufs: -17,
-          format: rust.ApiFormat.wav24);
+        loudness: LoudnessChoice.none,
+        customLufs: -17,
+        format: rust.ApiFormat.wav24,
+      );
       expect(trimmed.loudness.mode, rust.ApiLoudnessMode.none);
       expect(trimmed.fadeInMs, MixerState.fadeMs);
       expect(trimmed.fadeOutMs, MixerState.fadeMs);

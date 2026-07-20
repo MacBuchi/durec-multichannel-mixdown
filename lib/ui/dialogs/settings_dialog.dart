@@ -17,8 +17,10 @@ Future<void> showSettingsDialog(BuildContext context) {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Appearance',
-                style: Theme.of(dialogContext).textTheme.labelLarge),
+            Text(
+              'Appearance',
+              style: Theme.of(dialogContext).textTheme.labelLarge,
+            ),
             const SizedBox(height: 8),
             // Rebuilds itself, so the segment highlight follows the tap even
             // though the surrounding dialog route never rebuilds.
@@ -27,17 +29,20 @@ Future<void> showSettingsDialog(BuildContext context) {
               builder: (context, mode, _) => SegmentedButton<ThemeMode>(
                 segments: const [
                   ButtonSegment(
-                      value: ThemeMode.system,
-                      icon: Icon(Icons.brightness_auto),
-                      label: Text('System')),
+                    value: ThemeMode.system,
+                    icon: Icon(Icons.brightness_auto),
+                    label: Text('System'),
+                  ),
                   ButtonSegment(
-                      value: ThemeMode.light,
-                      icon: Icon(Icons.light_mode),
-                      label: Text('Light')),
+                    value: ThemeMode.light,
+                    icon: Icon(Icons.light_mode),
+                    label: Text('Light'),
+                  ),
                   ButtonSegment(
-                      value: ThemeMode.dark,
-                      icon: Icon(Icons.dark_mode),
-                      label: Text('Dark')),
+                    value: ThemeMode.dark,
+                    icon: Icon(Icons.dark_mode),
+                    label: Text('Dark'),
+                  ),
                 ],
                 selected: {mode},
                 showSelectedIcon: false,
@@ -46,8 +51,10 @@ Future<void> showSettingsDialog(BuildContext context) {
               ),
             ),
             const SizedBox(height: 4),
-            Text('System follows your device’s light/dark setting.',
-                style: Theme.of(dialogContext).textTheme.bodySmall),
+            Text(
+              'System follows your device’s light/dark setting.',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
+            ),
             const Divider(height: 24),
             ListTile(
               contentPadding: EdgeInsets.zero,

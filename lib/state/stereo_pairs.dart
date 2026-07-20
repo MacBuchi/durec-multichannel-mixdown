@@ -10,10 +10,9 @@ import 'mix_types.dart';
 
 /// Base name of a pair member (`"Keys L"` → `"Keys"`), or null when the
 /// track is not named like a pair side.
-String? pairBaseOf(String name) =>
-    name.endsWith(' L') || name.endsWith(' R')
-        ? name.substring(0, name.length - 2)
-        : null;
+String? pairBaseOf(String name) => name.endsWith(' L') || name.endsWith(' R')
+    ? name.substring(0, name.length - 2)
+    : null;
 
 /// The other side of `track`'s pair within `tracks`, or null when the track
 /// is unpaired or the partner is missing from the recording.

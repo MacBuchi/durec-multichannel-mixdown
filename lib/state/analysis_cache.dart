@@ -20,16 +20,23 @@ class AnalysisCache {
   static const _version = 1;
 
   static Future<File> _fileFor(
-      String source, BigInt numFrames, int buckets) async {
+    String source,
+    BigInt numFrames,
+    int buckets,
+  ) async {
     final support = await getApplicationSupportDirectory();
     final dir = Directory('${support.path}/analysis');
     await dir.create(recursive: true);
     return File(
-        '${dir.path}/${sourceHashFor(source)}_${numFrames}_$buckets.bin');
+      '${dir.path}/${sourceHashFor(source)}_${numFrames}_$buckets.bin',
+    );
   }
 
   static Future<rust.ApiAnalysis?> load(
-      String source, BigInt numFrames, int buckets) async {
+    String source,
+    BigInt numFrames,
+    int buckets,
+  ) async {
     try {
       final file = await _fileFor(source, numFrames, buckets);
       if (!file.existsSync()) return null;
@@ -62,18 +69,25 @@ class AnalysisCache {
 
         final min = read();
         final max = read();
-        waveforms.add(rust.ApiChannelWaveform(
-            min: min, max: max, peakDbfs: peakDbfs));
+        waveforms.add(
+          rust.ApiChannelWaveform(min: min, max: max, peakDbfs: peakDbfs),
+        );
       }
       return rust.ApiAnalysis(
-          waveforms: waveforms, bpm: bpm.isNaN ? null : bpm);
+        waveforms: waveforms,
+        bpm: bpm.isNaN ? null : bpm,
+      );
     } catch (_) {
       return null; // any corruption → treat as miss
     }
   }
 
-  static Future<void> save(String source, BigInt numFrames, int buckets,
-      rust.ApiAnalysis analysis) async {
+  static Future<void> save(
+    String source,
+    BigInt numFrames,
+    int buckets,
+    rust.ApiAnalysis analysis,
+  ) async {
     try {
       final channels = analysis.waveforms.length;
       final builder = BytesBuilder();
@@ -90,7 +104,11 @@ class AnalysisCache {
         for (final list in [w.min, w.max]) {
           final data = ByteData(buckets * 4);
           for (var i = 0; i < buckets; i++) {
-            data.setFloat32(i * 4, i < list.length ? list[i] : 0, Endian.little);
+            data.setFloat32(
+              i * 4,
+              i < list.length ? list[i] : 0,
+              Endian.little,
+            );
           }
           builder.add(data.buffer.asUint8List());
         }

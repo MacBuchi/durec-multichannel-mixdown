@@ -56,10 +56,15 @@ class UpdateCheck {
         ..connectionTimeout = const Duration(seconds: 10);
       try {
         final request = await client.getUrl(
-            Uri.parse('https://api.github.com/repos/$repoSlug/releases/latest'));
-        request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
-        final response =
-            await request.close().timeout(const Duration(seconds: 10));
+          Uri.parse('https://api.github.com/repos/$repoSlug/releases/latest'),
+        );
+        request.headers.set(
+          HttpHeaders.acceptHeader,
+          'application/vnd.github+json',
+        );
+        final response = await request.close().timeout(
+          const Duration(seconds: 10),
+        );
         if (response.statusCode != 200) return null;
         final body = await response.transform(utf8.decoder).join();
         final release = jsonDecode(body) as Map<String, dynamic>;
@@ -77,7 +82,8 @@ class UpdateCheck {
             .toList();
         return UpdateInfo(
           latestVersion: latest,
-          htmlUrl: release['html_url'] as String? ??
+          htmlUrl:
+              release['html_url'] as String? ??
               'https://github.com/$repoSlug/releases',
           apkUrl: apk.isEmpty
               ? null

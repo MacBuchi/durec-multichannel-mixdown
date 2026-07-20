@@ -71,7 +71,10 @@ class _AnimatedLogoState extends State<AnimatedLogo>
       width: widget.size,
       height: widget.size,
       child: CustomPaint(
-        painter: _LogoPainter(repaint: _controller, amplitude: widget.amplitude),
+        painter: _LogoPainter(
+          repaint: _controller,
+          amplitude: widget.amplitude,
+        ),
       ),
     );
   }
@@ -82,7 +85,7 @@ class _AnimatedLogoState extends State<AnimatedLogo>
 /// one of the two stereo terminals at (866, 442/582).
 class _LogoPainter extends CustomPainter {
   _LogoPainter({required this.repaint, required this.amplitude})
-      : super(repaint: repaint);
+    : super(repaint: repaint);
 
   final Animation<double> repaint;
   final double amplitude;
@@ -99,18 +102,17 @@ class _LogoPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = size.width / 1024.0;
     final t = repaint.value;
-    final animating = repaint is AnimationController &&
+    final animating =
+        repaint is AnimationController &&
         (repaint as AnimationController).isAnimating;
 
     final stroke = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 34 * s
       ..strokeCap = StrokeCap.round
-      ..shader = const LinearGradient(colors: [
-        Color(0xFF3D5A80),
-        Color(0xFF41A7E0),
-        Color(0xFF7FDCFF),
-      ]).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF3D5A80), Color(0xFF41A7E0), Color(0xFF7FDCFF)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     for (var i = 0; i < 6; i++) {
       final path = Path();
@@ -127,8 +129,9 @@ class _LogoPainter extends CustomPainter {
     }
 
     // Stereo terminals, pulsing slightly while animating.
-    final pulse =
-        animating ? 1.0 + 0.12 * math.sin(2 * math.pi * (2 * t)) : 1.0;
+    final pulse = animating
+        ? 1.0 + 0.12 * math.sin(2 * math.pi * (2 * t))
+        : 1.0;
     final terminal = Paint()..color = const Color(0xFFEAF7FF);
     canvas.drawCircle(Offset(_endX * s, 442 * s), 40 * s * pulse, terminal);
     canvas.drawCircle(Offset(_endX * s, 582 * s), 40 * s * pulse, terminal);
@@ -177,7 +180,10 @@ class _LogoPainter extends CustomPainter {
 
   static double _cubic(double v, double p0, double p1, double p2, double p3) {
     final w = 1 - v;
-    return w * w * w * p0 + 3 * w * w * v * p1 + 3 * w * v * v * p2 + v * v * v * p3;
+    return w * w * w * p0 +
+        3 * w * w * v * p1 +
+        3 * w * v * v * p2 +
+        v * v * v * p3;
   }
 
   @override

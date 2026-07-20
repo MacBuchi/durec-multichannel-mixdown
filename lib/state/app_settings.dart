@@ -8,8 +8,8 @@ import 'package:path_provider/path_provider.dart';
 /// the same path_provider pattern as session files, no extra dependency.
 class AppSettings {
   AppSettings._(this._file, Map<String, dynamic> data)
-      : lastFolder = data['lastFolder'] as String?,
-        sortByDate = data['sortByDate'] as bool? ?? false {
+    : lastFolder = data['lastFolder'] as String?,
+      sortByDate = data['sortByDate'] as bool? ?? false {
     themeMode.value = _parseThemeMode(data['themeMode'] as String?);
   }
 
@@ -29,8 +29,9 @@ class AppSettings {
   /// synchronously (`DurecMixApp` takes no settings argument) while [load]
   /// is async — the app starts on the system default and [load] applies the
   /// stored choice before the first frame in `main`.
-  static final ValueNotifier<ThemeMode> themeMode =
-      ValueNotifier(ThemeMode.system);
+  static final ValueNotifier<ThemeMode> themeMode = ValueNotifier(
+    ThemeMode.system,
+  );
 
   static ThemeMode _parseThemeMode(String? name) {
     for (final mode in ThemeMode.values) {
@@ -61,11 +62,13 @@ class AppSettings {
 
   Future<void> save() async {
     try {
-      await _file.writeAsString(jsonEncode({
-        'lastFolder': lastFolder,
-        'sortByDate': sortByDate,
-        'themeMode': themeMode.value.name,
-      }));
+      await _file.writeAsString(
+        jsonEncode({
+          'lastFolder': lastFolder,
+          'sortByDate': sortByDate,
+          'themeMode': themeMode.value.name,
+        }),
+      );
     } catch (_) {
       // Settings are a convenience; never surface write failures.
     }

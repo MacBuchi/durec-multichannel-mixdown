@@ -23,7 +23,10 @@ Future<bool?> showBatchExportDialog(BuildContext context, MixerState state) {
                 child: Text(
                   'Each job renders the current mix at its own loudness '
                   'target and format, auto-named into one folder.',
-                  style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.of(context).dim,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -31,14 +34,15 @@ Future<bool?> showBatchExportDialog(BuildContext context, MixerState state) {
                 Row(
                   children: [
                     Expanded(
-                        child: _jobLoudnessDropdown(context, job,
-                            setDialogState)),
+                      child: _jobLoudnessDropdown(context, job, setDialogState),
+                    ),
                     const SizedBox(width: 8),
                     _jobFormatDropdown(job, setDialogState),
                     IconButton(
                       icon: const Icon(Icons.remove_circle_outline, size: 18),
                       onPressed: () => setDialogState(
-                          () => state.exporter.removeBatchJob(job)),
+                        () => state.exporter.removeBatchJob(job),
+                      ),
                     ),
                   ],
                 ),
@@ -71,19 +75,26 @@ Future<bool?> showBatchExportDialog(BuildContext context, MixerState state) {
 }
 
 Widget _jobLoudnessDropdown(
-    BuildContext context, BatchJob job, StateSetter setDialogState) {
+  BuildContext context,
+  BatchJob job,
+  StateSetter setDialogState,
+) {
   return DropdownButton<LoudnessChoice>(
     value: job.loudness,
     isExpanded: true,
     underline: const SizedBox.shrink(),
     items: LoudnessChoice.values
-        .map((c) => DropdownMenuItem(
+        .map(
+          (c) => DropdownMenuItem(
             value: c,
             child: Text(
-                c == LoudnessChoice.lufsCustom && job.loudness == c
-                    ? '${job.customLufs.toStringAsFixed(1)} LUFS'
-                    : c.label,
-                style: const TextStyle(fontSize: 13))))
+              c == LoudnessChoice.lufsCustom && job.loudness == c
+                  ? '${job.customLufs.toStringAsFixed(1)} LUFS'
+                  : c.label,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        )
         .toList(),
     onChanged: (c) async {
       if (c == null) return;
@@ -102,10 +113,12 @@ Widget _jobFormatDropdown(BatchJob job, StateSetter setDialogState) {
     value: job.format,
     underline: const SizedBox.shrink(),
     items: rust.ApiFormat.values
-        .map((f) => DropdownMenuItem(
+        .map(
+          (f) => DropdownMenuItem(
             value: f,
-            child:
-                Text(formatLabels[f]!, style: const TextStyle(fontSize: 13))))
+            child: Text(formatLabels[f]!, style: const TextStyle(fontSize: 13)),
+          ),
+        )
         .toList(),
     onChanged: (f) => f != null ? setDialogState(() => job.format = f) : null,
   );

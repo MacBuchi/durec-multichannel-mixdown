@@ -13,8 +13,9 @@ enum FeedbackType { feature, bug }
 const _token = String.fromEnvironment('DURECMIX_FEEDBACK_TOKEN');
 
 String issueTitle(FeedbackType type, String message) {
-  final prefix =
-      type == FeedbackType.bug ? 'Bug report: ' : 'Feature request: ';
+  final prefix = type == FeedbackType.bug
+      ? 'Bug report: '
+      : 'Feature request: ';
   final head = message.trim().split('\n').first.trim();
   return prefix + (head.length <= 60 ? head : '${head.substring(0, 60)}…');
 }
@@ -40,8 +41,9 @@ Uri issueFormUrl(
   required String version,
   required String platform,
 }) {
-  final template =
-      type == FeedbackType.bug ? 'bug_report.yml' : 'feature_request.yml';
+  final template = type == FeedbackType.bug
+      ? 'bug_report.yml'
+      : 'feature_request.yml';
   return Uri.https('github.com', '/$repoSlug/issues/new', {
     'template': template,
     'title': issueTitle(type, message),
@@ -68,8 +70,12 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
 
   if (_token.isEmpty) {
     final ok = await launchUrl(
-      issueFormUrl(type,
-          message: message, version: version, platform: platform),
+      issueFormUrl(
+        type,
+        message: message,
+        version: version,
+        platform: platform,
+      ),
       mode: LaunchMode.externalApplication,
     );
     if (!ok) throw Exception('could not open the browser');
@@ -78,20 +84,25 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
 
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
-    final request = await client
-        .postUrl(Uri.parse('https://api.github.com/repos/$repoSlug/issues'));
+    final request = await client.postUrl(
+      Uri.parse('https://api.github.com/repos/$repoSlug/issues'),
+    );
     request.headers
       ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
       ..set(HttpHeaders.authorizationHeader, 'Bearer $_token')
       ..contentType = ContentType.json;
-    request.write(jsonEncode({
-      'title': issueTitle(type, message),
-      'body': issueBody(
-          message: message, version: version, platform: platform),
-      'labels': [type == FeedbackType.bug ? 'bug' : 'enhancement'],
-    }));
-    final response =
-        await request.close().timeout(const Duration(seconds: 15));
+    request.write(
+      jsonEncode({
+        'title': issueTitle(type, message),
+        'body': issueBody(
+          message: message,
+          version: version,
+          platform: platform,
+        ),
+        'labels': [type == FeedbackType.bug ? 'bug' : 'enhancement'],
+      }),
+    );
+    final response = await request.close().timeout(const Duration(seconds: 15));
     await response.drain<void>();
     if (response.statusCode != 201) {
       throw HttpException('GitHub responded ${response.statusCode}');

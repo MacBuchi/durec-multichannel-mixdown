@@ -134,7 +134,11 @@ class MixerState extends ChangeNotifier {
     // returning to a take instant (key includes the frame count, so
     // re-recorded files invalidate naturally).
     final numFrames = recording!.numFrames;
-    final cached = await AnalysisCache.load(source, numFrames, _waveformBuckets);
+    final cached = await AnalysisCache.load(
+      source,
+      numFrames,
+      _waveformBuckets,
+    );
     if (cached != null && recording?.path == source) {
       waveforms = cached.waveforms;
       bpm = cached.bpm;
@@ -152,7 +156,8 @@ class MixerState extends ChangeNotifier {
       waveforms = analysis.waveforms;
       bpm = analysis.bpm;
       unawaited(
-          AnalysisCache.save(source, numFrames, _waveformBuckets, analysis));
+        AnalysisCache.save(source, numFrames, _waveformBuckets, analysis),
+      );
     } catch (_) {
       // Analysis is decoration (waveforms + BPM badge) — a failure must
       // never block mixing, so the strips simply render without waveforms.
@@ -287,26 +292,39 @@ class MixerState extends ChangeNotifier {
     required rust.ApiFormat format,
   }) => rust.ApiMaster(
     loudness: switch (loudness) {
-      LoudnessChoice.none =>
-          const rust.ApiLoudness(mode: rust.ApiLoudnessMode.none, value: 0),
-      LoudnessChoice.peakMinus1 =>
-          const rust.ApiLoudness(mode: rust.ApiLoudnessMode.peakDbfs, value: -1),
+      LoudnessChoice.none => const rust.ApiLoudness(
+        mode: rust.ApiLoudnessMode.none,
+        value: 0,
+      ),
+      LoudnessChoice.peakMinus1 => const rust.ApiLoudness(
+        mode: rust.ApiLoudnessMode.peakDbfs,
+        value: -1,
+      ),
       LoudnessChoice.lufs14 => const rust.ApiLoudness(
-          mode: rust.ApiLoudnessMode.lufsIntegrated, value: -14),
+        mode: rust.ApiLoudnessMode.lufsIntegrated,
+        value: -14,
+      ),
       LoudnessChoice.lufs16 => const rust.ApiLoudness(
-          mode: rust.ApiLoudnessMode.lufsIntegrated, value: -16),
+        mode: rust.ApiLoudnessMode.lufsIntegrated,
+        value: -16,
+      ),
       LoudnessChoice.lufs23 => const rust.ApiLoudness(
-          mode: rust.ApiLoudnessMode.lufsIntegrated, value: -23),
+        mode: rust.ApiLoudnessMode.lufsIntegrated,
+        value: -23,
+      ),
       LoudnessChoice.lufsCustom => rust.ApiLoudness(
-          mode: rust.ApiLoudnessMode.lufsIntegrated, value: customLufs),
+        mode: rust.ApiLoudnessMode.lufsIntegrated,
+        value: customLufs,
+      ),
     },
     format: format,
     limiterEnabled: true,
     ceilingDbtp: -1.0,
     dither: true,
     trimStartFrame: BigInt.from(((trimStartSeconds ?? 0) * sampleRate).round()),
-    trimEndFrame:
-        trimEndSeconds != null ? BigInt.from((trimEndSeconds! * sampleRate).round()) : null,
+    trimEndFrame: trimEndSeconds != null
+        ? BigInt.from((trimEndSeconds! * sampleRate).round())
+        : null,
     fadeInMs: trimStartSeconds != null ? fadeMs : 0,
     fadeOutMs: trimEndSeconds != null ? fadeMs : 0,
     masteringEnabled: mastering.enabled,
@@ -333,7 +351,9 @@ class MixerState extends ChangeNotifier {
     final sr = recording?.sampleRate ?? 48000;
     final start = m.trimStartFrame.toInt();
     trimStartSeconds = start > 0 ? start / sr : null;
-    trimEndSeconds = m.trimEndFrame != null ? m.trimEndFrame!.toInt() / sr : null;
+    trimEndSeconds = m.trimEndFrame != null
+        ? m.trimEndFrame!.toInt() / sr
+        : null;
     switch (m.loudness.mode) {
       case rust.ApiLoudnessMode.none:
         loudness = LoudnessChoice.none;

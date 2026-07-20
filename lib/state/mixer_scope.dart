@@ -8,11 +8,8 @@ import 'mixer_state.dart';
 /// `of(context)` also subscribes the caller to rebuilds on [MixerState]
 /// notifications.
 class MixerScope extends InheritedNotifier<MixerState> {
-  const MixerScope({
-    super.key,
-    required MixerState state,
-    required super.child,
-  }) : super(notifier: state);
+  const MixerScope({super.key, required MixerState state, required super.child})
+    : super(notifier: state);
 
   static MixerState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<MixerScope>();

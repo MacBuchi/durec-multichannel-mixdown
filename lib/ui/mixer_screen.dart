@@ -136,7 +136,10 @@ class _MixerScreenState extends State<MixerScreen> {
       }
       return;
     }
-    const group = XTypeGroup(label: 'WAV recordings', extensions: ['wav', 'WAV']);
+    const group = XTypeGroup(
+      label: 'WAV recordings',
+      extensions: ['wav', 'WAV'],
+    );
     final file = await openFile(acceptedTypeGroups: [group]);
     if (file != null) {
       await state.open(file.path);
@@ -151,17 +154,22 @@ class _MixerScreenState extends State<MixerScreen> {
         rust.ApiFormat.mp3 => 'audio/mpeg',
         _ => 'audio/x-wav',
       };
-      final uri = await Saf.createDocument(state.exporter.suggestedName(), mime);
+      final uri = await Saf.createDocument(
+        state.exporter.suggestedName(),
+        mime,
+      );
       if (uri != null) {
         await state.exporter.export(uri);
         if (state.error == null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text('Export finished'),
-            action: SnackBarAction(
-              label: 'Share',
-              onPressed: () => Saf.shareFiles([uri]),
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Export finished'),
+              action: SnackBarAction(
+                label: 'Share',
+                onPressed: () => Saf.shareFiles([uri]),
+              ),
             ),
-          ));
+          );
         }
       }
       return;
@@ -169,7 +177,8 @@ class _MixerScreenState extends State<MixerScreen> {
     if (IosFiles.isAvailable) {
       // iOS: render into tmp, then let the export picker move the finished
       // file wherever the user chooses (Files, iCloud, USB drive).
-      final tempPath = '${Directory.systemTemp.path}/${state.exporter.suggestedName()}';
+      final tempPath =
+          '${Directory.systemTemp.path}/${state.exporter.suggestedName()}';
       await state.exporter.export(tempPath);
       if (state.error == null) {
         final dest = await IosFiles.exportMove(tempPath);
@@ -184,7 +193,9 @@ class _MixerScreenState extends State<MixerScreen> {
       }
       return;
     }
-    final location = await getSaveLocation(suggestedName: state.exporter.suggestedName());
+    final location = await getSaveLocation(
+      suggestedName: state.exporter.suggestedName(),
+    );
     if (location != null) {
       await state.exporter.export(location.path);
     }
@@ -237,108 +248,131 @@ class _MixerScreenState extends State<MixerScreen> {
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Icon(Icons.expand_more,
-                              size: 18, color: AppColors.of(context).dim),
+                          Icon(
+                            Icons.expand_more,
+                            size: 18,
+                            color: AppColors.of(context).dim,
+                          ),
                         ],
                       ),
                     ),
                   ),
-            actions: narrow ? _narrowActions(rec) : [
-              if (rec != null) ...[
-                IconButton(
-                  tooltip: state.mastering.preview && state.mastering.mixStatsStale
-                      ? 'Mastering preview is stale — mix changed since the '
-                          'analysis'
-                      : state.mastering.enabled
-                          ? 'Reference mastering: '
-                              '${state.mastering.referenceName}'
-                          : 'Reference mastering — match the export to a '
-                              'reference track',
-                  onPressed: () => showMasteringDialog(context, state),
-                  icon: Icon(Icons.auto_fix_high,
-                      size: 20,
-                      color: state.mastering.preview && state.mastering.mixStatsStale
-                          ? AppColors.of(context).warning
-                          : state.mastering.enabled
+            actions: narrow
+                ? _narrowActions(rec)
+                : [
+                    if (rec != null) ...[
+                      IconButton(
+                        tooltip:
+                            state.mastering.preview &&
+                                state.mastering.mixStatsStale
+                            ? 'Mastering preview is stale — mix changed since the '
+                                  'analysis'
+                            : state.mastering.enabled
+                            ? 'Reference mastering: '
+                                  '${state.mastering.referenceName}'
+                            : 'Reference mastering — match the export to a '
+                                  'reference track',
+                        onPressed: () => showMasteringDialog(context, state),
+                        icon: Icon(
+                          Icons.auto_fix_high,
+                          size: 20,
+                          color:
+                              state.mastering.preview &&
+                                  state.mastering.mixStatsStale
+                              ? AppColors.of(context).warning
+                              : state.mastering.enabled
                               ? AppColors.of(context).accent
-                              : AppColors.of(context).faint),
-                ),
-                _loudnessSelector(),
-                const SizedBox(width: 8),
-                _formatSelector(),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: state.exporter.rendering ? null : _export,
-                  icon: const Icon(Icons.save_alt, size: 18),
-                  label: Text(state.exporter.rendering
-                      ? '${state.exporter.batchRunning ? '${state.exporter.batchCurrent}/${state.exporter.batchTotal} · ' : ''}'
-                          '${(state.exporter.renderProgress * 100).round()} %'
-                      : 'Export'),
-                ),
-                if (_batchAvailable)
-                  IconButton(
-                    tooltip: 'Export multiple formats of this mix into one '
-                        'folder (all files of the folder: use the browser)',
-                    onPressed: state.exporter.rendering ? null : _batchExport,
-                    icon: const Icon(Icons.playlist_add_check, size: 20),
-                  ),
-                const SizedBox(width: 8),
-              ],
-              if (rec != null)
-                for (final slot in ['A', 'B'])
-                  Tooltip(
-                    message: state.hasSnapshot(slot)
-                        ? 'Recall mix snapshot $slot — long-press or '
-                            'right-click to overwrite'
-                        : 'Store current mix as snapshot $slot',
-                    // Manual trigger: the default long-press trigger steals
-                    // the gesture from onLongPress below, making overwrite
-                    // impossible. Hover still shows the tooltip.
-                    triggerMode: TooltipTriggerMode.manual,
-                    child: GestureDetector(
-                      onSecondaryTap: () => _storeSnapshot(slot),
-                      child: InkWell(
-                        onTap: () => _tapSnapshot(slot),
-                        onLongPress: () => _storeSnapshot(slot),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Text(slot,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: state.hasSnapshot(slot)
-                                    ? AppColors.of(context).accent
-                                    : AppColors.of(context).faint,
-                              )),
+                              : AppColors.of(context).faint,
                         ),
                       ),
+                      _loudnessSelector(),
+                      const SizedBox(width: 8),
+                      _formatSelector(),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: state.exporter.rendering ? null : _export,
+                        icon: const Icon(Icons.save_alt, size: 18),
+                        label: Text(
+                          state.exporter.rendering
+                              ? '${state.exporter.batchRunning ? '${state.exporter.batchCurrent}/${state.exporter.batchTotal} · ' : ''}'
+                                    '${(state.exporter.renderProgress * 100).round()} %'
+                              : 'Export',
+                        ),
+                      ),
+                      if (_batchAvailable)
+                        IconButton(
+                          tooltip:
+                              'Export multiple formats of this mix into one '
+                              'folder (all files of the folder: use the browser)',
+                          onPressed: state.exporter.rendering
+                              ? null
+                              : _batchExport,
+                          icon: const Icon(Icons.playlist_add_check, size: 20),
+                        ),
+                      const SizedBox(width: 8),
+                    ],
+                    if (rec != null)
+                      for (final slot in ['A', 'B'])
+                        Tooltip(
+                          message: state.hasSnapshot(slot)
+                              ? 'Recall mix snapshot $slot — long-press or '
+                                    'right-click to overwrite'
+                              : 'Store current mix as snapshot $slot',
+                          // Manual trigger: the default long-press trigger steals
+                          // the gesture from onLongPress below, making overwrite
+                          // impossible. Hover still shows the tooltip.
+                          triggerMode: TooltipTriggerMode.manual,
+                          child: GestureDetector(
+                            onSecondaryTap: () => _storeSnapshot(slot),
+                            child: InkWell(
+                              onTap: () => _tapSnapshot(slot),
+                              onLongPress: () => _storeSnapshot(slot),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                child: Text(
+                                  slot,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: state.hasSnapshot(slot)
+                                        ? AppColors.of(context).accent
+                                        : AppColors.of(context).faint,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    if (rec != null)
+                      IconButton(
+                        tooltip:
+                            'Link stereo pairs (·L/·R): mirrored pans, shared '
+                            'gain/mute/solo/EQ',
+                        onPressed: state.toggleLinkPairs,
+                        icon: Icon(
+                          Icons.link,
+                          size: 20,
+                          color: state.linkPairs
+                              ? AppColors.of(context).accent
+                              : AppColors.of(context).faint,
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: 'Settings',
+                      onPressed: () => showSettingsDialog(context),
+                      icon: const Icon(Icons.settings_outlined),
                     ),
-                  ),
-              if (rec != null)
-                IconButton(
-                  tooltip: 'Link stereo pairs (·L/·R): mirrored pans, shared '
-                      'gain/mute/solo/EQ',
-                  onPressed: state.toggleLinkPairs,
-                  icon: Icon(Icons.link,
-                      size: 20,
-                      color: state.linkPairs
-                          ? AppColors.of(context).accent
-                          : AppColors.of(context).faint),
-                ),
-              IconButton(
-                tooltip: 'Settings',
-                onPressed: () => showSettingsDialog(context),
-                icon: const Icon(Icons.settings_outlined),
-                ),
-              // Only once a recording is open: on the start screen the
-              // centre button is the single folder affordance (#74).
-              if (rec != null)
-                IconButton(
-                  tooltip: 'Choose recordings folder',
-                  onPressed: _changeFolder,
-                  icon: const Icon(Icons.folder_open),
-                ),
-              const SizedBox(width: 8),
-            ],
+                    // Only once a recording is open: on the start screen the
+                    // centre button is the single folder affordance (#74).
+                    if (rec != null)
+                      IconButton(
+                        tooltip: 'Choose recordings folder',
+                        onPressed: _changeFolder,
+                        icon: const Icon(Icons.folder_open),
+                      ),
+                    const SizedBox(width: 8),
+                  ],
           ),
           body: Column(
             children: [
@@ -359,16 +393,18 @@ class _MixerScreenState extends State<MixerScreen> {
       if (rec != null)
         FilledButton(
           onPressed: state.exporter.rendering ? null : _export,
-          child: Text(state.exporter.rendering
-              ? '${state.exporter.batchRunning ? '${state.exporter.batchCurrent}/${state.exporter.batchTotal} · ' : ''}'
-                  '${(state.exporter.renderProgress * 100).round()} %'
-              : 'Export'),
+          child: Text(
+            state.exporter.rendering
+                ? '${state.exporter.batchRunning ? '${state.exporter.batchCurrent}/${state.exporter.batchTotal} · ' : ''}'
+                      '${(state.exporter.renderProgress * 100).round()} %'
+                : 'Export',
+          ),
         ),
       IconButton(
         tooltip: 'Settings',
         onPressed: () => showSettingsDialog(context),
         icon: const Icon(Icons.settings_outlined),
-        ),
+      ),
       // See the wide layout: hidden on the start screen (#74).
       if (rec != null)
         IconButton(
@@ -402,36 +438,48 @@ class _MixerScreenState extends State<MixerScreen> {
           },
           itemBuilder: (_) => [
             PopupMenuItem(
-                value: 'mastering',
-                child: Text(state.mastering.enabled
+              value: 'mastering',
+              child: Text(
+                state.mastering.enabled
                     ? 'Mastering: ${state.mastering.referenceName}'
-                    : 'Reference mastering…')),
+                    : 'Reference mastering…',
+              ),
+            ),
             PopupMenuItem(
-                value: 'loudness',
-                enabled: !state.mastering.enabled,
-                child: Text(state.mastering.enabled
+              value: 'loudness',
+              enabled: !state.mastering.enabled,
+              child: Text(
+                state.mastering.enabled
                     ? 'Loudness: follows reference'
-                    : 'Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}')),
+                    : 'Loudness: ${state.loudness == LoudnessChoice.lufsCustom ? '${state.customLufs.toStringAsFixed(1)} LUFS' : state.loudness.label}',
+              ),
+            ),
             PopupMenuItem(
-                value: 'format',
-                child: Text('Format: ${formatLabels[state.format]}')),
+              value: 'format',
+              child: Text('Format: ${formatLabels[state.format]}'),
+            ),
             if (_batchAvailable)
               const PopupMenuItem(value: 'batch', child: Text('Batch export…')),
             for (final slot in ['A', 'B']) ...[
               PopupMenuItem(
-                  value: 'snap$slot',
-                  child: Text(state.hasSnapshot(slot)
+                value: 'snap$slot',
+                child: Text(
+                  state.hasSnapshot(slot)
                       ? 'Recall mix snapshot $slot'
-                      : 'Store mix snapshot $slot')),
+                      : 'Store mix snapshot $slot',
+                ),
+              ),
               if (state.hasSnapshot(slot))
                 PopupMenuItem(
-                    value: 'store$slot',
-                    child: Text('Overwrite mix snapshot $slot')),
+                  value: 'store$slot',
+                  child: Text('Overwrite mix snapshot $slot'),
+                ),
             ],
             CheckedPopupMenuItem(
-                value: 'link',
-                checked: state.linkPairs,
-                child: const Text('Link stereo pairs')),
+              value: 'link',
+              checked: state.linkPairs,
+              child: const Text('Link stereo pairs'),
+            ),
           ],
         ),
     ];
@@ -442,7 +490,9 @@ class _MixerScreenState extends State<MixerScreen> {
   void _tapSnapshot(String slot) {
     final existed = state.hasSnapshot(slot);
     state.recallOrStoreSnapshot(slot);
-    _snack(existed ? 'Mix snapshot $slot recalled' : 'Mix snapshot $slot stored');
+    _snack(
+      existed ? 'Mix snapshot $slot recalled' : 'Mix snapshot $slot stored',
+    );
   }
 
   /// Overwrite unconditionally (long-press / right-click / menu entry).
@@ -454,12 +504,14 @@ class _MixerScreenState extends State<MixerScreen> {
   void _snack(String message) {
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        width: 280,
-      ));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          width: 280,
+        ),
+      );
   }
 
   /// The main window's empty track area doubles as the start screen: the
@@ -479,8 +531,10 @@ class _MixerScreenState extends State<MixerScreen> {
               style: TextStyle(color: AppColors.of(context).dim),
             )
           else ...[
-            Text('Choose a folder with DUREC recordings',
-                style: TextStyle(color: AppColors.of(context).dim)),
+            Text(
+              'Choose a folder with DUREC recordings',
+              style: TextStyle(color: AppColors.of(context).dim),
+            ),
             const SizedBox(height: 16),
             // Always asks which folder, rather than silently reopening the
             // remembered one: on the start screen this is the ONLY folder
@@ -494,7 +548,10 @@ class _MixerScreenState extends State<MixerScreen> {
           ],
           if (state.error != null) ...[
             const SizedBox(height: 16),
-            Text(state.error!, style: TextStyle(color: AppColors.of(context).error)),
+            Text(
+              state.error!,
+              style: TextStyle(color: AppColors.of(context).error),
+            ),
           ],
         ],
       ),
@@ -542,25 +599,39 @@ class _MixerScreenState extends State<MixerScreen> {
                 '${fmtTime(rec.durationSeconds)}'
                 '${state.bpm != null ? ' · ${state.bpm!.round()} BPM' : ''}'
                 '${state.trimStartSeconds != null || state.trimEndSeconds != null ? ' · trim ${fmtTime(state.trimStartSeconds ?? 0)}–${fmtTime(state.trimEndSeconds ?? rec.durationSeconds)}' : ''}',
-                style: TextStyle(fontSize: 12, color: AppColors.of(context).dim),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.of(context).dim,
+                ),
               ),
               const Spacer(),
               if (state.analyzing)
-                Row(children: [
-                  // The analysis pass is the one reliably long wait — this
-                  // is where the swinging-logo animation actually lives
-                  // (opening a file is header-only and over in a blink).
-                  AnimatedLogo(size: 26, animate: true, amplitude: 90),
-                  SizedBox(width: 6),
-                  Text('analysing waveforms…',
-                      style: TextStyle(fontSize: 12, color: AppColors.of(context).dim)),
-                ]),
+                Row(
+                  children: [
+                    // The analysis pass is the one reliably long wait — this
+                    // is where the swinging-logo animation actually lives
+                    // (opening a file is header-only and over in a blink).
+                    AnimatedLogo(size: 26, animate: true, amplitude: 90),
+                    SizedBox(width: 6),
+                    Text(
+                      'analysing waveforms…',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.of(context).dim,
+                      ),
+                    ),
+                  ],
+                ),
               if (state.error != null)
                 Flexible(
-                  child: Text(state.error!,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          TextStyle(fontSize: 12, color: AppColors.of(context).error)),
+                  child: Text(
+                    state.error!,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.of(context).error,
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -604,8 +675,9 @@ class _MixerScreenState extends State<MixerScreen> {
                 Row(
                   children: [
                     StereoPeakMeter(
-                        peakL: state.playback.peakL,
-                        peakR: state.playback.peakR),
+                      peakL: state.playback.peakL,
+                      peakR: state.playback.peakR,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(child: _meterText(oneLine: true)),
                   ],
@@ -616,8 +688,9 @@ class _MixerScreenState extends State<MixerScreen> {
                     ..._transportControls(rec),
                     const SizedBox(width: 16),
                     StereoPeakMeter(
-                        peakL: state.playback.peakL,
-                        peakR: state.playback.peakR),
+                      peakL: state.playback.peakL,
+                      peakR: state.playback.peakR,
+                    ),
                     const SizedBox(width: 12),
                     SizedBox(width: 170, child: _meterText()),
                   ],
@@ -668,7 +741,7 @@ class _MixerScreenState extends State<MixerScreen> {
       'TP ${report.truePeakDbtp.toStringAsFixed(1)} dBTP · '
       'LRA ${report.lraLu.toStringAsFixed(1)} LU · '
       '${report.masteringApplied ? 'matched to ${state.mastering.referenceName} '
-          '(${signedDb(report.masteringGainDb)} dB) ' : 'gain ${signedDb(report.gainAppliedDb)} dB '}'
+                '(${signedDb(report.masteringGainDb)} dB) ' : 'gain ${signedDb(report.gainAppliedDb)} dB '}'
       '→ ${state.exporter.lastOutputPath ?? ''}';
 
   List<Widget> _transportControls(rust.RecordingInfo rec) {
@@ -687,11 +760,13 @@ class _MixerScreenState extends State<MixerScreen> {
         onPressed: () => state.setTrimStart(state.playback.positionSeconds),
         icon: GestureDetector(
           onLongPress: () => state.setTrimStart(null),
-          child: Icon(Icons.first_page,
-              size: 18,
-              color: state.trimStartSeconds != null
-                  ? AppColors.of(context).accent
-                  : AppColors.of(context).faint),
+          child: Icon(
+            Icons.first_page,
+            size: 18,
+            color: state.trimStartSeconds != null
+                ? AppColors.of(context).accent
+                : AppColors.of(context).faint,
+          ),
         ),
       ),
       IconButton(
@@ -699,17 +774,20 @@ class _MixerScreenState extends State<MixerScreen> {
         onPressed: () => state.setTrimEnd(state.playback.positionSeconds),
         icon: GestureDetector(
           onLongPress: () => state.setTrimEnd(null),
-          child: Icon(Icons.last_page,
-              size: 18,
-              color: state.trimEndSeconds != null
-                  ? AppColors.of(context).accent
-                  : AppColors.of(context).faint),
+          child: Icon(
+            Icons.last_page,
+            size: 18,
+            color: state.trimEndSeconds != null
+                ? AppColors.of(context).accent
+                : AppColors.of(context).faint,
+          ),
         ),
       ),
       const SizedBox(width: 4),
-      Text(fmtTime(state.playback.positionSeconds),
-          style:
-              const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+      Text(
+        fmtTime(state.playback.positionSeconds),
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+      ),
       Expanded(
         child: Slider(
           value: state.playback.positionSeconds
@@ -719,22 +797,24 @@ class _MixerScreenState extends State<MixerScreen> {
           onChanged: state.playback.seek,
         ),
       ),
-      Text(fmtTime(rec.durationSeconds),
-          style:
-              const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+      Text(
+        fmtTime(rec.durationSeconds),
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+      ),
     ];
   }
 
   Widget _meterText({bool oneLine = false}) {
     final tp = state.playback.truePeak > 0
-        ? (20 * math.log(state.playback.truePeak) / math.ln10)
-            .toStringAsFixed(1)
+        ? (20 * math.log(state.playback.truePeak) / math.ln10).toStringAsFixed(
+            1,
+          )
         : '−∞';
     final separator = oneLine ? ' · ' : '\n';
     return Text(
       state.playback.playing
           ? '${fmtLufs(state.playback.lufsMomentary)} LUFS-M · ${fmtLufs(state.playback.lufsIntegrated)} LUFS-I$separator'
-              'TP $tp dBTP · corr ${state.playback.correlation.toStringAsFixed(2)}'
+                'TP $tp dBTP · corr ${state.playback.correlation.toStringAsFixed(2)}'
           : '',
       // Never wrap: a second line would change the bar height mid-playback.
       maxLines: oneLine ? 1 : 2,
@@ -752,12 +832,17 @@ class _MixerScreenState extends State<MixerScreen> {
         value: state.loudness,
         underline: const SizedBox.shrink(),
         items: LoudnessChoice.values
-            .map((c) => DropdownMenuItem(
+            .map(
+              (c) => DropdownMenuItem(
                 value: c,
-                child: Text(c == LoudnessChoice.lufsCustom &&
-                        state.loudness == LoudnessChoice.lufsCustom
-                    ? '${state.customLufs.toStringAsFixed(1)} LUFS'
-                    : c.label)))
+                child: Text(
+                  c == LoudnessChoice.lufsCustom &&
+                          state.loudness == LoudnessChoice.lufsCustom
+                      ? '${state.customLufs.toStringAsFixed(1)} LUFS'
+                      : c.label,
+                ),
+              ),
+            )
             .toList(),
         // Greyed out while mastering: the reference owns the level.
         onChanged: state.mastering.enabled
