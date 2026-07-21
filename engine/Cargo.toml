@@ -9,7 +9,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 hound = "3.5"
-cpal = "0.18"
+# Pinned below 0.17: since the AAudio rewrite, building an output stream
+# calls AudioManager::get_mixer_bursts() through JNI, and cpal's own Err
+# fallback never gets a chance — ndk_context::android_context() panics
+# first, because nothing initializes ndk_context in a Flutter app (the .so
+# is dlopen'ed, JNI_OnLoad never runs). Playback on Android dies at the
+# first play tap (issue #88, shipped broken in v0.12.10–v0.12.12). Lift
+# the pin only with the ndk_context handshake in place (MainActivity → JNI
+# → ndk_context::initialize_android_context), verified on a device.
+cpal = "0.16"
 ebur128 = "0.1"
 rtrb = "0.3"
 flacenc = "0.5.1"

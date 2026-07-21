@@ -386,15 +386,13 @@ fn build_stream(
         .ok_or_else(|| EngineError::Encode("no audio output device".into()))?;
     let config = cpal::StreamConfig {
         channels: 2,
-        // cpal 0.18: SampleRate is a plain u32 alias, no longer a newtype.
-        sample_rate,
+        sample_rate: cpal::SampleRate(sample_rate),
         buffer_size: cpal::BufferSize::Default,
     };
     let cb = Arc::clone(shared);
     device
         .build_output_stream(
-            // cpal 0.18 takes the config by value.
-            config,
+            &config,
             move |data: &mut [f32], _| {
                 let mut n = 0;
                 while n < data.len() {
