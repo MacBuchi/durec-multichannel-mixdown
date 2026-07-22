@@ -72,6 +72,15 @@ void main() {
     // a desktop-sized test surface; phone-layout sections set their own.
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1.0;
+    // Every surface pin must also pin BOTH inset kinds: on a real Android
+    // device the view keeps its PHYSICAL-pixel status/gesture insets
+    // (sized for DPR ~2.6+), which at the faked DPR of 1.0 balloon to
+    // ~190 logical px — and focusing a text field summons the real soft
+    // keyboard, whose viewInsets collapse dialogs to a few px mid-test.
+    // macOS has neither; zeroing both makes the platforms lay out
+    // identically.
+    tester.view.padding = FakeViewPadding.zero;
+    tester.view.viewInsets = FakeViewPadding.zero;
     // Injected through the MixerScope seam — the test owns the state and
     // never reaches into widget internals.
     final state = MixerState();
@@ -116,7 +125,21 @@ void main() {
     expect(find.text('Make a wish!'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.close).first); // dismiss the banner
+    // Dismiss the banner. Not a coordinate tap: on a real Android device the
+    // status-bar inset shifts this top-of-screen zone and the derived tap
+    // point misses the 18 px icon (macOS has no inset, so the same tap
+    // passes there). Invoking the InkWell's onTap keeps the dismissal logic
+    // covered on every platform without depending on inset geometry.
+    tester
+        .widget<InkWell>(
+          find
+              .ancestor(
+                of: find.byIcon(Icons.close).first,
+                matching: find.byType(InkWell),
+              )
+              .first, // nearest enclosing InkWell = the dismiss affordance
+        )
+        .onTap!();
     await tester.pump();
     expect(find.textContaining('Request a feature'), findsNothing);
 
@@ -188,6 +211,80 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    // REAL playback through the platform audio backend — Android only.
+    // v0.12.10 shipped with every play tap panicking (cpal's AAudio backend
+    // needs an initialized ndk_context, issue #88) while every test stayed
+    // green, because nothing ever played audio on Android. This section is
+    // that missing coverage; it runs on-device/emulator, not in CI (the CI
+    // matrix builds the APK but cannot run it).
+    //
+    // The assertions are chosen so a silent-but-alive stream still fails:
+    // the decode thread blocks once the ~0.2 s ring buffer is full, so the
+    // position can only pass 0.5 s if the AAudio callback actually drains
+    // frames. Peaks prove the mix carries signal, not zeros.
+    if (Platform.isAndroid) {
+      await state.playback.togglePlay();
+      await tester.pump();
+      expect(
+        state.error,
+        isNull,
+        reason: 'playerStart must not fail (ndk_context handshake, #88)',
+      );
+      expect(state.playback.playing, isTrue);
+      // Real wall-clock playback; pump keeps the 30 Hz meter poll alive.
+      // Sample the meters per iteration and assert on the maxima: the
+      // fixture is only 2 s, so by the end of this loop playback has hit
+      // EOF and the final poll legitimately reads silence — a read-once at
+      // the end races the fixture length (it did, emulator run 1).
+      var maxPeak = 0.0;
+      var maxPos = 0.0;
+      for (var i = 0; i < 15; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(state.error, isNull, reason: 'stream died at ~${i * 100} ms');
+        // The #88 failure mode was playback dying instantly, so the core
+        // assertion is continuity: while the 2 s fixture is not near its
+        // end, the player must still be running. Position-gated rather
+        // than iteration-gated so slow devices cannot race the EOF.
+        if (state.playback.positionSeconds < 1.5) {
+          expect(
+            state.playback.playing,
+            isTrue,
+            reason:
+                'playback stopped early at '
+                '${state.playback.positionSeconds.toStringAsFixed(2)} s',
+          );
+        }
+        maxPeak = math.max(maxPeak, state.playback.peakL);
+        maxPos = math.max(maxPos, state.playback.positionSeconds);
+      }
+      expect(
+        maxPos,
+        greaterThan(1.0),
+        reason:
+            'at least one full second must have played — the decode thread '
+            'alone only reaches ~0.2 s (ring capacity), so this proves the '
+            'AAudio callback keeps draining frames',
+      );
+      expect(
+        maxPeak,
+        greaterThan(0.01),
+        reason: 'meters must see signal, not a silent stream',
+      );
+      state.playback.stop();
+      await tester.pump();
+      expect(state.playback.playing, isFalse);
+      // Playback must be restartable after a stop (stream teardown clean).
+      // Seek home first — the loop above ran the 2 s fixture to EOF, and a
+      // restart at EOF finishes immediately.
+      state.playback.seek(0);
+      await state.playback.togglePlay();
+      await tester.pump();
+      expect(state.error, isNull);
+      expect(state.playback.playing, isTrue);
+      state.playback.stop();
+      await tester.pump();
+    }
 
     // Mute toggle through a real tap on the first track's M chip.
     await tester.tap(find.text('M').first);
@@ -391,6 +488,9 @@ void main() {
     // the overflow menu (Export stays a direct button).
     tester.view.physicalSize = const Size(480, 800);
     tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = FakeViewPadding.zero; // see the pin at the top
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.viewInsets = FakeViewPadding.zero;
     addTearDown(tester.view.reset);
     await tester.pumpAndSettle();
     expect(find.byType(PopupMenuButton<String>), findsOneWidget);
@@ -660,6 +760,9 @@ Future<void> _captureDocScreenshots(
     // Wide desktop mixer.
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = FakeViewPadding.zero; // see the pin at the top
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.viewInsets = FakeViewPadding.zero;
     await tester.pumpAndSettle();
     await shot('mixer', [
       (
@@ -817,6 +920,8 @@ Future<void> _captureDocScreenshots(
   // Phone layout + its overflow menu.
   tester.view.physicalSize = const Size(420, 860);
   tester.view.devicePixelRatio = 1.0;
+  tester.view.padding = FakeViewPadding.zero; // see the pin at the top
+  tester.view.viewInsets = FakeViewPadding.zero;
   await tester.pumpAndSettle();
   await shot('phone', [
     ('Export (progress shows here while rendering)', find.text('Export')),
