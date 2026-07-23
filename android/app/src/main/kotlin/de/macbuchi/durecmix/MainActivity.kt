@@ -1,8 +1,10 @@
 package de.macbuchi.durecmix
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.DocumentsContract
@@ -20,6 +22,27 @@ class MainActivity : FlutterActivity() {
     private val pickRequest = 41001
     private val createRequest = 41002
     private val pickTreeRequest = 41003
+
+    companion object {
+        init {
+            // Dart dlopen()s this library later without JNI_OnLoad; loading it
+            // through the JVM here is what makes initNdkContext resolvable.
+            // Same .so, same process — the second load is a no-op.
+            System.loadLibrary("rust_lib_durecmix")
+        }
+
+        // Hands JavaVM + application context to Rust (rust/src/android.rs) so
+        // ndk_context is initialized before cpal builds an AAudio stream —
+        // without it every play tap panics (issue #88). Idempotent on the
+        // Rust side; activity recreation may call it again freely.
+        @JvmStatic
+        private external fun initNdkContext(context: Context)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        initNdkContext(applicationContext)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
