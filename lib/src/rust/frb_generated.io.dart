@@ -163,6 +163,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MixStatsEvent dco_decode_mix_stats_event(dynamic raw);
 
   @protected
+  String? dco_decode_opt_String(dynamic raw);
+
+  @protected
   ApiMixStats? dco_decode_opt_box_autoadd_api_mix_stats(dynamic raw);
 
   @protected
@@ -370,6 +373,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MixStatsEvent sse_decode_mix_stats_event(SseDeserializer deserializer);
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
   ApiMixStats? sse_decode_opt_box_autoadd_api_mix_stats(
@@ -619,6 +625,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_mix_stats_event(MixStatsEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_api_mix_stats(

@@ -17,9 +17,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/../rust"
 
-PROFILE_FLAG="--dev"
-if [[ "${1:-}" == "--release" ]]; then
-  PROFILE_FLAG="--release"
+# Release by default: a --dev bundle is ~7× larger (4.8 MB vs 674 KB) and
+# analysing a 376 MB take takes noticeably longer, so shipping one would be
+# a silent regression. Pass --dev only to debug the Rust side.
+PROFILE_FLAG="--release"
+if [[ "${1:-}" == "--dev" ]]; then
+  PROFILE_FLAG="--dev"
 fi
 
 export RUSTUP_TOOLCHAIN=nightly

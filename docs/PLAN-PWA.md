@@ -84,9 +84,24 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   identisch zur nativen Probe (34 ch · 44,1 kHz · 24 Bit · 1:27 ·
   **34 Spuren aus dem iXML am Dateiende**), **0,42 s, 0 MB
   Heap-Zuwachs** — die Datei wird nachweislich nicht geladen.
-- **S2b — Analysieren.** Wellenformen/Meter über denselben Range-Pfad
-  (streamt die Audiodaten, anders als die Probe). *Exit: echtes DUREC-WAV
-  lädt im Browser mit Wellenformen — auch in iOS Safari.*
+- **S2b — Öffnen & Analysieren (erledigt 2026-07-25).** Der Take lässt sich
+  im Browser öffnen (`load_recording_from_chunks`) und wird analysiert:
+  Dart schiebt den `data`-Chunk in 4-MB-Blöcken durch
+  `stream_analysis_push`, der `analysis::StreamAnalyzer` trägt dabei
+  angebrochene Frames über Blockgrenzen. Gegen `UFX34_00.WAV` (376 MB,
+  34 ch) in Chrome: Mixer nach 6 s offen mit **allen 34 Spurnamen aus dem
+  iXML**, Wellenformen nach **31 s**, **115 BPM — identisch zur nativen
+  Engine**. JS-Heap-Spitze ~80 MB (Blockgröße + GC-Verzug), nicht
+  dateigroß. Nativ läuft dieselbe Analyse in ~8 s; der Browser ist also
+  grob 3× langsamer.
+  - **Sessions ohne Dateisystem:** `session_to_json` / `Session::from_json`;
+    der Web-Build hält sie im Speicher der Registerkarte (dauerhafte
+    Ablage in OPFS/localStorage bleibt offen).
+  - **Das wasm-Bündel muss `--release` sein.** Debug ist 4,8 MB statt
+    674 KB und spürbar langsamer — `tool/build_web_engine.sh` baut deshalb
+    seit S2b standardmäßig optimiert.
+  - Offen für „S2b vollständig": Meter (brauchen Playback, S4) und der
+    iOS-Safari-Nachweis.
 
   Aus dem Gerätetest (Pixel 7 Pro, Chrome 150, 2026-07-25) bereits bekannt:
   - **„Choose folder" ist im Web tot und schweigt dabei.**

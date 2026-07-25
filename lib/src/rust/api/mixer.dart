@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -53,6 +53,34 @@ Future<RecordingInfo> loadRecording({
   path: path,
   sessionPath: sessionPath,
   fd: fd,
+);
+
+/// Open a take from chunk payloads the caller fetched, for platforms
+/// without a filesystem (web). `session_json` restores a stored mix when
+/// the caller has one — the browser keeps sessions itself, since there is
+/// no app container to read (docs/PLAN-PWA.md S2b).
+Future<RecordingInfo> loadRecordingFromChunks({
+  required String source,
+  required List<int> fmtChunk,
+  Uint8List? ixmlChunk,
+  required BigInt dataBytes,
+  String? sessionJson,
+}) => RustLib.instance.api.crateApiMixerLoadRecordingFromChunks(
+  source: source,
+  fmtChunk: fmtChunk,
+  ixmlChunk: ixmlChunk,
+  dataBytes: dataBytes,
+  sessionJson: sessionJson,
+);
+
+/// Serialise the current mix, for platforms that store sessions themselves
+/// (web — there is no app container to write into).
+String sessionToJson({
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+}) => RustLib.instance.api.crateApiMixerSessionToJson(
+  tracks: tracks,
+  master: master,
 );
 
 /// Persist the current mix to `session_path` (an app-container location
@@ -130,6 +158,32 @@ Future<ApiAnalysis> analyzeRecording({
   buckets: buckets,
   fd: fd,
 );
+
+/// Start a streamed analysis. `fmt_chunk` and `data_bytes` come from
+/// [`scan_wav_chunks`]; the returned id addresses this analyzer until
+/// [`stream_analysis_finish`] or [`stream_analysis_cancel`].
+Future<int> streamAnalysisBegin({
+  required List<int> fmtChunk,
+  required BigInt dataBytes,
+  required BigInt buckets,
+}) => RustLib.instance.api.crateApiMixerStreamAnalysisBegin(
+  fmtChunk: fmtChunk,
+  dataBytes: dataBytes,
+  buckets: buckets,
+);
+
+/// Feed the next slice of the `data` payload, in file order. Slices may end
+/// mid-frame; the analyzer carries the remainder.
+Future<void> streamAnalysisPush({required int id, required List<int> bytes}) =>
+    RustLib.instance.api.crateApiMixerStreamAnalysisPush(id: id, bytes: bytes);
+
+/// Finish the analysis and drop the analyzer.
+Future<ApiAnalysis> streamAnalysisFinish({required int id}) =>
+    RustLib.instance.api.crateApiMixerStreamAnalysisFinish(id: id);
+
+/// Drop an analyzer without a result (user switched takes mid-scan).
+Future<void> streamAnalysisCancel({required int id}) =>
+    RustLib.instance.api.crateApiMixerStreamAnalysisCancel(id: id);
 
 /// Start (or restart) live playback of the mix at `start_frame`.
 Future<void> playerStart({

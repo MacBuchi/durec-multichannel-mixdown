@@ -3,8 +3,8 @@
 //! Keep this file free of logic — it only converts between bridge types and
 //! engine types so the engine stays independently testable.
 
+use std::collections::HashMap;
 use std::path::Path;
-#[cfg(not(target_family = "wasm"))]
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Context;
@@ -476,6 +476,64 @@ pub fn load_recording(
     })
 }
 
+/// Open a take from chunk payloads the caller fetched, for platforms
+/// without a filesystem (web). `session_json` restores a stored mix when
+/// the caller has one — the browser keeps sessions itself, since there is
+/// no app container to read (docs/PLAN-PWA.md S2b).
+pub fn load_recording_from_chunks(
+    source: String,
+    fmt_chunk: Vec<u8>,
+    ixml_chunk: Option<Vec<u8>>,
+    data_bytes: u64,
+    session_json: Option<String>,
+) -> anyhow::Result<RecordingInfo> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let infos = ixml_chunk
+        .as_deref()
+        .map(|x| ixml::parse_tracks(&String::from_utf8_lossy(x)))
+        .unwrap_or_default();
+    // Files without iXML still get one generic track per channel.
+    let infos = if infos.is_empty() {
+        (1..=spec.channels as u32)
+            .map(|i| ixml::TrackInfo {
+                index: i,
+                name: format!("Channel {i}"),
+            })
+            .collect()
+    } else {
+        infos
+    };
+
+    let session = match session_json.as_deref().and_then(Session::from_json) {
+        Some(saved) => saved.merged_with(&infos),
+        None => Session::from_track_info(&infos),
+    };
+
+    let num_frames = data_bytes / spec.bytes_per_frame() as u64;
+    Ok(RecordingInfo {
+        path: source,
+        sample_rate: spec.sample_rate,
+        channels: spec.channels,
+        bits_per_sample: spec.bits_per_sample,
+        num_frames,
+        duration_seconds: num_frames as f64 / spec.sample_rate as f64,
+        tracks: session.tracks.iter().map(from_engine_track).collect(),
+        master: from_engine_settings(&session.settings),
+    })
+}
+
+/// Serialise the current mix, for platforms that store sessions themselves
+/// (web — there is no app container to write into).
+#[flutter_rust_bridge::frb(sync)]
+pub fn session_to_json(tracks: Vec<ApiTrack>, master: ApiMaster) -> anyhow::Result<String> {
+    let session = Session {
+        tracks: tracks.iter().map(to_engine_track).collect(),
+        settings: to_engine_settings(&master),
+        ..Session::default()
+    };
+    session.to_json().context("serialise session")
+}
+
 /// Persist the current mix to `session_path` (an app-container location
 /// chosen by the UI layer; parent directories are created as needed).
 pub fn save_session(
@@ -767,6 +825,83 @@ pub fn analyze_recording(
             .collect(),
         bpm: analysis.bpm,
     })
+}
+
+fn to_api_analysis(a: analysis::Analysis) -> ApiAnalysis {
+    ApiAnalysis {
+        waveforms: a
+            .waveforms
+            .into_iter()
+            .map(|w| ApiChannelWaveform {
+                min: w.min,
+                max: w.max,
+                peak_dbfs: w.peak_dbfs,
+            })
+            .collect(),
+        bpm: a.bpm,
+    }
+}
+
+// ── streamed analysis for platforms without a filesystem (web) ──────────────
+//
+// The browser cannot hand Rust a file, only byte ranges, so the analyzer
+// lives across calls here and Dart pushes the `data` payload block by block
+// (docs/PLAN-PWA.md S2b). Keyed by id rather than an FRB opaque type to keep
+// the same shape as the player slot above.
+
+static ANALYZERS: OnceLock<Mutex<HashMap<u32, analysis::StreamAnalyzer>>> = OnceLock::new();
+static NEXT_ANALYZER_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn analyzers() -> &'static Mutex<HashMap<u32, analysis::StreamAnalyzer>> {
+    ANALYZERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Start a streamed analysis. `fmt_chunk` and `data_bytes` come from
+/// [`scan_wav_chunks`]; the returned id addresses this analyzer until
+/// [`stream_analysis_finish`] or [`stream_analysis_cancel`].
+pub fn stream_analysis_begin(
+    fmt_chunk: Vec<u8>,
+    data_bytes: u64,
+    buckets: usize,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let num_frames = data_bytes / spec.bytes_per_frame() as u64;
+    let mut counter = NEXT_ANALYZER_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    analyzers()
+        .lock()
+        .unwrap()
+        .insert(id, analysis::StreamAnalyzer::new(spec, num_frames, buckets));
+    Ok(id)
+}
+
+/// Feed the next slice of the `data` payload, in file order. Slices may end
+/// mid-frame; the analyzer carries the remainder.
+pub fn stream_analysis_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<()> {
+    let mut map = analyzers().lock().unwrap();
+    let analyzer = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed analysis with id {id}"))?;
+    analyzer.push_bytes(&bytes).context("push audio block")
+}
+
+/// Finish the analysis and drop the analyzer.
+pub fn stream_analysis_finish(id: u32) -> anyhow::Result<ApiAnalysis> {
+    let analyzer = analyzers()
+        .lock()
+        .unwrap()
+        .remove(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed analysis with id {id}"))?;
+    Ok(to_api_analysis(analyzer.finish()))
+}
+
+/// Drop an analyzer without a result (user switched takes mid-scan).
+pub fn stream_analysis_cancel(id: u32) {
+    analyzers().lock().unwrap().remove(&id);
 }
 
 // ── live preview playback ───────────────────────────────────────────────────
