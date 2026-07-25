@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `with_renderer`
+// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `web_players`, `with_renderer`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -271,6 +271,55 @@ Future<ApiRenderTail> renderStreamFinish({required int id}) =>
 /// Drop a render that the user cancelled or that failed mid-way.
 Future<void> renderStreamCancel({required int id}) =>
     RustLib.instance.api.crateApiMixerRenderStreamCancel(id: id);
+
+/// Open a browser player positioned at `start_frame`.
+Future<int> webPlayerBegin({
+  required List<int> fmtChunk,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  ApiMixStats? masteringStats,
+  ApiReferenceProfile? reference,
+  required BigInt startFrame,
+}) => RustLib.instance.api.crateApiMixerWebPlayerBegin(
+  fmtChunk: fmtChunk,
+  tracks: tracks,
+  master: master,
+  masteringStats: masteringStats,
+  reference: reference,
+  startFrame: startFrame,
+);
+
+/// Mix the next slice of the `data` chunk into interleaved stereo f32.
+Future<Float32List> webPlayerProcess({
+  required int id,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiMixerWebPlayerProcess(id: id, bytes: bytes);
+
+/// Push new mix/master parameters; the chain adopts its old filter state, so
+/// a fader move does not click.
+Future<void> webPlayerUpdateParams({
+  required int id,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  ApiMixStats? masteringStats,
+  ApiReferenceProfile? reference,
+}) => RustLib.instance.api.crateApiMixerWebPlayerUpdateParams(
+  id: id,
+  tracks: tracks,
+  master: master,
+  masteringStats: masteringStats,
+  reference: reference,
+);
+
+/// Jump to `frame`. Dart resumes pushing source bytes from there.
+Future<void> webPlayerSeek({required int id, required BigInt frame}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerSeek(id: id, frame: frame);
+
+ApiPreviewState? webPlayerState({required int id}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerState(id: id);
+
+Future<void> webPlayerEnd({required int id}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerEnd(id: id);
 
 class ApiAnalysis {
   final List<ApiChannelWaveform> waveforms;
@@ -598,6 +647,50 @@ class ApiPlayerState {
       other is ApiPlayerState &&
           runtimeType == other.runtimeType &&
           playing == other.playing &&
+          positionFrames == other.positionFrames &&
+          peakL == other.peakL &&
+          peakR == other.peakR &&
+          lufsMomentary == other.lufsMomentary &&
+          lufsIntegrated == other.lufsIntegrated &&
+          truePeak == other.truePeak &&
+          correlation == other.correlation;
+}
+
+/// Meters plus the playhead, polled by the UI at frame rate.
+class ApiPreviewState {
+  final BigInt positionFrames;
+  final double peakL;
+  final double peakR;
+  final double lufsMomentary;
+  final double lufsIntegrated;
+  final double truePeak;
+  final double correlation;
+
+  const ApiPreviewState({
+    required this.positionFrames,
+    required this.peakL,
+    required this.peakR,
+    required this.lufsMomentary,
+    required this.lufsIntegrated,
+    required this.truePeak,
+    required this.correlation,
+  });
+
+  @override
+  int get hashCode =>
+      positionFrames.hashCode ^
+      peakL.hashCode ^
+      peakR.hashCode ^
+      lufsMomentary.hashCode ^
+      lufsIntegrated.hashCode ^
+      truePeak.hashCode ^
+      correlation.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiPreviewState &&
+          runtimeType == other.runtimeType &&
           positionFrames == other.positionFrames &&
           peakL == other.peakL &&
           peakR == other.peakR &&

@@ -40,6 +40,12 @@ jobs:
       # without this check the next engine change silently kills the port.
       - name: Engine compiles for wasm32 (PWA, no playback/mp3)
         run: cargo check -p durecmix-engine --no-default-features --target wasm32-unknown-unknown
+
+      # The bridge too, not just the engine: a helper gated behind
+      # `cfg(not(wasm))` compiles fine natively and only fails when the Pages
+      # workflow builds the wasm bundle — long after the PR went green.
+      - name: Bridge compiles for wasm32
+        run: cargo check -p rust_lib_durecmix --target wasm32-unknown-unknown
       # A dependency change that forgets to regenerate the bundled crate
       # notices ships stale attribution. Only the recorded Cargo.lock hash is
       # compared: neither the licence texts nor `cargo tree` are reproducible

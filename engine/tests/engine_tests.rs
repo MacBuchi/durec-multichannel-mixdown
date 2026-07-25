@@ -9,6 +9,7 @@ use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
+use durecmix_engine::preview::WebPlayer;
 use durecmix_engine::render::{
     plan_from_pass1, render_to_file, LoudnessMode, OutputFormat, RenderPass1, RenderPass2,
     RenderSettings, RenderSource, StreamRender,
@@ -2521,4 +2522,93 @@ fn byte_driven_render_matches_the_file_render() {
         assert_eq!(diff, "identical", "{format:?}");
         assert_eq!(out.report, native_report, "{format:?}: report differs");
     }
+}
+
+// ── preview (browser player) ────────────────────────────────────────────────
+
+/// What the preview plays must be what the export writes.
+///
+/// The preview chain is render pass 2 without the normalisation gain, so a
+/// render at `LoudnessMode::None` (gain = 1.0) into 32-bit float has to come
+/// out sample-for-sample identical to what `WebPlayer` hands the browser's
+/// audio thread. If these ever drift, the mixer lies to the user — the worst
+/// bug this app could have.
+#[test]
+fn web_player_matches_the_rendered_output() {
+    let frames = 60_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 210.0 * std::f64::consts::TAU).sin() * 0.75 * 32767.0) as i16,
+                ((t * 70.0 * std::f64::consts::TAU).sin() * 0.55 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+    let wav = wav16(2, 48_000, &samples, None);
+    std::fs::write(&in_path, &wav).unwrap();
+
+    let tracks = vec![track(1, -2.0, -0.7), track(2, -5.0, 0.4)];
+    let settings = RenderSettings {
+        // No normalisation: the preview applies none either, so gain is 1.0
+        // and the two chains have to agree exactly.
+        loudness: LoudnessMode::None,
+        format: OutputFormat::Wav32Float,
+        limiter_enabled: true,
+        ..RenderSettings::default()
+    };
+    render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    let rendered: Vec<f32> = hound::WavReader::open(&out_path)
+        .unwrap()
+        .samples::<f32>()
+        .map(|s| s.unwrap())
+        .collect();
+
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+
+    let mut player = WebPlayer::new(
+        spec,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: true,
+            ..Default::default()
+        },
+        None,
+        0,
+    );
+    // Odd block size: at 4 bytes per frame every push ends mid-frame, which
+    // is what slicing a Blob actually does.
+    let mut played: Vec<f32> = Vec::new();
+    for block in payload.chunks(12_289) {
+        played.extend_from_slice(player.process(block).unwrap());
+    }
+
+    // The render is longer by exactly the limiter's lookahead: pass 2 drains
+    // the delay line at the end, and a live preview has no end to drain. Both
+    // streams are delayed by the same lookahead, so they line up from sample
+    // zero — only the flushed tail is extra.
+    assert!(
+        rendered.len() > played.len(),
+        "render should carry the limiter flush"
+    );
+    let tail_frames = (rendered.len() - played.len()) / 2;
+    assert!(
+        (1..=1000).contains(&tail_frames),
+        "unexpected tail of {tail_frames} frames — is that really the limiter lookahead?"
+    );
+    let worst = played
+        .iter()
+        .zip(&rendered)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    assert_eq!(worst, 0.0, "preview and render differ by up to {worst}");
+    assert_eq!(player.position_frames(), frames as u64);
 }

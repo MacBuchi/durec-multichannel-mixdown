@@ -81,10 +81,10 @@ Future<List<WavFileInfo>> listWavFiles(String dirPath) async {
 /// unconditionally — tapping "Choose folder" would be a silent dead end.
 const canPickFolders = false;
 
-/// The `playback` Cargo feature (cpal) is off for wasm — `player_start`
-/// bails out. Without this flag the transport button surfaces the raw
-/// `AnyhowException(...)` in the mixer header (PLAN-PWA S4).
-const canPlayAudio = false;
+/// The browser plays through an `AudioWorklet` fed by the engine
+/// (`WebPlayback`), not through cpal — the `playback` Cargo feature stays off
+/// for wasm (PLAN-PWA S4).
+const canPlayAudio = true;
 
 /// Export goes through [BlobRenderOutput] instead of a save dialog — the
 /// engine streams the encoded blocks and the browser offers the result as a
@@ -208,4 +208,139 @@ Future<HttpTextResponse> httpPostJson(
 
 Stream<ApkInstallEvent> installApk(String apkUrl, String filename) {
   throw UnsupportedError('APK install does not exist in the web build');
+}
+
+// ── preview audio ───────────────────────────────────────────────────────────
+
+@JS('SharedArrayBuffer')
+extension type _SharedArrayBuffer._(JSObject _) implements JSObject {
+  external _SharedArrayBuffer(int byteLength);
+}
+
+@JS('Float32Array')
+extension type _JsFloat32Array._(JSObject _) implements JSObject {
+  external _JsFloat32Array(JSObject buffer);
+  external void set(JSObject source, int offset);
+  external int get length;
+}
+
+@JS('Int32Array')
+extension type _JsInt32Array._(JSObject _) implements JSObject {
+  external _JsInt32Array(JSObject buffer);
+}
+
+@JS('Atomics.load')
+external int _atomicsLoad(JSObject array, int index);
+
+@JS('Atomics.store')
+external int _atomicsStore(JSObject array, int index, int value);
+
+/// Ring indices, shared with `web/audio-pump.js`.
+const _stateRead = 0;
+const _stateWrite = 1;
+const _stateUnderruns = 2;
+const _statePlayed = 3;
+
+/// Roughly a second of stereo audio. Long enough to survive a stalled main
+/// thread (layout, GC), short enough that a fader move is heard promptly —
+/// live parameter changes only reach the ear once the ring has drained.
+const _ringSeconds = 1.0;
+
+/// Browser preview output: an `AudioWorklet` reading a ring buffer.
+///
+/// The worklet runs on the audio thread and must never wait, so it only
+/// copies out of a `SharedArrayBuffer` this class keeps filled. That needs
+/// cross-origin isolation, which `coi-sw.js` already provides for the
+/// threaded wasm engine.
+class _WorkletPreviewSink implements PreviewSink {
+  _WorkletPreviewSink(this._context, this._node, this._ring, this._state)
+    : _capacity = _ring.length;
+
+  final web.AudioContext _context;
+  final web.AudioWorkletNode _node;
+  final _JsFloat32Array _ring;
+  final _JsInt32Array _state;
+  final int _capacity;
+
+  @override
+  int get sampleRate => _context.sampleRate.round();
+
+  @override
+  int get freeSamples {
+    final read = _atomicsLoad(_state, _stateRead);
+    final write = _atomicsLoad(_state, _stateWrite);
+    // One slot stays empty so full and empty stay distinguishable.
+    return (read - write + _capacity - 2) % _capacity;
+  }
+
+  @override
+  int get bufferedSamples {
+    final read = _atomicsLoad(_state, _stateRead);
+    final write = _atomicsLoad(_state, _stateWrite);
+    return (write - read + _capacity) % _capacity;
+  }
+
+  @override
+  int get playedFrames => _atomicsLoad(_state, _statePlayed);
+
+  @override
+  int get underruns => _atomicsLoad(_state, _stateUnderruns);
+
+  @override
+  void write(Float32List samples) {
+    var write = _atomicsLoad(_state, _stateWrite);
+    var offset = 0;
+    while (offset < samples.length) {
+      final n = (samples.length - offset).clamp(0, _capacity - write);
+      _ring.set(
+        Float32List.sublistView(samples, offset, offset + n).toJS,
+        write,
+      );
+      write += n;
+      if (write >= _capacity) write -= _capacity;
+      offset += n;
+    }
+    _atomicsStore(_state, _stateWrite, write);
+  }
+
+  @override
+  void flush() {
+    _atomicsStore(_state, _stateWrite, _atomicsLoad(_state, _stateRead));
+  }
+
+  @override
+  Future<void> dispose() async {
+    _node.disconnect();
+    await _context.close().toDart;
+  }
+}
+
+/// Open the browser's audio output at [sampleRate].
+///
+/// The context is created at the file's rate rather than the browser default:
+/// a 44.1 kHz take through a 48 kHz context would play sharp. Must be called
+/// from a user gesture — iOS Safari starts every context suspended.
+Future<PreviewSink?> openPreviewSink(int sampleRate) async {
+  final context = web.AudioContext(
+    web.AudioContextOptions(sampleRate: sampleRate.toDouble()),
+  );
+  await context.audioWorklet.addModule('audio-pump.js').toDart;
+
+  final samples = (sampleRate * _ringSeconds).round() * 2;
+  final ringBuffer = _SharedArrayBuffer(samples * 4);
+  final stateBuffer = _SharedArrayBuffer(4 * 4);
+  final ring = _JsFloat32Array(ringBuffer);
+  final state = _JsInt32Array(stateBuffer);
+
+  final options = web.AudioWorkletNodeOptions(
+    numberOfInputs: 0,
+    numberOfOutputs: 1,
+    outputChannelCount: [2].jsify()! as JSArray<JSNumber>,
+    processorOptions:
+        {'ring': ringBuffer, 'state': stateBuffer}.jsify()! as JSObject,
+  );
+  final node = web.AudioWorkletNode(context, 'durecmix-pump', options);
+  node.connect(context.destination);
+  await context.resume().toDart;
+  return _WorkletPreviewSink(context, node, ring, state);
 }

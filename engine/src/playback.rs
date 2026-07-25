@@ -24,12 +24,11 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use crate::chain::{ChainConfig, MasterParams, MixChain};
-use crate::dsp::fir::MsFirStage;
-use crate::dsp::limiter::{LimiterParams, TruePeakLimiter};
+use crate::chain::MasterParams;
 use crate::error::{EngineError, Result};
 use crate::mastering::MasteringPlan;
 use crate::mix::TrackParams;
+use crate::preview::PreviewStage;
 use crate::wav::WavReader;
 
 const RING_FRAMES: usize = 8192; // ~0.19 s at 44.1 kHz
@@ -240,48 +239,18 @@ fn spawn_decode_thread(
     std::thread::Builder::new()
         .name("durecmix-decode".into())
         .spawn(move || {
-            let cfg = ChainConfig { sample_rate };
-            let build_limiter = |m: &MasterParams| {
-                m.limiter_enabled.then(|| {
-                    TruePeakLimiter::new(
-                        LimiterParams {
-                            ceiling_dbtp: m.ceiling_dbtp,
-                            ..LimiterParams::default()
-                        },
-                        sample_rate,
-                    )
-                })
-            };
-            let build_fir = |plan: &Option<MasteringPlan>| {
-                plan.as_ref()
-                    .map(|p| MsFirStage::new(&p.fir_mid, &p.fir_side))
-            };
-            let (mut chain, mut master, mut mastering) = {
+            let mut stage = {
                 let p = params.lock().unwrap();
-                (
-                    MixChain::new(&p.tracks, channels, &cfg),
+                PreviewStage::new(
+                    channels,
+                    sample_rate,
+                    &p.tracks,
                     p.master,
                     p.mastering.clone(),
                 )
             };
-            let mut limiter = build_limiter(&master);
-            let mut fir = build_fir(&mastering);
             let mut seen_epoch = shared.params_epoch.load(Ordering::Acquire);
-            // Meter mode M|I|TRUE_PEAK: momentary for the bar, integrated +
-            // running true peak so the user sees what render pass 1 will.
-            let make_ebu = || {
-                ebur128::EbuR128::new(
-                    2,
-                    sample_rate,
-                    ebur128::Mode::M | ebur128::Mode::I | ebur128::Mode::TRUE_PEAK,
-                )
-                .ok()
-            };
-            let mut ebu = make_ebu();
             let mut input: Vec<f64> = Vec::new();
-            let mut stereo: Vec<f64> = Vec::new();
-            let mut mastered: Vec<f64> = Vec::new();
-            let mut limited: Vec<f64> = Vec::new();
             let mut stereo_f32: Vec<f32> = Vec::new();
 
             loop {
@@ -294,30 +263,15 @@ fn spawn_decode_thread(
                     shared.position_frames.store(seek, Ordering::Release);
                     shared.eof.store(false, Ordering::Release);
                     shared.finished.store(false, Ordering::Release);
-                    chain.reset(); // filter state belongs to the old position
-                    if let Some(f) = &mut fir {
-                        f.reset();
-                    }
-                    if let Some(lim) = &mut limiter {
-                        lim.reset();
-                    }
-                    ebu = make_ebu(); // integrated loudness restarts at seeks
+                    // Filter state and integrated loudness belong to the
+                    // old position.
+                    stage.reset();
                 }
                 let epoch = shared.params_epoch.load(Ordering::Acquire);
                 if epoch != seen_epoch {
                     seen_epoch = epoch;
                     let p = params.lock().unwrap();
-                    let mut new_chain = MixChain::new(&p.tracks, channels, &cfg);
-                    new_chain.adopt_state_from(&chain); // click-free live tweaks
-                    chain = new_chain;
-                    if p.master != master {
-                        master = p.master;
-                        limiter = build_limiter(&master);
-                    }
-                    if p.mastering != mastering {
-                        mastering = p.mastering.clone();
-                        fir = build_fir(&mastering);
-                    }
+                    stage.set_params(&p.tracks, p.master, p.mastering.clone());
                 }
 
                 let n = reader.read_frames(&mut input, DECODE_BLOCK).unwrap_or(0);
@@ -327,28 +281,9 @@ fn spawn_decode_thread(
                     continue;
                 }
 
-                chain.process(&input, &mut stereo);
-                // Same ordering as render pass 2: mix → matching FIRs →
-                // true-peak limiter (which catches the mastering gain).
-                let block: &[f64] = match &mut fir {
-                    Some(f) => {
-                        mastered.clear();
-                        f.process(&stereo, &mut mastered);
-                        &mastered
-                    }
-                    None => &stereo,
-                };
-                let block: &[f64] = match &mut limiter {
-                    Some(lim) => {
-                        limited.clear();
-                        lim.process(block, &mut limited);
-                        &limited
-                    }
-                    None => block,
-                };
                 stereo_f32.clear();
-                stereo_f32.extend(block.iter().map(|&s| s as f32));
-                publish_meters(&shared, &stereo_f32, ebu.as_mut());
+                stereo_f32.extend_from_slice(stage.process(&input));
+                publish_meters(&shared, stage.meters());
 
                 // Push into the ring, waiting while it is full.
                 let mut offset = 0;
@@ -419,45 +354,19 @@ fn build_stream(
         .map_err(|e| EngineError::Encode(format!("audio stream: {e}")))
 }
 
-fn publish_meters(shared: &SharedState, stereo: &[f32], ebu: Option<&mut ebur128::EbuR128>) {
-    let mut peak_l = 0.0f32;
-    let mut peak_r = 0.0f32;
-    let mut sum_ll = 0.0f64;
-    let mut sum_rr = 0.0f64;
-    let mut sum_lr = 0.0f64;
-    for fr in stereo.chunks_exact(2) {
-        let (l, r) = (fr[0], fr[1]);
-        peak_l = peak_l.max(l.abs());
-        peak_r = peak_r.max(r.abs());
-        sum_ll += (l as f64) * (l as f64);
-        sum_rr += (r as f64) * (r as f64);
-        sum_lr += (l as f64) * (r as f64);
-    }
-    let corr = if sum_ll > 0.0 && sum_rr > 0.0 {
-        (sum_lr / (sum_ll * sum_rr).sqrt()) as f32
-    } else {
-        0.0
-    };
-    shared.peak_l.store(peak_l.to_bits(), Ordering::Release);
-    shared.peak_r.store(peak_r.to_bits(), Ordering::Release);
-    shared.correlation.store(corr.to_bits(), Ordering::Release);
-    if let Some(ebu) = ebu {
-        if ebu.add_frames_f32(stereo).is_ok() {
-            if let Ok(l) = ebu.loudness_momentary() {
-                shared
-                    .lufs_momentary
-                    .store((l as f32).to_bits(), Ordering::Release);
-            }
-            if let Ok(l) = ebu.loudness_global() {
-                shared
-                    .lufs_integrated
-                    .store((l as f32).to_bits(), Ordering::Release);
-            }
-            if let (Ok(l), Ok(r)) = (ebu.true_peak(0), ebu.true_peak(1)) {
-                shared
-                    .true_peak
-                    .store((l.max(r) as f32).to_bits(), Ordering::Release);
-            }
-        }
-    }
+fn publish_meters(shared: &SharedState, m: crate::preview::Meters) {
+    shared.peak_l.store(m.peak_l.to_bits(), Ordering::Release);
+    shared.peak_r.store(m.peak_r.to_bits(), Ordering::Release);
+    shared
+        .correlation
+        .store(m.correlation.to_bits(), Ordering::Release);
+    shared
+        .lufs_momentary
+        .store(m.lufs_momentary.to_bits(), Ordering::Release);
+    shared
+        .lufs_integrated
+        .store(m.lufs_integrated.to_bits(), Ordering::Release);
+    shared
+        .true_peak
+        .store(m.true_peak.to_bits(), Ordering::Release);
 }

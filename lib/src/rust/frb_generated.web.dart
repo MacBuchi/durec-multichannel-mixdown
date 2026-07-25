@@ -82,6 +82,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiPlayerState dco_decode_api_player_state(dynamic raw);
 
   @protected
+  ApiPreviewState dco_decode_api_preview_state(dynamic raw);
+
+  @protected
   ApiProbe dco_decode_api_probe(dynamic raw);
 
   @protected
@@ -107,6 +110,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMixStats dco_decode_box_autoadd_api_mix_stats(dynamic raw);
+
+  @protected
+  ApiPreviewState dco_decode_box_autoadd_api_preview_state(dynamic raw);
 
   @protected
   ApiReferenceProfile dco_decode_box_autoadd_api_reference_profile(dynamic raw);
@@ -172,6 +178,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMixStats? dco_decode_opt_box_autoadd_api_mix_stats(dynamic raw);
+
+  @protected
+  ApiPreviewState? dco_decode_opt_box_autoadd_api_preview_state(dynamic raw);
 
   @protected
   ApiReferenceProfile? dco_decode_opt_box_autoadd_api_reference_profile(
@@ -285,6 +294,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiPlayerState sse_decode_api_player_state(SseDeserializer deserializer);
 
   @protected
+  ApiPreviewState sse_decode_api_preview_state(SseDeserializer deserializer);
+
+  @protected
   ApiProbe sse_decode_api_probe(SseDeserializer deserializer);
 
   @protected
@@ -312,6 +324,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMixStats sse_decode_box_autoadd_api_mix_stats(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ApiPreviewState sse_decode_box_autoadd_api_preview_state(
     SseDeserializer deserializer,
   );
 
@@ -387,6 +404,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMixStats? sse_decode_opt_box_autoadd_api_mix_stats(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ApiPreviewState? sse_decode_opt_box_autoadd_api_preview_state(
     SseDeserializer deserializer,
   );
 
@@ -518,6 +540,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_api_preview_state(
+    ApiPreviewState self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_api_probe(ApiProbe self, SseSerializer serializer);
 
   @protected
@@ -553,6 +581,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_api_mix_stats(
     ApiMixStats self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_api_preview_state(
+    ApiPreviewState self,
     SseSerializer serializer,
   );
 
@@ -643,6 +677,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_api_mix_stats(
     ApiMixStats? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_api_preview_state(
+    ApiPreviewState? self,
     SseSerializer serializer,
   );
 
