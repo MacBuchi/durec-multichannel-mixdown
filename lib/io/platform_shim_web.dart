@@ -6,6 +6,7 @@
 /// deliberately the smallest thing that lets the app boot.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 
@@ -137,9 +138,14 @@ class BlobRenderOutput implements RenderOutput {
     // Revoking while the browser is still writing the file cuts the download
     // off — Safari in particular starts it well after the click returns. The
     // URL is held for a while and then released so the (possibly gigabyte)
-    // blob does not outlive the tab's need for it.
-    await Future<void>.delayed(const Duration(minutes: 5));
-    web.URL.revokeObjectURL(url);
+    // blob does not outlive the tab's need for it. Fire-and-forget: for the
+    // caller the export ends when the download starts — awaiting this delay
+    // kept the export button greyed out for the full five minutes.
+    unawaited(
+      Future<void>.delayed(
+        const Duration(minutes: 5),
+      ).then((_) => web.URL.revokeObjectURL(url)),
+    );
   }
 
   static web.Blob _blobOf(Uint8List bytes) =>

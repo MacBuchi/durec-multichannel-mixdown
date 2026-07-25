@@ -123,3 +123,8 @@ flutter_launcher_icons:
     generate: true
     image_path: "assets/icon/icon_full.png"
     icon_size: 256
+  web:
+    generate: true
+    image_path: "assets/icon/icon_full.png"
+    background_color: "#10141C"
+    theme_color: "#10141C"
