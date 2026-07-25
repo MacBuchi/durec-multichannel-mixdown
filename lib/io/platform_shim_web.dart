@@ -7,10 +7,11 @@
 library;
 
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:js_interop';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
+import 'package:web/web.dart' as web;
 
 import 'platform_shim_types.dart';
 
@@ -91,33 +92,46 @@ const canPlayAudio = false;
 const canExportAudio = false;
 
 /// Opens the browser file picker and wraps each pick in lazy range access.
-///
-/// `XFile.openRead(start, end)` slices the underlying `Blob`, so a 400 MB
-/// take is never loaded — only the chunk headers and the iXML payload are
-/// actually fetched.
 Future<List<PickedRecording>> pickRecordings() async {
   const group = XTypeGroup(label: 'WAV', extensions: ['wav'], mimeTypes: []);
   final files = await openFiles(acceptedTypeGroups: const [group]);
-  return [
-    for (final f in files)
-      PickedRecording(
-        // Blobs have no path; the name keeps session keys readable and
-        // stable enough for one browser session.
-        source: 'blob:${f.name}',
-        name: f.name,
-        sizeBytes: await f.length(),
-        // BytesBuilder, not a List<int>: Dart boxes a growable int list at
-        // 8 bytes per element, so accumulating a 4 MB block that way costs
-        // ~32 MB and shows up directly as JS heap growth.
-        read: (start, end) async {
-          final builder = BytesBuilder(copy: false);
-          await for (final part in f.openRead(start, end)) {
-            builder.add(part);
-          }
-          return builder.takeBytes();
-        },
-      ),
-  ];
+  return [for (final f in files) await _lazyRecording(f)];
+}
+
+/// Wraps one picked file so ranges come straight off its `Blob`.
+///
+/// **Do not go back to `XFile.openRead(start, end)` here.** It looks like the
+/// obvious API and it is quadratic: `file_selector_web` builds its `XFile`
+/// from `URL.createObjectURL(file)` alone and never hands over the `File`, so
+/// `cross_file` holds no Blob to slice. Every single call therefore
+/// re-hydrates the *whole* file over XHR and then keeps 4 MB of it.
+/// Analysing a 782 MB take that way copied 150 GB and spent 97 s in reads
+/// against 2.6 s of actual analysis; hydrating once and slicing here brings
+/// the reads down to ~0.5 s (docs/PLAN-PWA.md).
+///
+/// The Blob stays file-backed — it is a handle, not bytes on the JS heap —
+/// so holding it costs nothing even for a multi-GB take.
+Future<PickedRecording> _lazyRecording(XFile file) async {
+  final size = await file.length();
+  Future<web.Blob>? blob;
+
+  Future<web.Blob> hydrate() async {
+    final response = await web.window.fetch(file.path.toJS).toDart;
+    return response.blob().toDart;
+  }
+
+  return PickedRecording(
+    // Blobs have no path; the name keeps session keys readable and stable
+    // enough for one browser session.
+    source: 'blob:${file.name}',
+    name: file.name,
+    sizeBytes: size,
+    read: (start, end) async {
+      final source = await (blob ??= hydrate());
+      final buffer = await source.slice(start, end).arrayBuffer().toDart;
+      return buffer.toDart.asUint8List();
+    },
+  );
 }
 
 Future<HttpTextResponse> httpGetText(

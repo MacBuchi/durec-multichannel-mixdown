@@ -153,6 +153,42 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   Offen: Offline-Start (Caching in `coi-sw.js`), Update-Hinweis,
   **iOS-Safari-Nachweis auf dem Gerät**.
 
+## Der Web-Reader darf nicht über `XFile.openRead` gehen
+
+Die Analyse war im Browser ~30× langsamer als nativ, und **die Ursache war
+weder wasm noch die Blob-API.** Gemessen an `UFX05_00_Breeze.WAV`
+(782 MB, 32 ch, Page-Cache warm):
+
+| Weg | Zeit |
+| --- | --- |
+| Native Engine (`analyze_demo`) | 0,87 s |
+| Browser, `blob.slice().arrayBuffer()` roh | 0,5 s |
+| Browser, `FileReader` roh | 0,53 s |
+| **App über `XFile.openRead`** | **107 s** |
+
+Aufgeteilt: 196 Blöcke, **96,6 s Lesen** gegen **2,6 s wasm-Analyse**.
+
+`file_selector_web` baut sein `XFile` aus `URL.createObjectURL(file)` allein
+und gibt das `File` nie weiter, also hat `cross_file` keinen Blob zum
+Schneiden: **jeder** `openRead()`-Aufruf holt die *ganze* Datei per XHR
+zurück und behält 4 MB davon. 196 × 782 MB = 149,6 GB Kopieren — bei
+gemessenen 1568 MB/s sind das vorhergesagte 97,7 s gegen 96,6 s gemessene.
+Der Aufwand ist also **quadratisch in der Dateigröße**; bei einem 2-GB-Take
+wäre es nicht dreißigmal, sondern über hundertmal zu langsam.
+
+`platform_shim_web._lazyRecording` holt den Blob deshalb **einmal** und
+schneidet selbst. Lesen: 96,6 s → **0,7 s**. Ende zu Ende: 107 s → **3,7 s**
+(917-MB-Take: 4,4 s; nativ 1,02 s). Der Blob bleibt dateigestützt — ein
+Handle, keine Bytes auf dem JS-Heap —, das Halten kostet also auch bei
+mehreren GB nichts.
+
+**`+simd128` bringt nichts** (2631 ms → 2559 ms, 3 %, im Rauschen): die
+Decode- und Akkumulierschleifen vektorisieren nicht von selbst. Bewusst
+nicht aktiviert, um die Browser-Anforderungen nicht ohne Gegenwert zu
+erhöhen. Der verbleibende Abstand zu nativ (2,6 s gegen 0,87 s) ist
+wasm-Grundkosten plus 782 MB Kopieren über die Bridge; erst wenn das stört,
+lohnen größere Blöcke oder ein Zero-Copy-Pfad.
+
 ## Fehlende Stufen müssen sich melden
 
 Solange S3/S4 fehlen, stehen ihre Bedienelemente trotzdem in der UI — und
