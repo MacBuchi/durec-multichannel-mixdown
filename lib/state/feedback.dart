@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../io/platform_shim.dart';
 import 'update_check.dart' show repoSlug;
 
 enum FeedbackType { feature, bug }
@@ -54,11 +54,11 @@ Uri issueFormUrl(
 }
 
 String currentPlatform() {
-  if (Platform.isAndroid) return 'Android';
-  if (Platform.isIOS) return 'iOS';
-  if (Platform.isMacOS) return 'macOS';
-  if (Platform.isWindows) return 'Windows';
-  return Platform.operatingSystem;
+  if (isAndroidPlatform) return 'Android';
+  if (isIOSPlatform) return 'iOS';
+  if (isMacOSPlatform) return 'macOS';
+  if (isWindowsPlatform) return 'Windows';
+  return operatingSystemName;
 }
 
 /// File the feedback. Returns `true` when the issue was created directly
@@ -82,33 +82,20 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
     return false;
   }
 
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-  try {
-    final request = await client.postUrl(
-      Uri.parse('https://api.github.com/repos/$repoSlug/issues'),
-    );
-    request.headers
-      ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
-      ..set(HttpHeaders.authorizationHeader, 'Bearer $_token')
-      ..contentType = ContentType.json;
-    request.write(
-      jsonEncode({
-        'title': issueTitle(type, message),
-        'body': issueBody(
-          message: message,
-          version: version,
-          platform: platform,
-        ),
-        'labels': [type == FeedbackType.bug ? 'bug' : 'enhancement'],
-      }),
-    );
-    final response = await request.close().timeout(const Duration(seconds: 15));
-    await response.drain<void>();
-    if (response.statusCode != 201) {
-      throw HttpException('GitHub responded ${response.statusCode}');
-    }
-    return true;
-  } finally {
-    client.close(force: true);
+  final response = await httpPostJson(
+    Uri.parse('https://api.github.com/repos/$repoSlug/issues'),
+    headers: {
+      'accept': 'application/vnd.github+json',
+      'authorization': 'Bearer $_token',
+    },
+    body: jsonEncode({
+      'title': issueTitle(type, message),
+      'body': issueBody(message: message, version: version, platform: platform),
+      'labels': [type == FeedbackType.bug ? 'bug' : 'enhancement'],
+    }),
+  );
+  if (response.statusCode != 201) {
+    throw Exception('GitHub responded ${response.statusCode}');
   }
+  return true;
 }

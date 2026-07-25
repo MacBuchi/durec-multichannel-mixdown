@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/services.dart';
+
+import 'platform_shim.dart';
 
 /// Android Storage Access Framework bridge. DUREC recordings are multi-GB,
 /// so they are never copied: the picker returns a `content://` URI and the
@@ -9,7 +9,7 @@ import 'package:flutter/services.dart';
 class Saf {
   static const _channel = MethodChannel('durecmix/saf');
 
-  static bool get isAvailable => Platform.isAndroid;
+  static bool get isAvailable => isAndroidPlatform;
 
   static bool isContentUri(String source) => source.startsWith('content://');
 

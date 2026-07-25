@@ -8,8 +8,16 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.12.0"
-durecmix-engine = { path = "../engine" }
+# Web builds carry only the pure-Rust engine core; the native-only features
+# come back via the target block below (docs/PLAN-PWA.md).
+durecmix-engine = { path = "../engine", default-features = false }
 anyhow = "1"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+durecmix-engine = { path = "../engine", default-features = false, features = [
+  "playback",
+  "mp3",
+] }
 
 # ndk_context handshake for cpal's AAudio backend — see src/android.rs.
 [target.'cfg(target_os = "android")'.dependencies]

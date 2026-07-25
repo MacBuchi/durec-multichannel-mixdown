@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
@@ -93,7 +93,7 @@ class MultiExportRunner extends ChangeNotifier {
         outDir = await Saf.ensureDirectory(folder, 'Mixdown');
       } else {
         outDir = '$folder/Mixdown';
-        await Directory(outDir).create();
+        await ensureDirectory(outDir);
       }
     } catch (e) {
       for (final entry in entries) {
@@ -166,7 +166,7 @@ class MultiExportRunner extends ChangeNotifier {
           // Match that behaviour on desktop instead of silently overwriting.
           outTarget = '$outDir/$outName';
           var n = 1;
-          while (File(outTarget).existsSync()) {
+          while (fileExistsSync(outTarget)) {
             outTarget = '$outDir/$stem (${n++})${extensionFor(config.format)}';
           }
         }

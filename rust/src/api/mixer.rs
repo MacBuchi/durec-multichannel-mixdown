@@ -4,10 +4,12 @@
 //! engine types so the engine stays independently testable.
 
 use std::path::Path;
+#[cfg(not(target_family = "wasm"))]
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::Context;
 use durecmix_engine::analysis;
+#[cfg(not(target_family = "wasm"))]
 use durecmix_engine::chain::MasterParams;
 use durecmix_engine::ixml;
 use durecmix_engine::mastering::{
@@ -15,6 +17,9 @@ use durecmix_engine::mastering::{
     PROFILE_VERSION,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
+// Live playback is native-only until PLAN-PWA S4 (Web Audio); the API
+// surface below stays identical on wasm so the generated bindings match.
+#[cfg(not(target_family = "wasm"))]
 use durecmix_engine::playback::Player;
 use durecmix_engine::reference;
 use durecmix_engine::render::{
@@ -35,8 +40,10 @@ fn input_handle(path: &str, fd: Option<i32>) -> InputHandle {
 
 use crate::frb_generated::StreamSink;
 
+#[cfg(not(target_family = "wasm"))]
 static PLAYER: OnceLock<Mutex<Option<Player>>> = OnceLock::new();
 
+#[cfg(not(target_family = "wasm"))]
 fn player_slot() -> &'static Mutex<Option<Player>> {
     PLAYER.get_or_init(|| Mutex::new(None))
 }
@@ -340,6 +347,7 @@ fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn to_master_params(m: &ApiMaster) -> MasterParams {
     MasterParams {
         limiter_enabled: m.limiter_enabled,
@@ -722,32 +730,53 @@ pub fn player_start(
     mastering_stats: Option<ApiMixStats>,
     reference: Option<ApiReferenceProfile>,
 ) -> anyhow::Result<()> {
-    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
-    let plan = preview_plan(&master, mastering_stats, reference)?;
-    let new_player = Player::start_input(
-        &input_handle(&path, fd),
-        engine_tracks,
-        to_master_params(&master),
-        plan,
-        start_frame,
-    )
-    .with_context(|| format!("start playback of {path}"))?;
-    let mut slot = player_slot().lock().unwrap();
-    if let Some(old) = slot.take() {
-        old.stop();
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (
+            path,
+            tracks,
+            master,
+            start_frame,
+            fd,
+            mastering_stats,
+            reference,
+        );
+        anyhow::bail!("live playback is not available in the web build yet (PLAN-PWA S4)");
     }
-    *slot = Some(new_player);
-    Ok(())
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+        let plan = preview_plan(&master, mastering_stats, reference)?;
+        let new_player = Player::start_input(
+            &input_handle(&path, fd),
+            engine_tracks,
+            to_master_params(&master),
+            plan,
+            start_frame,
+        )
+        .with_context(|| format!("start playback of {path}"))?;
+        let mut slot = player_slot().lock().unwrap();
+        if let Some(old) = slot.take() {
+            old.stop();
+        }
+        *slot = Some(new_player);
+        Ok(())
+    }
 }
 
 pub fn player_stop() {
-    let mut slot = player_slot().lock().unwrap();
-    if let Some(p) = slot.take() {
-        p.stop();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let mut slot = player_slot().lock().unwrap();
+        if let Some(p) = slot.take() {
+            p.stop();
+        }
     }
 }
 
 pub fn player_seek(frame: u64) {
+    let _ = frame;
+    #[cfg(not(target_family = "wasm"))]
     if let Some(p) = player_slot().lock().unwrap().as_ref() {
         p.seek(frame);
     }
@@ -761,6 +790,9 @@ pub fn player_update_params(
     reference: Option<ApiReferenceProfile>,
 ) -> anyhow::Result<()> {
     let plan = preview_plan(&master, mastering_stats, reference)?;
+    #[cfg(target_family = "wasm")]
+    let _ = (tracks, plan);
+    #[cfg(not(target_family = "wasm"))]
     if let Some(p) = player_slot().lock().unwrap().as_ref() {
         p.update_params(
             tracks.iter().map(to_engine_track).collect(),
@@ -774,30 +806,43 @@ pub fn player_update_params(
 /// Poll playback position and meters (call at UI frame rate).
 #[flutter_rust_bridge::frb(sync)]
 pub fn player_state() -> ApiPlayerState {
-    let slot = player_slot().lock().unwrap();
-    match slot.as_ref() {
-        Some(p) => {
-            let s = p.snapshot();
-            ApiPlayerState {
-                playing: s.playing,
-                position_frames: s.position_frames,
-                peak_l: s.peak_l,
-                peak_r: s.peak_r,
-                lufs_momentary: s.lufs_momentary,
-                lufs_integrated: s.lufs_integrated,
-                true_peak: s.true_peak,
-                correlation: s.correlation,
+    #[cfg(target_family = "wasm")]
+    {
+        idle_player_state()
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let slot = player_slot().lock().unwrap();
+        match slot.as_ref() {
+            Some(p) => {
+                let s = p.snapshot();
+                ApiPlayerState {
+                    playing: s.playing,
+                    position_frames: s.position_frames,
+                    peak_l: s.peak_l,
+                    peak_r: s.peak_r,
+                    lufs_momentary: s.lufs_momentary,
+                    lufs_integrated: s.lufs_integrated,
+                    true_peak: s.true_peak,
+                    correlation: s.correlation,
+                }
             }
+            None => idle_player_state(),
         }
-        None => ApiPlayerState {
-            playing: false,
-            position_frames: 0,
-            peak_l: 0.0,
-            peak_r: 0.0,
-            lufs_momentary: -70.0,
-            lufs_integrated: -70.0,
-            true_peak: 0.0,
-            correlation: 0.0,
-        },
+    }
+}
+
+/// The "nothing is playing" snapshot — shared by the native idle case and
+/// the whole wasm build (no playback until PLAN-PWA S4).
+fn idle_player_state() -> ApiPlayerState {
+    ApiPlayerState {
+        playing: false,
+        position_frames: 0,
+        peak_l: 0.0,
+        peak_r: 0.0,
+        lufs_momentary: -70.0,
+        lufs_integrated: -70.0,
+        true_peak: 0.0,
+        correlation: 0.0,
     }
 }

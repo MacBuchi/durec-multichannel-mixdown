@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:package_info_plus/package_info_plus.dart';
+
+import '../io/platform_shim.dart';
 
 /// The public GitHub repo powering the update check and feedback issues.
 const repoSlug = 'MacBuchi/durec-multichannel-mixdown';
@@ -52,22 +53,13 @@ class UpdateCheck {
     if (!enabled) return null;
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10);
-      try {
-        final request = await client.getUrl(
+      {
+        final response = await httpGetText(
           Uri.parse('https://api.github.com/repos/$repoSlug/releases/latest'),
-        );
-        request.headers.set(
-          HttpHeaders.acceptHeader,
-          'application/vnd.github+json',
-        );
-        final response = await request.close().timeout(
-          const Duration(seconds: 10),
+          headers: {'accept': 'application/vnd.github+json'},
         );
         if (response.statusCode != 200) return null;
-        final body = await response.transform(utf8.decoder).join();
-        final release = jsonDecode(body) as Map<String, dynamic>;
+        final release = jsonDecode(response.body) as Map<String, dynamic>;
 
         final tag = release['tag_name'] as String? ?? '';
         final latest = tag.startsWith('v') ? tag.substring(1) : tag;
@@ -90,8 +82,6 @@ class UpdateCheck {
               : apk.first['browser_download_url'] as String?,
           releaseNotes: release['body'] as String?,
         );
-      } finally {
-        client.close(force: true);
       }
     } catch (_) {
       return null;
