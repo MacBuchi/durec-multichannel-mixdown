@@ -9,7 +9,6 @@ use std::sync::{Mutex, OnceLock};
 
 use anyhow::Context;
 use durecmix_engine::analysis;
-#[cfg(not(target_family = "wasm"))]
 use durecmix_engine::chain::MasterParams;
 use durecmix_engine::ixml;
 use durecmix_engine::mastering::{
@@ -21,6 +20,7 @@ use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
 // surface below stays identical on wasm so the generated bindings match.
 #[cfg(not(target_family = "wasm"))]
 use durecmix_engine::playback::Player;
+use durecmix_engine::preview;
 use durecmix_engine::reference;
 use durecmix_engine::render::{
     self, LoudnessMode, MasteringReference, MasteringSettings, OutputFormat, RenderSettings,
@@ -347,7 +347,6 @@ fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 fn to_master_params(m: &ApiMaster) -> MasterParams {
     MasterParams {
         limiter_enabled: m.limiter_enabled,
@@ -1150,4 +1149,119 @@ pub fn render_stream_finish(id: u32) -> anyhow::Result<ApiRenderTail> {
 /// Drop a render that the user cancelled or that failed mid-way.
 pub fn render_stream_cancel(id: u32) {
     renderers().lock().unwrap().remove(&id);
+}
+
+// ── browser playback ────────────────────────────────────────────────────────
+//
+// No cpal in wasm and no synchronous read on a Blob, so the arrangement is
+// inverted: Dart slices the source and pushes it, Rust hands back mixed
+// frames, and an AudioWorklet plays them (docs/PLAN-PWA.md S4). The DSP is
+// `preview::PreviewStage` — the same chain the native player runs.
+
+static WEB_PLAYERS: OnceLock<Mutex<HashMap<u32, preview::WebPlayer>>> = OnceLock::new();
+static NEXT_WEB_PLAYER_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn web_players() -> &'static Mutex<HashMap<u32, preview::WebPlayer>> {
+    WEB_PLAYERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Meters plus the playhead, polled by the UI at frame rate.
+pub struct ApiPreviewState {
+    pub position_frames: u64,
+    pub peak_l: f32,
+    pub peak_r: f32,
+    pub lufs_momentary: f32,
+    pub lufs_integrated: f32,
+    pub true_peak: f32,
+    pub correlation: f32,
+}
+
+/// Open a browser player positioned at `start_frame`.
+pub fn web_player_begin(
+    fmt_chunk: Vec<u8>,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    mastering_stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
+    start_frame: u64,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let plan = preview_plan(&master, mastering_stats, reference)?;
+    let player = preview::WebPlayer::new(
+        spec,
+        &engine_tracks,
+        to_master_params(&master),
+        plan,
+        start_frame,
+    );
+    let mut counter = NEXT_WEB_PLAYER_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    web_players().lock().unwrap().insert(id, player);
+    Ok(id)
+}
+
+/// Mix the next slice of the `data` chunk into interleaved stereo f32.
+pub fn web_player_process(id: u32, bytes: Vec<u8>) -> anyhow::Result<Vec<f32>> {
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    Ok(player
+        .process(&bytes)
+        .context("mix preview block")?
+        .to_vec())
+}
+
+/// Push new mix/master parameters; the chain adopts its old filter state, so
+/// a fader move does not click.
+pub fn web_player_update_params(
+    id: u32,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    mastering_stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
+) -> anyhow::Result<()> {
+    let plan = preview_plan(&master, mastering_stats, reference)?;
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    player.set_params(&engine_tracks, to_master_params(&master), plan);
+    Ok(())
+}
+
+/// Jump to `frame`. Dart resumes pushing source bytes from there.
+pub fn web_player_seek(id: u32, frame: u64) -> anyhow::Result<()> {
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    player.seek(frame);
+    Ok(())
+}
+
+#[flutter_rust_bridge::frb(sync)]
+pub fn web_player_state(id: u32) -> Option<ApiPreviewState> {
+    let map = web_players().lock().unwrap();
+    let player = map.get(&id)?;
+    let m = player.meters();
+    Some(ApiPreviewState {
+        position_frames: player.position_frames(),
+        peak_l: m.peak_l,
+        peak_r: m.peak_r,
+        lufs_momentary: m.lufs_momentary,
+        lufs_integrated: m.lufs_integrated,
+        true_peak: m.true_peak,
+        correlation: m.correlation,
+    })
+}
+
+pub fn web_player_end(id: u32) {
+    web_players().lock().unwrap().remove(&id);
 }

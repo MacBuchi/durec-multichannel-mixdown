@@ -139,3 +139,7 @@ Stream<ApkInstallEvent> installApk(String apkUrl, String filename) {
     }
   });
 }
+
+/// Native builds play through cpal inside the engine, so there is no sink to
+/// hand out here.
+Future<PreviewSink?> openPreviewSink(int sampleRate) async => null;

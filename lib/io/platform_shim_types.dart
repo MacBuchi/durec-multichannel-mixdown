@@ -72,3 +72,35 @@ abstract class RenderOutput {
   /// Called once at the end with the patched header and the encoder's tail.
   Future<void> complete(Uint8List head, Uint8List tail);
 }
+
+/// Where preview audio goes on platforms without cpal — the browser.
+///
+/// The engine mixes ahead of time and hands blocks over; the device pulls
+/// from a ring buffer on its own thread. Everything here is counted in
+/// **interleaved samples**, not frames, because that is what the ring holds.
+abstract class PreviewSink {
+  /// Sample rate the device actually runs at.
+  int get sampleRate;
+
+  /// Room for this many more samples before the ring is full.
+  int get freeSamples;
+
+  /// Samples waiting to be played.
+  int get bufferedSamples;
+
+  /// Frames the device has really played — the playhead follows this, not
+  /// what was produced, or it would run ahead of what you hear.
+  int get playedFrames;
+
+  /// How often the device found the ring empty. Non-zero means the filler
+  /// fell behind; silence was played.
+  int get underruns;
+
+  /// Append interleaved stereo samples. Never more than [freeSamples].
+  void write(Float32List samples);
+
+  /// Drop everything buffered — the signal is about to jump elsewhere.
+  void flush();
+
+  Future<void> dispose();
+}
