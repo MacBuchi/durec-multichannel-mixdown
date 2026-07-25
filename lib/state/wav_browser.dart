@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'app_settings.dart';
@@ -61,7 +60,7 @@ class WavBrowser extends ChangeNotifier {
 
   /// Platform folder picker: SAF tree on Android, path elsewhere.
   Future<String?> pickFolder() async =>
-      Platform.isAndroid ? Saf.pickDirectory() : getDirectoryPath();
+      isAndroidPlatform ? Saf.pickDirectory() : getDirectoryPath();
 
   /// List `target`'s .wav files and start probing them.
   Future<void> openFolder(String target) async {
@@ -163,20 +162,15 @@ class WavBrowser extends ChangeNotifier {
   }
 
   Future<List<WavEntry>> _listPath(String dirPath) async {
-    final listed = <WavEntry>[];
-    await for (final f in Directory(dirPath).list()) {
-      if (f is! File || !f.path.toLowerCase().endsWith('.wav')) continue;
-      final stat = await f.stat();
-      listed.add(
+    return [
+      for (final f in await listWavFiles(dirPath))
         WavEntry(
           source: f.path,
-          name: f.path.split(Platform.pathSeparator).last,
-          sizeBytes: stat.size,
-          modified: stat.modified,
+          name: f.path.split(pathSeparator).last,
+          sizeBytes: f.sizeBytes,
+          modified: f.modified,
         ),
-      );
-    }
-    return listed;
+    ];
   }
 
   Future<void> _probeAll(int generation) async {
@@ -210,7 +204,7 @@ class WavBrowser extends ChangeNotifier {
 
   static String _folderDisplayName(String target) {
     if (!Saf.isContentUri(target)) {
-      return target.split(Platform.pathSeparator).last;
+      return target.split(pathSeparator).last;
     }
     // Tree URIs end in an id like "primary:Music/DUREC" or "1234-5678:".
     final id = Uri.decodeComponent(target.split('/').last);

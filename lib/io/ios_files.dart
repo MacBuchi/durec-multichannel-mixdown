@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/services.dart';
+
+import 'platform_shim.dart';
 
 /// iOS Files-app bridge, the counterpart of the Android [Saf] class: DUREC
 /// recordings are multi-GB, so they are opened in place (`asCopy: false`)
@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 class IosFiles {
   static const _channel = MethodChannel('durecmix/files');
 
-  static bool get isAvailable => Platform.isIOS;
+  static bool get isAvailable => isIOSPlatform;
 
   /// Open the Files picker for a WAV; returns its in-place path or null.
   static Future<String?> pickWav() => _channel.invokeMethod<String>('pickWav');

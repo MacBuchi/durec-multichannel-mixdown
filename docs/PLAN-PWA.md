@@ -11,10 +11,10 @@ beweist.
 **Die Engine kompiliert für `wasm32-unknown-unknown`.** Zwei neue
 Cargo-Features in `engine/`:
 
-| Feature    | Inhalt                  | Warum gegated                                        |
-| ---------- | ----------------------- | ---------------------------------------------------- |
-| `playback` | cpal + rtrb (`playback.rs`) | cpal braucht pro Plattform ein Audio-Backend      |
-| `mp3`      | mp3lame-encoder (LAME)  | C-Quellen bauen nicht für wasm32-unknown-unknown     |
+| Feature    | Inhalt                      | Warum gegated                                    |
+| ---------- | --------------------------- | ------------------------------------------------ |
+| `playback` | cpal + rtrb (`playback.rs`) | cpal braucht pro Plattform ein Audio-Backend     |
+| `mp3`      | mp3lame-encoder (LAME)      | C-Quellen bauen nicht für wasm32-unknown-unknown |
 
 `default = ["playback", "mp3"]` — native Builds sind byte-identisch zu
 vorher (79 Tests, clippy, fmt grün). Alles andere ist pures Rust und baut
@@ -49,13 +49,33 @@ ist S2-Arbeit, kein Kompilier-Blocker.
 Jede Stufe ist ein PR (oder eine kurze Kette) gegen `dev/pwa`, ohne
 Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
 
-- **S0 — Machbarkeit (dieser Commit).** Engine feature-gated, wasm32-Check
-  in CI. *Exit: erfüllt.*
-- **S1 — Bridge & Shell.** `rust/`-Crate für wasm bauen
-  (Playback-/fd-APIs gaten, `flutter_rust_bridge_codegen build-web`),
-  `web/` wiederherstellen, `dart:io`-Stellen (12 Dateien) hinter
-  Conditional Imports. *Exit: App bootet in Chrome, ein Engine-Call
-  (Version/Probe eines Mini-Fixtures) geht durch die Bridge.*
+- **S0 — Machbarkeit.** Engine feature-gated, wasm32-Check in CI.
+  *Exit: erfüllt.*
+- **S1 — Bridge & Shell.** *Exit: erfüllt (2026-07-25)* — App bootet in
+  Chrome (headless verifiziert), der Boot-Beacon in `main.dart` meldet
+  `DURECMIX_WEB_BOOT Hello, wasm engine!` durch die Bridge aus dem
+  wasm-Worker-Pool. Werkzeug-Erkenntnisse:
+  - **`tool/build_web_engine.sh` statt `flutter_rust_bridge_codegen
+    build-web`.** FRB 2.12 setzt nur die Target-Features; aktuelle
+    Nightlies leiten `--shared-memory` daraus nicht mehr ab → non-shared
+    Memory → WorkerPool stirbt mit `DataCloneError: #<Memory> could not
+    be cloned`. Nötige Link-Args: `--shared-memory --max-memory
+    --import-memory` (wasm-bindgens Thread-Transform verlangt importierte
+    Memory) `--export=__heap_base` + TLS-Exports. Voraussetzungen:
+    nightly-Toolchain, `rust-src`, wasm32-Target, wasm-pack.
+  - **`flutter build web` kopiert `web/pkg` nicht** (wasm-packs
+    Catch-all-`.gitignore` dort) — beim Deploy `build/web/pkg` selbst
+    kopieren; `web/pkg` bleibt unversioniert und wird per Skript gebaut.
+  - **Serve braucht COOP/COEP** (`same-origin` / `require-corp`), sonst
+    kein SharedArrayBuffer: lokal `flutter run -d web-server
+    --web-header=…` oder der Python-Server aus der PR-Beschreibung;
+    auf Pages später `coi-serviceworker` (S5).
+  - Der `dart:io`-Zugriff läuft jetzt komplett über
+    `lib/io/platform_shim.dart` (Conditional Import; Web-Impl =
+    In-Memory-Container, Netz aus). Der FNV-1a-Hash in
+    `session_paths.dart` rechnet auf 32-Bit-Limbs (dart2js hat keine
+    64-Bit-Ints) — bit-identisch zum alten Ergebnis, Vektoren in
+    `test/session_paths_test.dart`.
 - **S2 — Lesen & Analysieren.** Blob-Reader in der Engine, Picker → Probe
   → Wellenformen/Meter ohne Playback/Export. *Exit: echtes DUREC-WAV
   (>900 MB) lädt im Browser mit korrekten Track-Namen und Wellenformen —

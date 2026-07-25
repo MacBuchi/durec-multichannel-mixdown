@@ -1,6 +1,4 @@
-import 'dart:io';
-
-import 'package:path_provider/path_provider.dart';
+import '../io/platform_shim.dart';
 
 /// Where session files live.
 ///
@@ -11,23 +9,23 @@ import 'package:path_provider/path_provider.dart';
 /// path keeps recordings with identical names apart. Legacy sibling files
 /// next to the WAV are still read once by the engine as a migration fallback.
 Future<String> sessionPathFor(String wavSource, {String? displayName}) async {
-  final support = await getApplicationSupportDirectory();
-  final dir = Directory('${support.path}/sessions');
-  await dir.create(recursive: true);
+  final support = await applicationSupportPath();
+  final dir = '$support/sessions';
+  await ensureDirectory(dir);
   // Content URIs (Android SAF) have no meaningful basename — use the
   // provider-reported display name for readability instead.
   final base = (displayName ?? wavSource.split('/').last)
       .replaceAll(RegExp(r'\.wav$', caseSensitive: false), '')
       .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-  final path = '${dir.path}/${base}_${sourceHashFor(wavSource)}.durecmix.json';
+  final path = '$dir/${base}_${sourceHashFor(wavSource)}.durecmix.json';
   // One-time migration: sessions saved before the documentId normalization
   // hashed the full URI string. Rename them onto the stable key so a mix
   // saved via the single-file picker survives opening the same file from
   // the folder browser.
-  final legacy = '${dir.path}/${base}_${_fnv1a64(wavSource)}.durecmix.json';
-  if (legacy != path && !File(path).existsSync() && File(legacy).existsSync()) {
+  final legacy = '$dir/${base}_${_fnv1a64(wavSource)}.durecmix.json';
+  if (legacy != path && !fileExistsSync(path) && fileExistsSync(legacy)) {
     try {
-      File(legacy).renameSync(path);
+      renameFileSync(legacy, path);
     } catch (_) {
       // Migration is best effort: if the rename fails the legacy session is
       // simply not carried over and the user starts from a fresh mix.
@@ -55,14 +53,25 @@ String sourceKeyFor(String wavSource) {
 String sourceHashFor(String wavSource) => _fnv1a64(sourceKeyFor(wavSource));
 
 /// FNV-1a 64-bit hash, hex-encoded. Stable across runs and platforms.
-/// (Dart ints are signed 64-bit with wrapping arithmetic, hence the
-/// unsigned-shift split for hex formatting.)
+///
+/// Computed on two 32-bit halves because dart2js has no 64-bit integers
+/// (the previous `0xcbf29ce484222325` literal did not even compile for the
+/// web). Every intermediate stays below 2^42, exact in doubles, so VM and
+/// dart2js produce bit-identical hashes — existing session and cache
+/// filenames depend on that (vectors: test/session_paths_test.dart).
 String _fnv1a64(String s) {
-  var hash = 0xcbf29ce484222325;
+  // Offset basis 0xcbf29ce4_84222325; prime 0x100_000001b3.
+  var hi = 0xcbf29ce4;
+  var lo = 0x84222325;
+  const primeHi = 0x100;
+  const primeLo = 0x1b3;
+  const limb = 0x100000000;
   for (final unit in s.codeUnits) {
-    hash ^= unit;
-    hash *= 0x100000001b3;
+    lo ^= unit;
+    final low = lo * primeLo;
+    hi = (lo * primeHi + hi * primeLo + low ~/ limb) % limb;
+    lo = low % limb;
   }
-  return (hash >>> 32).toRadixString(16).padLeft(8, '0') +
-      (hash & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
+  return hi.toRadixString(16).padLeft(8, '0') +
+      lo.toRadixString(16).padLeft(8, '0');
 }

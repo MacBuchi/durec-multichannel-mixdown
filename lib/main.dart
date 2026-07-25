@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry;
+    show LicenseEntryWithLineBreaks, LicenseRegistry, debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:durecmix/src/rust/api/simple.dart' as rust_simple;
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/state/app_settings.dart';
 import 'package:durecmix/state/mixer_scope.dart';
@@ -36,6 +37,12 @@ bool _rustLicensesRegistered = false;
 
 Future<void> main() async {
   await RustLib.init();
+  if (kIsWeb) {
+    // Boot beacon for the PWA track (docs/PLAN-PWA.md S1): proves in the
+    // browser console that the wasm engine answers through the bridge —
+    // headless CI/screenshot runs grep for exactly this line.
+    debugPrint('DURECMIX_WEB_BOOT ${rust_simple.greet(name: 'wasm engine')}');
+  }
   // Before the first frame, so the stored theme never flashes past.
   await AppSettings.load();
   runApp(const DurecMixApp());

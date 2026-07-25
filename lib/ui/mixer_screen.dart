@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../io/ios_files.dart';
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import '../state/app_settings.dart';
@@ -178,14 +178,14 @@ class _MixerScreenState extends State<MixerScreen> {
       // iOS: render into tmp, then let the export picker move the finished
       // file wherever the user chooses (Files, iCloud, USB drive).
       final tempPath =
-          '${Directory.systemTemp.path}/${state.exporter.suggestedName()}';
+          '${await systemTempPath()}/${state.exporter.suggestedName()}';
       await state.exporter.export(tempPath);
       if (state.error == null) {
         final dest = await IosFiles.exportMove(tempPath);
         if (dest == null) {
           // Cancelled: don't leave a multi-GB orphan in tmp.
           try {
-            File(tempPath).deleteSync();
+            deleteFileSync(tempPath);
           } catch (_) {
             // Cleanup only — worst case the OS purges tmp itself.
           }
@@ -217,7 +217,7 @@ class _MixerScreenState extends State<MixerScreen> {
 
   /// Batch export needs a directory picker, which file_selector only
   /// implements on desktop; phones export one file at a time.
-  bool get _batchAvailable => !Platform.isAndroid && !Platform.isIOS;
+  bool get _batchAvailable => !isAndroidPlatform && !isIOSPlatform;
 
   @override
   Widget build(BuildContext context) {

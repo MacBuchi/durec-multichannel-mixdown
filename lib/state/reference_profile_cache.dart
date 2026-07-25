@@ -1,9 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
-
+import '../io/platform_shim.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'session_paths.dart';
 
@@ -16,19 +14,19 @@ import 'session_paths.dart';
 /// Keyed by the source identity hash and the engine's profile version, so
 /// algorithm changes invalidate stored profiles naturally.
 class ReferenceProfileCache {
-  static Future<File> _fileFor(String source) async {
-    final support = await getApplicationSupportDirectory();
-    final dir = Directory('${support.path}/reference_profiles');
-    await dir.create(recursive: true);
+  static Future<String> _fileFor(String source) async {
+    final support = await applicationSupportPath();
+    final dir = '$support/reference_profiles';
+    await ensureDirectory(dir);
     final version = await rust.referenceProfileVersion();
-    return File('${dir.path}/${sourceHashFor(source)}_v$version.json');
+    return '$dir/${sourceHashFor(source)}_v$version.json';
   }
 
   static Future<rust.ApiReferenceProfile?> load(String source) async {
     try {
       final file = await _fileFor(source);
-      if (!file.existsSync()) return null;
-      final m = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      if (!fileExistsSync(file)) return null;
+      final m = jsonDecode(await readTextFile(file)) as Map<String, dynamic>;
       Float32List spectrum(String key) => Float32List.fromList(
         (m[key] as List).cast<num>().map((v) => v.toDouble()).toList(),
       );
@@ -51,7 +49,8 @@ class ReferenceProfileCache {
   static Future<void> save(String source, rust.ApiReferenceProfile p) async {
     try {
       final file = await _fileFor(source);
-      await file.writeAsString(
+      await writeTextFile(
+        file,
         jsonEncode({
           'version': p.version,
           'sampleRate': p.sampleRate,
