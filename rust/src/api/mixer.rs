@@ -372,6 +372,70 @@ pub fn probe_recording(path: String, fd: Option<i32>) -> anyhow::Result<ApiProbe
     })
 }
 
+/// One RIFF chunk located by [`scan_wav_chunks`].
+pub struct ApiChunk {
+    pub id: String,
+    pub offset: u64,
+    pub size: u64,
+}
+
+/// Outcome of one scan window; `next_offset` is `None` when done.
+pub struct ApiChunkScan {
+    pub chunks: Vec<ApiChunk>,
+    pub next_offset: Option<u64>,
+}
+
+/// Locate RIFF chunks in a buffer the caller fetched — the web build has no
+/// filesystem, so Dart reads ranges out of a `Blob` and the parsing stays
+/// here (docs/PLAN-PWA.md S2). `buf` covers `[buf_offset, +buf.len())`.
+#[flutter_rust_bridge::frb(sync)]
+pub fn scan_wav_chunks(
+    buf: Vec<u8>,
+    buf_offset: u64,
+    file_size: u64,
+) -> anyhow::Result<ApiChunkScan> {
+    let scan = wav::scan_chunks(&buf, buf_offset, file_size)
+        .with_context(|| format!("scan chunks at {buf_offset}"))?;
+    Ok(ApiChunkScan {
+        chunks: scan
+            .chunks
+            .into_iter()
+            .map(|c| ApiChunk {
+                id: c.id,
+                offset: c.offset,
+                size: c.size,
+            })
+            .collect(),
+        next_offset: scan.next_offset,
+    })
+}
+
+/// Assemble a probe from the chunk payloads the caller fetched after
+/// [`scan_wav_chunks`] — the filesystem-free twin of [`probe_recording`].
+#[flutter_rust_bridge::frb(sync)]
+pub fn probe_from_chunks(
+    fmt_chunk: Vec<u8>,
+    ixml_chunk: Option<Vec<u8>>,
+    data_bytes: u64,
+) -> anyhow::Result<ApiProbe> {
+    let info = wav::probe_from_parts(&fmt_chunk, ixml_chunk.as_deref(), data_bytes)
+        .context("probe from chunks")?;
+    Ok(ApiProbe {
+        channels: info.channels,
+        sample_rate: info.sample_rate,
+        bits_per_sample: info.bits_per_sample,
+        num_frames: info.num_frames,
+        duration_seconds: info.duration_seconds,
+        ixml_track_count: info.ixml_track_count,
+    })
+}
+
+/// Track names out of an iXML payload the caller fetched (web build).
+#[flutter_rust_bridge::frb(sync)]
+pub fn track_names_from_ixml(ixml_chunk: Vec<u8>) -> Vec<String> {
+    wav::track_names_from_ixml(&ixml_chunk)
+}
+
 pub fn load_recording(
     path: String,
     session_path: String,

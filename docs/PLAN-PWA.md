@@ -76,10 +76,17 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     `session_paths.dart` rechnet auf 32-Bit-Limbs (dart2js hat keine
     64-Bit-Ints) — bit-identisch zum alten Ergebnis, Vektoren in
     `test/session_paths_test.dart`.
-- **S2 — Lesen & Analysieren.** Blob-Reader in der Engine, Picker → Probe
-  → Wellenformen/Meter ohne Playback/Export. *Exit: echtes DUREC-WAV
-  (>900 MB) lädt im Browser mit korrekten Track-Namen und Wellenformen —
-  auch in iOS Safari.*
+- **S2a — Öffnen & Probe (erledigt 2026-07-25).** Web-Dateipicker plus
+  Range-Probe: Rust lokalisiert die Chunks (`wav::scan_chunks`) und parst
+  sie (`wav::probe_from_parts`), Dart holt per `blob.slice()` nur die
+  angeforderten Bereiche (`lib/state/range_probe.dart`). Gegen das echte
+  `UFX34_00.WAV` (376 MB, 34 ch) in Chrome verifiziert: Ergebnis
+  identisch zur nativen Probe (34 ch · 44,1 kHz · 24 Bit · 1:27 ·
+  **34 Spuren aus dem iXML am Dateiende**), **0,42 s, 0 MB
+  Heap-Zuwachs** — die Datei wird nachweislich nicht geladen.
+- **S2b — Analysieren.** Wellenformen/Meter über denselben Range-Pfad
+  (streamt die Audiodaten, anders als die Probe). *Exit: echtes DUREC-WAV
+  lädt im Browser mit Wellenformen — auch in iOS Safari.*
 
   Aus dem Gerätetest (Pixel 7 Pro, Chrome 150, 2026-07-25) bereits bekannt:
   - **„Choose folder" ist im Web tot und schweigt dabei.**

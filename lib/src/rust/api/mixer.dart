@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `input_handle`, `player_slot`, `preview_plan`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -15,6 +15,35 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 /// in-app browser to annotate directory listings.
 Future<ApiProbe> probeRecording({required String path, int? fd}) =>
     RustLib.instance.api.crateApiMixerProbeRecording(path: path, fd: fd);
+
+/// Locate RIFF chunks in a buffer the caller fetched — the web build has no
+/// filesystem, so Dart reads ranges out of a `Blob` and the parsing stays
+/// here (docs/PLAN-PWA.md S2). `buf` covers `[buf_offset, +buf.len())`.
+ApiChunkScan scanWavChunks({
+  required List<int> buf,
+  required BigInt bufOffset,
+  required BigInt fileSize,
+}) => RustLib.instance.api.crateApiMixerScanWavChunks(
+  buf: buf,
+  bufOffset: bufOffset,
+  fileSize: fileSize,
+);
+
+/// Assemble a probe from the chunk payloads the caller fetched after
+/// [`scan_wav_chunks`] — the filesystem-free twin of [`probe_recording`].
+ApiProbe probeFromChunks({
+  required List<int> fmtChunk,
+  Uint8List? ixmlChunk,
+  required BigInt dataBytes,
+}) => RustLib.instance.api.crateApiMixerProbeFromChunks(
+  fmtChunk: fmtChunk,
+  ixmlChunk: ixmlChunk,
+  dataBytes: dataBytes,
+);
+
+/// Track names out of an iXML payload the caller fetched (web build).
+List<String> trackNamesFromIxml({required List<int> ixmlChunk}) =>
+    RustLib.instance.api.crateApiMixerTrackNamesFromIxml(ixmlChunk: ixmlChunk);
 
 Future<RecordingInfo> loadRecording({
   required String path,
@@ -184,6 +213,46 @@ class ApiChannelWaveform {
           min == other.min &&
           max == other.max &&
           peakDbfs == other.peakDbfs;
+}
+
+/// One RIFF chunk located by [`scan_wav_chunks`].
+class ApiChunk {
+  final String id;
+  final BigInt offset;
+  final BigInt size;
+
+  const ApiChunk({required this.id, required this.offset, required this.size});
+
+  @override
+  int get hashCode => id.hashCode ^ offset.hashCode ^ size.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiChunk &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          offset == other.offset &&
+          size == other.size;
+}
+
+/// Outcome of one scan window; `next_offset` is `None` when done.
+class ApiChunkScan {
+  final List<ApiChunk> chunks;
+  final BigInt? nextOffset;
+
+  const ApiChunkScan({required this.chunks, this.nextOffset});
+
+  @override
+  int get hashCode => chunks.hashCode ^ nextOffset.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiChunkScan &&
+          runtimeType == other.runtimeType &&
+          chunks == other.chunks &&
+          nextOffset == other.nextOffset;
 }
 
 class ApiEqBand {

@@ -80,6 +80,14 @@ class _MixerScreenState extends State<MixerScreen> {
     }
     final settings = await AppSettings.load();
     final browser = _browser ??= WavBrowser(settings);
+    if (!canPickFolders) {
+      // Browsers have no folder picker (see platform_shim_web.dart), so the
+      // web build picks the recordings themselves.
+      await browser.pickAndOpenFiles();
+      if (browser.entries.isEmpty) return;
+      await _showBrowser(browser);
+      return;
+    }
     final picked = await browser.pickFolder();
     if (picked == null) return;
     unawaited(browser.openFolder(picked));
@@ -532,7 +540,9 @@ class _MixerScreenState extends State<MixerScreen> {
             )
           else ...[
             Text(
-              'Choose a folder with DUREC recordings',
+              canPickFolders
+                  ? 'Choose a folder with DUREC recordings'
+                  : 'Choose DUREC recordings',
               style: TextStyle(color: AppColors.of(context).dim),
             ),
             const SizedBox(height: 16),
@@ -542,8 +552,10 @@ class _MixerScreenState extends State<MixerScreen> {
             // update — which looked like a button that does nothing (#74).
             FilledButton.icon(
               onPressed: _changeFolder,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Choose folder'),
+              icon: Icon(
+                canPickFolders ? Icons.folder_open : Icons.audio_file_outlined,
+              ),
+              label: Text(canPickFolders ? 'Choose folder' : 'Choose files'),
             ),
           ],
           if (state.error != null) ...[
