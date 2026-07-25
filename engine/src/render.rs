@@ -682,3 +682,143 @@ pub fn render_io(
     progress(1.0);
     Ok(report)
 }
+
+/// The whole render driven from outside, byte block by byte block.
+///
+/// This is what the browser runs: Dart slices the `data` chunk off the
+/// `Blob` and pushes it — twice, once per pass, because there is no
+/// synchronous seek to rewind with. Everything below is the same
+/// [`RenderPass1`]/[`RenderPass2`] the native file loop uses; only the
+/// source of the bytes differs.
+///
+/// The encoded output is not kept: [`push_pass2`](Self::push_pass2) returns
+/// each block as it is produced, and the patched header follows from
+/// [`finish`](Self::finish). The caller writes `head ++ blocks…`.
+pub struct StreamRender {
+    channels: usize,
+    sample_rate: u32,
+    tracks: Vec<TrackParams>,
+    settings: RenderSettings,
+    reference: Option<ReferenceProfile>,
+    range_frames: u64,
+    decoder: crate::wav::FrameDecoder,
+    spec: crate::wav::WavSpec,
+    scratch: Vec<f64>,
+    sink: crate::sink::ChunkSink,
+    stage: Stage,
+}
+
+enum Stage {
+    Pass1(Box<RenderPass1>),
+    Pass2(Box<RenderPass2<crate::sink::ChunkSink>>),
+    Spent,
+}
+
+/// The finished render: `head ++ every block returned by `push_pass2` ++
+/// `tail` is the complete file.
+pub struct StreamRenderOutput {
+    pub head: Vec<u8>,
+    pub tail: Vec<u8>,
+    pub report: RenderReport,
+}
+
+impl StreamRender {
+    pub fn new(
+        spec: crate::wav::WavSpec,
+        range_frames: u64,
+        tracks: Vec<TrackParams>,
+        settings: RenderSettings,
+        reference: Option<ReferenceProfile>,
+    ) -> Result<StreamRender> {
+        let channels = spec.channels as usize;
+        let sample_rate = spec.sample_rate;
+        let pass1 = RenderPass1::new(
+            &RenderSource {
+                channels,
+                sample_rate,
+                tracks: &tracks,
+                range_frames,
+            },
+            &settings,
+            reference.is_some(),
+        )?;
+        Ok(StreamRender {
+            channels,
+            sample_rate,
+            tracks,
+            settings,
+            reference,
+            range_frames,
+            decoder: crate::wav::FrameDecoder::new(spec),
+            spec,
+            scratch: Vec::new(),
+            sink: crate::sink::ChunkSink::new(),
+            stage: Stage::Pass1(Box::new(pass1)),
+        })
+    }
+
+    /// Feed the next slice of the `data` chunk to pass 1, in file order.
+    pub fn push_pass1(&mut self, bytes: &[u8]) -> Result<()> {
+        let Stage::Pass1(pass) = &mut self.stage else {
+            return Err(EngineError::Encode("push_pass1 after pass 1 ended".into()));
+        };
+        self.decoder.push(bytes, &mut self.scratch)?;
+        pass.push_frames(&self.scratch);
+        Ok(())
+    }
+
+    /// Close pass 1, design the mastering FIRs and gain, open the encoder.
+    /// The caller then replays the same byte range through
+    /// [`push_pass2`](Self::push_pass2).
+    pub fn start_pass2(&mut self) -> Result<()> {
+        let stage = std::mem::replace(&mut self.stage, Stage::Spent);
+        let Stage::Pass1(pass) = stage else {
+            return Err(EngineError::Encode("start_pass2 out of order".into()));
+        };
+        let measured = pass.finish();
+        let plan = plan_from_pass1(&self.settings, &measured, self.reference.as_ref())?;
+        let sink = StereoSink::new(self.sink.clone(), self.settings.format, self.sample_rate)?;
+        let pass2 = RenderPass2::new(
+            &RenderSource {
+                channels: self.channels,
+                sample_rate: self.sample_rate,
+                tracks: &self.tracks,
+                range_frames: self.range_frames,
+            },
+            &self.settings,
+            &measured,
+            plan,
+            sink,
+        )?;
+        // The byte stream restarts, so the mid-frame remainder must not.
+        self.decoder = crate::wav::FrameDecoder::new(self.spec);
+        self.stage = Stage::Pass2(Box::new(pass2));
+        Ok(())
+    }
+
+    /// Feed the next slice to pass 2 and take whatever the encoder produced.
+    pub fn push_pass2(&mut self, bytes: &[u8]) -> Result<Vec<u8>> {
+        let Stage::Pass2(pass) = &mut self.stage else {
+            return Err(EngineError::Encode("push_pass2 out of order".into()));
+        };
+        self.decoder.push(bytes, &mut self.scratch)?;
+        pass.push_frames(&self.scratch)?;
+        Ok(self.sink.take_tail())
+    }
+
+    pub fn finish(mut self) -> Result<StreamRenderOutput> {
+        let stage = std::mem::replace(&mut self.stage, Stage::Spent);
+        let Stage::Pass2(pass) = stage else {
+            return Err(EngineError::Encode("finish before pass 2".into()));
+        };
+        let report = pass.finish()?;
+        // finalize() flushed the encoder and patched the header, so both are
+        // final only now.
+        let tail = self.sink.take_tail();
+        Ok(StreamRenderOutput {
+            head: self.sink.head(),
+            tail,
+            report,
+        })
+    }
+}

@@ -11,7 +11,7 @@ use durecmix_engine::ixml::{
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
 use durecmix_engine::render::{
     plan_from_pass1, render_to_file, LoudnessMode, OutputFormat, RenderPass1, RenderPass2,
-    RenderSettings, RenderSource,
+    RenderSettings, RenderSource, StreamRender,
 };
 use durecmix_engine::session::Session;
 use durecmix_engine::sink::{ChunkSink, StereoSink};
@@ -2442,5 +2442,83 @@ fn streamed_render_matches_the_file_render_byte_for_byte() {
             .unwrap_or_else(|| "identical".into());
         assert_eq!(first_diff, "identical", "{format:?}");
         assert_eq!(streamed_report, native_report, "{format:?}: report differs");
+    }
+}
+
+/// The full browser path: push raw `data`-chunk bytes twice, once per pass.
+///
+/// This is what the web build actually runs, so it has to match the file
+/// render byte for byte too — including block boundaries that fall
+/// mid-frame, which is the normal case when Dart slices a `Blob`.
+#[test]
+fn byte_driven_render_matches_the_file_render() {
+    let frames = 120_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 180.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 90.0 * std::f64::consts::TAU).sin() * 0.5 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    for format in [OutputFormat::Wav24, OutputFormat::Flac16] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        let wav = wav16(2, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let tracks = vec![track(1, -2.0, -1.0), track(2, -4.0, 1.0)];
+        let settings = RenderSettings {
+            loudness: LoudnessMode::PeakDbfs(-1.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_out_ms: 400.0,
+            ..RenderSettings::default()
+        };
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        // Locate the payload the way the web build does, then push it in
+        // blocks whose size is deliberately not a multiple of the 4-byte
+        // frame — every block ends mid-frame.
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let payload = &wav[data.offset as usize..][..data.size as usize];
+        let total_frames = data.size / spec.bytes_per_frame() as u64;
+
+        let mut render =
+            StreamRender::new(spec, total_frames, tracks.clone(), settings.clone(), None).unwrap();
+        const BLOCK: usize = 65_537; // odd, so no block ends on a frame edge
+        for block in payload.chunks(BLOCK) {
+            render.push_pass1(block).unwrap();
+        }
+        render.start_pass2().unwrap();
+        let mut body = Vec::new();
+        for block in payload.chunks(BLOCK) {
+            body.extend_from_slice(&render.push_pass2(block).unwrap());
+        }
+        let out = render.finish().unwrap();
+
+        let mut streamed = out.head;
+        streamed.extend_from_slice(&body);
+        streamed.extend_from_slice(&out.tail);
+
+        assert_eq!(streamed.len(), native.len(), "{format:?}: length differs");
+        let diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(diff, "identical", "{format:?}");
+        assert_eq!(out.report, native_report, "{format:?}: report differs");
     }
 }

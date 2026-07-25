@@ -131,9 +131,8 @@ impl Accumulator {
 /// platforms that can only hand over byte ranges (web). Pushes may split a
 /// frame anywhere; the remainder is carried to the next call.
 pub struct StreamAnalyzer {
-    spec: crate::wav::WavSpec,
     acc: Accumulator,
-    tail: Vec<u8>,
+    decoder: crate::wav::FrameDecoder,
     scratch: Vec<f64>,
 }
 
@@ -146,27 +145,15 @@ impl StreamAnalyzer {
                 num_frames,
                 buckets,
             ),
-            spec,
-            tail: Vec::new(),
+            decoder: crate::wav::FrameDecoder::new(spec),
             scratch: Vec::new(),
         }
     }
 
     /// Feed the next slice of the `data` chunk, in file order.
     pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        let bpf = self.spec.bytes_per_frame();
-        // Rejoin whatever was left dangling mid-frame last time.
-        let bytes = if self.tail.is_empty() {
-            bytes
-        } else {
-            self.tail.extend_from_slice(bytes);
-            &std::mem::take(&mut self.tail)[..]
-        };
-        let whole = bytes.len() - bytes.len() % bpf;
-        self.scratch.clear();
-        crate::wav::decode_samples(&self.spec, &bytes[..whole], &mut self.scratch)?;
+        self.decoder.push(bytes, &mut self.scratch)?;
         self.acc.push_frames(&self.scratch);
-        self.tail = bytes[whole..].to_vec();
         Ok(())
     }
 
