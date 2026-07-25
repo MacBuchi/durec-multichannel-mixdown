@@ -1,12 +1,12 @@
 {
-    "name": "durecmix",
-    "short_name": "durecmix",
+    "name": "DurecMix",
+    "short_name": "DurecMix",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#10141C",
+    "theme_color": "#10141C",
+    "description": "Offline downmixer for RME DUREC multichannel recordings.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

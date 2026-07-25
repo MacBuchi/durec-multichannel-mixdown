@@ -125,17 +125,32 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   nativen Render.*
 - **S4 — Playback.** AudioWorklet-Pfad (cpal-wasm nur falls es überzeugt).
   *Exit: Live-Preview mit Metern, Latenz akzeptabel.*
-- **S5 — PWA & Deploy.** Manifest, Service Worker (+ ggf.
-  coi-serviceworker), Pages-Workflow, Update-Hinweis. *Exit: installierbar
-  von GitHub Pages, Offline-Start.*
+- **S5 — Deploy auf GitHub Pages (Grundlage erledigt 2026-07-25,
+  vorgezogen für den iPad-Test).** `web/coi-sw.js` stellt die
+  Cross-Origin-Isolation selbst her, weil Pages keine Header setzen kann;
+  `.github/workflows/pages.yml` baut wasm + Flutter-Web und deployt aus
+  `dev/pwa`. Manifest trägt jetzt DurecMix-Branding. Lokal gegen einen
+  Server **ohne** COOP/COEP verifiziert (die Pages-Situation): Isolation
+  nach genau einem Reload, danach voller Ablauf mit `UFX34_00.WAV` —
+  Mixer nach 6,1 s, Wellenformen nach 31,5 s, identisch zum Lauf mit
+  Server-Headern.
 
-  Aus dem Gerätetest bereits bekannt: **es läuft noch kein Service
-  Worker** (`getRegistrations()` → 0). Flutters Bootstrap-Registrierung
-  ist deprecated und meldet das auch in der Konsole — S5 registriert den
-  Worker selbst in `web/index.html`. Ohne ihn kein Offline-Start und
-  keine echte Installierbarkeit. Das generierte `manifest.json` trägt
-  außerdem noch die `flutter create`-Vorgaben (`name: durecmix`,
-  `background_color: #0175C2`) statt DurecMix-Branding.
+  Zwei Fallen, die dabei aufgeflogen sind:
+  - **Nur ein Service Worker pro Scope.** Flutters Bootstrap registriert
+    `flutter_service_worker.js` auf „/" und verdrängt damit `coi-sw.js`,
+    das daraufhin Flutters wieder verdrängt: ein Reload-Ping-Pong, bei dem
+    die Seite nur bei jedem zweiten Laden isoliert ist und die Engine
+    entsprechend nur die Hälfte der Zeit startet. `web/flutter_bootstrap.js`
+    lädt Flutter deshalb ohne `serviceWorkerSettings`. **Offline-Caching
+    muss später IN `coi-sw.js` wandern, nicht als zweiter Worker.**
+  - **Der Reload darf nicht an `serviceWorker.controller` hängen.**
+    `clients.claim()` setzt den Controller, ohne das Dokument neu zu
+    holen — die Isolation entsteht aber allein aus den Headern der
+    *Navigations*-Antwort. Die Bedingung ist `!crossOriginIsolated`,
+    einmalig abgesichert über `sessionStorage`.
+
+  Offen: Offline-Start (Caching in `coi-sw.js`), Update-Hinweis,
+  **iOS-Safari-Nachweis auf dem Gerät**.
 
 **Merge `dev/pwa` → main** ist eine Nutzer-Entscheidung, frühestens nach
 S2 (ab da hat die Web-Version eigenständigen Nutzwert als Viewer/Checker).

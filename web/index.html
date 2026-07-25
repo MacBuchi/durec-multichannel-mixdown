@@ -18,19 +18,46 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Offline downmixer for RME DUREC multichannel recordings.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="durecmix">
+  <meta name="apple-mobile-web-app-title" content="DurecMix">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>durecmix</title>
+  <title>DurecMix</title>
   <link rel="manifest" href="manifest.json">
+
+  <script>
+    // The engine is threaded wasm and needs SharedArrayBuffer, which only
+    // a cross-origin-isolated page gets. Static hosts like GitHub Pages
+    // cannot send COOP/COEP, so coi-sw.js adds them and the page reloads
+    // once under its control. Servers that DO send the headers (local
+    // `flutter run --web-header=…`) skip all of this.
+    if (!self.crossOriginIsolated && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('coi-sw.js').then(async () => {
+        // Isolation is decided by the headers of the NAVIGATION response,
+        // so it only takes effect on a load that went through the worker.
+        // Do not key this on `serviceWorker.controller`: clients.claim()
+        // sets that for the current page without re-fetching the document,
+        // which would leave the app non-isolated forever. The sessionStorage
+        // flag bounds this to a single reload where isolation is impossible.
+        await navigator.serviceWorker.ready;
+        if (!sessionStorage.getItem('coi-reloaded')) {
+          sessionStorage.setItem('coi-reloaded', '1');
+          window.location.reload();
+        } else {
+          console.error('coi-sw: still not cross-origin isolated after reload');
+        }
+      }).catch((error) => console.error('coi-sw: registration failed', error));
+    } else if (self.crossOriginIsolated) {
+      sessionStorage.removeItem('coi-reloaded');
+    }
+  </script>
 </head>
 <body>
   <!--
