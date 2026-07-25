@@ -106,6 +106,13 @@ const canPickFolders = true;
 /// folders instead of picking individual files.
 Future<List<PickedRecording>> pickRecordings() async => const [];
 
+/// Live playback runs through cpal, which every native target has.
+const canPlayAudio = true;
+
+/// Rendering writes the mixdown with `std::fs`, available on all native
+/// targets.
+const canExportAudio = true;
+
 /// Download and install an APK in-app (Android only; ota_update plugin).
 Stream<ApkInstallEvent> installApk(String apkUrl, String filename) {
   return OtaUpdate().execute(apkUrl, destinationFilename: filename).map((
