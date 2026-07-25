@@ -9,6 +9,7 @@ import 'export_controller.dart';
 import 'mastering_controller.dart';
 import 'mix_types.dart';
 import 'playback_controller.dart';
+import 'range_probe.dart';
 import 'session_paths.dart';
 import 'stereo_pairs.dart';
 
@@ -84,9 +85,17 @@ class MixerState extends ChangeNotifier {
   /// True while a recording is being opened (drives the loading animation).
   bool opening = false;
 
+  /// Random-access reader for sources without a path (web `Blob`s). Set by
+  /// the caller before [open]; null means the engine reads the file itself.
+  RangeReader? sourceReader;
+
+  /// Byte size that goes with [sourceReader].
+  int sourceSize = 0;
+
   /// `source` is a filesystem path, or a `content://` URI on Android (the
   /// engine then reads through per-call file descriptors — DUREC files are
-  /// never copied).
+  /// never copied). With [sourceReader] set there is no file at all and
+  /// everything goes through byte ranges (web; docs/PLAN-PWA.md S2b).
   Future<void> open(String source, {String? name}) async {
     playback.stop();
     error = null;
@@ -96,11 +105,14 @@ class MixerState extends ChangeNotifier {
     notifyListeners();
     try {
       _sessionPath = await sessionPathFor(source, displayName: name);
-      recording = await rust.loadRecording(
-        path: source,
-        sessionPath: _sessionPath!,
-        fd: await inputFdFor(source),
-      );
+      final reader = sourceReader;
+      recording = reader != null
+          ? await _loadByRanges(source, reader)
+          : await rust.loadRecording(
+              path: source,
+              sessionPath: _sessionPath!,
+              fd: await inputFdFor(source),
+            );
       tracks = recording!.tracks.map(TrackUi.fromApi).toList();
       _restoreMaster(recording!.master);
       playback.positionSeconds = 0;
@@ -127,6 +139,42 @@ class MixerState extends ChangeNotifier {
     }
   }
 
+  /// Open a take that has no file behind it (web): the chunks are fetched
+  /// through [sourceReader] and the session JSON is kept in memory, since
+  /// there is no app container to read.
+  Future<rust.RecordingInfo> _loadByRanges(
+    String source,
+    RangeReader reader,
+  ) async {
+    final chunks = await scanChunksByRanges(reader, sourceSize);
+    rust.ApiChunk? find(String id) {
+      for (final c in chunks) {
+        if (c.id == id) return c;
+      }
+      return null;
+    }
+
+    final fmt = find('fmt ');
+    final data = find('data');
+    if (fmt == null || data == null) {
+      throw const FormatException('not a readable WAV (fmt/data missing)');
+    }
+    Future<Uint8List> payload(rust.ApiChunk c) =>
+        reader(c.offset.toInt(), c.offset.toInt() + c.size.toInt());
+    final ixml = find('iXML');
+
+    return rust.loadRecordingFromChunks(
+      source: source,
+      fmtChunk: await payload(fmt),
+      ixmlChunk: ixml == null ? null : await payload(ixml),
+      dataBytes: data.size,
+      sessionJson: _webSessions[source],
+    );
+  }
+
+  /// Sessions for sources without a filesystem, for the tab's lifetime.
+  static final Map<String, String> _webSessions = {};
+
   static const int _waveformBuckets = 600;
 
   Future<void> _analyze(String source) async {
@@ -148,11 +196,16 @@ class MixerState extends ChangeNotifier {
     analyzing = true;
     notifyListeners();
     try {
-      final analysis = await rust.analyzeRecording(
-        path: source,
-        buckets: BigInt.from(_waveformBuckets),
-        fd: await inputFdFor(source),
-      );
+      final reader = sourceReader;
+      final analysis = reader != null
+          // No file to hand the engine: push the data payload block by
+          // block, so peak memory stays at one block (PLAN-PWA S2b).
+          ? await analyzeByRanges(reader, sourceSize, buckets: _waveformBuckets)
+          : await rust.analyzeRecording(
+              path: source,
+              buckets: BigInt.from(_waveformBuckets),
+              fd: await inputFdFor(source),
+            );
       waveforms = analysis.waveforms;
       bpm = analysis.bpm;
       unawaited(
@@ -381,6 +434,14 @@ class MixerState extends ChangeNotifier {
   Future<void> saveSession() async {
     final sessionPath = _sessionPath;
     if (recording == null || sessionPath == null) return;
+    if (sourceReader != null) {
+      // No filesystem: keep the session JSON for this tab instead.
+      _webSessions[recording!.path] = rust.sessionToJson(
+        tracks: tracks.map((t) => t.toApi()).toList(),
+        master: master,
+      );
+      return;
+    }
     try {
       await rust.saveSession(
         sessionPath: sessionPath,

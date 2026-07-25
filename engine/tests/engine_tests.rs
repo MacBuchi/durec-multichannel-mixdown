@@ -2222,3 +2222,94 @@ fn scan_chunks_rejects_non_wav() {
     let junk = b"NOTAWAVEFILE................";
     assert!(wav::scan_chunks(junk, 0, junk.len() as u64).is_err());
 }
+
+// ── streamed analysis without a filesystem (web build, PLAN-PWA S2b) ────────
+
+/// Runs the push-based analyzer over the `data` payload in slices of
+/// `block` bytes — the web build's path, where a slice may end anywhere,
+/// including in the middle of a frame.
+fn analyze_pushed(
+    file: &[u8],
+    block: usize,
+    buckets: usize,
+) -> durecmix_engine::analysis::Analysis {
+    let chunks = scan_all(file, 4096);
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec =
+        wav::spec_from_fmt_chunk(&file[fmt.offset as usize..(fmt.offset + fmt.size) as usize])
+            .unwrap();
+    let num_frames = data.size / spec.bytes_per_frame() as u64;
+
+    let mut analyzer = durecmix_engine::analysis::StreamAnalyzer::new(spec, num_frames, buckets);
+    let start = data.offset as usize;
+    let end = start + data.size as usize;
+    let mut at = start;
+    while at < end {
+        let stop = (at + block).min(end);
+        analyzer.push_bytes(&file[at..stop]).unwrap();
+        at = stop;
+    }
+    analyzer.finish()
+}
+
+#[test]
+fn pushed_analysis_matches_the_filesystem_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("take.wav");
+    // Something with structure, so waveform buckets and BPM are non-trivial.
+    let samples: Vec<i16> = (0..3 * 44100)
+        .map(|i| {
+            let t = (i / 3) as f64 / 44100.0;
+            let beat = if (t * 2.0).fract() < 0.05 { 1.0 } else { 0.25 };
+            ((t * 220.0 * std::f64::consts::TAU).sin() * beat * 20000.0) as i16
+        })
+        .collect();
+    let file = wav16(3, 44100, &samples, Some(DUREC_IXML));
+    std::fs::write(&path, &file).unwrap();
+
+    let expected = durecmix_engine::analysis::analyze(path.to_str().unwrap(), 64).unwrap();
+    let pushed = analyze_pushed(&file, 8192, 64);
+    assert_eq!(
+        pushed, expected,
+        "pushed analysis drifted from the file path"
+    );
+}
+
+#[test]
+fn pushed_analysis_is_independent_of_the_block_size() {
+    let samples: Vec<i16> = (0..4 * 12000)
+        .map(|i| ((i as f64 / 7.0).sin() * 12000.0) as i16)
+        .collect();
+    let file = wav16(4, 44100, &samples, None);
+    let reference = analyze_pushed(&file, 1 << 20, 32);
+
+    // 3, 7 and 999 are deliberately coprime with the 8-byte frame size, so
+    // every push ends mid-frame and the carry-over path is exercised.
+    for block in [3, 7, 999, 4096] {
+        assert_eq!(
+            analyze_pushed(&file, block, 32),
+            reference,
+            "block size {block} changed the result — frame carry-over is broken"
+        );
+    }
+}
+
+#[test]
+fn pushed_analysis_handles_24_bit_frames() {
+    let samples: Vec<i32> = (0..2 * 8000)
+        .map(|i| ((i as f64 / 5.0).sin() * 4_000_000.0) as i32)
+        .collect();
+    let file = wav24(2, 44100, &samples);
+    // 6 bytes per frame: a 5-byte block never aligns.
+    let a = analyze_pushed(&file, 5, 16);
+    let b = analyze_pushed(&file, 1 << 20, 16);
+    assert_eq!(a, b);
+    // 4_000_000 of 8_388_608 full scale = −6.43 dBFS; a wrong 24-bit shift
+    // would land octaves away from that.
+    assert!(
+        (a.waveforms[0].peak_dbfs - -6.43).abs() < 0.1,
+        "24-bit scaling is off: {} dBFS",
+        a.waveforms[0].peak_dbfs
+    );
+}

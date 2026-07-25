@@ -119,6 +119,10 @@ class _MixerScreenState extends State<MixerScreen> {
       ),
     );
     if (result is WavEntry) {
+      // Picked-file entries (web) carry their own reader; path-backed
+      // entries leave it null so the engine opens the file itself.
+      state.sourceReader = result.read;
+      state.sourceSize = result.sizeBytes ?? 0;
       await state.open(result.source, name: result.name);
     } else if (result == useSystemPicker) {
       await _openSystemPicker();

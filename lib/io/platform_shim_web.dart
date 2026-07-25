@@ -7,6 +7,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
@@ -95,12 +96,15 @@ Future<List<PickedRecording>> pickRecordings() async {
         source: 'blob:${f.name}',
         name: f.name,
         sizeBytes: await f.length(),
+        // BytesBuilder, not a List<int>: Dart boxes a growable int list at
+        // 8 bytes per element, so accumulating a 4 MB block that way costs
+        // ~32 MB and shows up directly as JS heap growth.
         read: (start, end) async {
-          final chunks = <int>[];
+          final builder = BytesBuilder(copy: false);
           await for (final part in f.openRead(start, end)) {
-            chunks.addAll(part);
+            builder.add(part);
           }
-          return Uint8List.fromList(chunks);
+          return builder.takeBytes();
         },
       ),
   ];

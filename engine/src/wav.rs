@@ -244,43 +244,55 @@ impl<R: Read + Seek> WavReader<R> {
 
         let n_samples = frames * self.spec.channels as usize;
         out.reserve(n_samples);
-
-        match (self.spec.sample_format, self.spec.bits_per_sample) {
-            (SampleFormat::Int, 16) => {
-                for c in raw.chunks_exact(2) {
-                    let v = i16::from_le_bytes([c[0], c[1]]);
-                    out.push(v as f64 / 32768.0);
-                }
-            }
-            (SampleFormat::Int, 24) => {
-                for c in raw.chunks_exact(3) {
-                    let v = i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8;
-                    out.push(v as f64 / 8_388_608.0);
-                }
-            }
-            (SampleFormat::Int, 32) => {
-                for c in raw.chunks_exact(4) {
-                    let v = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    out.push(v as f64 / 2_147_483_648.0);
-                }
-            }
-            (SampleFormat::Float, 32) => {
-                for c in raw.chunks_exact(4) {
-                    out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64);
-                }
-            }
-            (SampleFormat::Float, 64) => {
-                for c in raw.chunks_exact(8) {
-                    out.push(f64::from_le_bytes(c.try_into().unwrap()));
-                }
-            }
-            (f, b) => {
-                return Err(EngineError::UnsupportedFormat(format!("{f:?} {b}-bit")));
-            }
-        }
+        decode_samples(&self.spec, &raw, out)?;
         debug_assert_eq!(out.len(), n_samples);
         Ok(frames)
     }
+}
+
+/// Decode raw interleaved PCM into normalised `f64` samples, appending to
+/// `out`. `raw` must hold whole samples; callers streaming from a byte
+/// source (the web build pushes `Blob` slices) keep the remainder.
+pub fn decode_samples(spec: &WavSpec, raw: &[u8], out: &mut Vec<f64>) -> Result<()> {
+    match (spec.sample_format, spec.bits_per_sample) {
+        (SampleFormat::Int, 16) => {
+            for c in raw.chunks_exact(2) {
+                let v = i16::from_le_bytes([c[0], c[1]]);
+                out.push(v as f64 / 32768.0);
+            }
+        }
+        (SampleFormat::Int, 24) => {
+            for c in raw.chunks_exact(3) {
+                let v = i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8;
+                out.push(v as f64 / 8_388_608.0);
+            }
+        }
+        (SampleFormat::Int, 32) => {
+            for c in raw.chunks_exact(4) {
+                let v = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                out.push(v as f64 / 2_147_483_648.0);
+            }
+        }
+        (SampleFormat::Float, 32) => {
+            for c in raw.chunks_exact(4) {
+                out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64);
+            }
+        }
+        (SampleFormat::Float, 64) => {
+            for c in raw.chunks_exact(8) {
+                out.push(f64::from_le_bytes(c.try_into().unwrap()));
+            }
+        }
+        (f, b) => {
+            return Err(EngineError::UnsupportedFormat(format!("{f:?} {b}-bit")));
+        }
+    }
+    Ok(())
+}
+
+/// Parse a `fmt ` chunk payload the caller fetched itself (web build).
+pub fn spec_from_fmt_chunk(buf: &[u8]) -> Result<WavSpec> {
+    parse_fmt_chunk(buf)
 }
 
 fn parse_fmt_chunk(buf: &[u8]) -> Result<WavSpec> {

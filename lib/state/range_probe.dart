@@ -21,15 +21,21 @@ class RangeProbe {
 /// to never read the audio payload.
 const _scanWindow = 64 * 1024;
 
-/// Probes a recording through [read] alone, without a filesystem.
+/// How much of the `data` payload travels per bridge call during analysis.
+/// Big enough that 400 MB needs ~100 calls rather than thousands, small
+/// enough that the copy into wasm memory stays bounded.
+const _analysisBlock = 4 * 1024 * 1024;
+
+/// Locate the RIFF chunks using [read] alone.
 ///
-/// Rust locates the chunks (`scanWavChunks`) and parses them
-/// (`probeFromChunks`); this function only fetches the byte ranges Rust
-/// asks for. **Seeking is mandatory, not an optimisation:** real DUREC
-/// takes store iXML — the track names — *behind* the multi-GB audio
-/// payload, so a prefix-only reader would always report zero tracks
-/// (docs/PLAN-PWA.md S2).
-Future<RangeProbe> probeByRanges(RangeReader read, int fileSize) async {
+/// Rust parses (`scanWavChunks`); this only fetches the windows it asks
+/// for. **Seeking is mandatory, not an optimisation:** real DUREC takes
+/// store iXML — the track names — *behind* the multi-GB audio payload, so a
+/// prefix-only reader would always report zero tracks (docs/PLAN-PWA.md).
+Future<List<rust.ApiChunk>> scanChunksByRanges(
+  RangeReader read,
+  int fileSize,
+) async {
   final chunks = <rust.ApiChunk>[];
   var offset = 0;
   while (true) {
@@ -45,31 +51,77 @@ Future<RangeProbe> probeByRanges(RangeReader read, int fileSize) async {
     if (next == null) break;
     offset = next.toInt();
   }
+  return chunks;
+}
 
-  Future<Uint8List>? payload(String id) {
-    for (final c in chunks) {
-      if (c.id == id) {
-        final start = c.offset.toInt();
-        return read(start, start + c.size.toInt());
-      }
-    }
-    return null;
+rust.ApiChunk? _find(List<rust.ApiChunk> chunks, String id) {
+  for (final c in chunks) {
+    if (c.id == id) return c;
   }
+  return null;
+}
 
-  final fmt = await payload('fmt ');
+Future<Uint8List> _payload(RangeReader read, rust.ApiChunk c) {
+  final start = c.offset.toInt();
+  return read(start, start + c.size.toInt());
+}
+
+/// Probes a recording through [read] alone, without a filesystem.
+Future<RangeProbe> probeByRanges(RangeReader read, int fileSize) async {
+  final chunks = await scanChunksByRanges(read, fileSize);
+  final fmt = _find(chunks, 'fmt ');
+  final data = _find(chunks, 'data');
   if (fmt == null) throw const FormatException('WAV without a fmt chunk');
-  final data = chunks.where((c) => c.id == 'data');
-  if (data.isEmpty) throw const FormatException('WAV without a data chunk');
-  final ixml = await payload('iXML');
+  if (data == null) throw const FormatException('WAV without a data chunk');
+  final ixmlChunk = _find(chunks, 'iXML');
+  final ixml = ixmlChunk == null ? null : await _payload(read, ixmlChunk);
 
   return RangeProbe(
     probe: rust.probeFromChunks(
-      fmtChunk: fmt,
+      fmtChunk: await _payload(read, fmt),
       ixmlChunk: ixml,
-      dataBytes: data.first.size,
+      dataBytes: data.size,
     ),
     trackNames: ixml == null
         ? const []
         : rust.trackNamesFromIxml(ixmlChunk: ixml),
   );
+}
+
+/// Waveform + BPM analysis through [read] alone.
+///
+/// Unlike [probeByRanges] this genuinely streams the audio: the `data`
+/// payload is pushed to Rust in [_analysisBlock] slices, so peak memory
+/// stays at one block no matter how long the take is. [onProgress] reports
+/// 0..1 for the UI.
+Future<rust.ApiAnalysis> analyzeByRanges(
+  RangeReader read,
+  int fileSize, {
+  required int buckets,
+  void Function(double progress)? onProgress,
+}) async {
+  final chunks = await scanChunksByRanges(read, fileSize);
+  final fmt = _find(chunks, 'fmt ');
+  final data = _find(chunks, 'data');
+  if (fmt == null) throw const FormatException('WAV without a fmt chunk');
+  if (data == null) throw const FormatException('WAV without a data chunk');
+
+  final id = await rust.streamAnalysisBegin(
+    fmtChunk: await _payload(read, fmt),
+    dataBytes: data.size,
+    buckets: BigInt.from(buckets),
+  );
+  try {
+    final start = data.offset.toInt();
+    final end = start + data.size.toInt();
+    for (var at = start; at < end; at += _analysisBlock) {
+      final stop = (at + _analysisBlock).clamp(at, end);
+      await rust.streamAnalysisPush(id: id, bytes: await read(at, stop));
+      onProgress?.call((stop - start) / (end - start));
+    }
+    return await rust.streamAnalysisFinish(id: id);
+  } catch (_) {
+    await rust.streamAnalysisCancel(id: id);
+    rethrow;
+  }
 }
