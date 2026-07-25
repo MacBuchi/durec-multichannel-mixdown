@@ -202,7 +202,8 @@ session):
 
 The **ⓘ About** button in the app bar always shows your installed version and
 whether you're up to date, with links to the GitHub project and this guide,
-plus the same feedback shortcut.
+plus the same feedback shortcut. **What's new** opens the version history —
+every release and what it changed, straight from the project's changelog.
 
 ## 11. Where things live
 

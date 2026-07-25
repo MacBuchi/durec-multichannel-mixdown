@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../state/app_info.dart';
 import '../../state/update_check.dart';
 import '../app_banners.dart';
+import 'changelog_dialog.dart';
 
 /// About dialog: installed version + update status, project links, and a
 /// shortcut into the feedback flow.
@@ -43,6 +44,15 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
               },
             ),
             const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: const Icon(Icons.new_releases_outlined),
+              title: const Text("What's new"),
+              subtitle: const Text('Changes in every version'),
+              // Opens on top of About, so Close leads back here.
+              onTap: () => showChangelogDialog(dialogContext),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
