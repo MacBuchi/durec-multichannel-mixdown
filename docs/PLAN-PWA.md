@@ -80,6 +80,16 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   → Wellenformen/Meter ohne Playback/Export. *Exit: echtes DUREC-WAV
   (>900 MB) lädt im Browser mit korrekten Track-Namen und Wellenformen —
   auch in iOS Safari.*
+
+  Aus dem Gerätetest (Pixel 7 Pro, Chrome 150, 2026-07-25) bereits bekannt:
+  - **„Choose folder" ist im Web tot und schweigt dabei.**
+    `file_selector_web.getDirectoryPath()` gibt bedingungslos `null`
+    zurück (kein Fehler, kein Dialog) — der Tap tut sichtbar nichts.
+    S2 braucht also einen eigenen Web-Pfad (`showDirectoryPicker`, wo
+    vorhanden, sonst `<input type="file" multiple>`), **und** bis dahin
+    einen ehrlichen Hinweis in der UI statt der stillen Sackgasse.
+  - Der Reader muss ohne `File System Access` auskommen: iOS Safari kennt
+    nur `<input type="file">` → Blob → `slice()`.
 - **S3 — Export.** Render nach OPFS + Download (FLAC zuerst). *Exit:
   Downmix eines echten Takes im Browser, Ausgabe bit-identisch zum
   nativen Render.*
@@ -88,6 +98,14 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
 - **S5 — PWA & Deploy.** Manifest, Service Worker (+ ggf.
   coi-serviceworker), Pages-Workflow, Update-Hinweis. *Exit: installierbar
   von GitHub Pages, Offline-Start.*
+
+  Aus dem Gerätetest bereits bekannt: **es läuft noch kein Service
+  Worker** (`getRegistrations()` → 0). Flutters Bootstrap-Registrierung
+  ist deprecated und meldet das auch in der Konsole — S5 registriert den
+  Worker selbst in `web/index.html`. Ohne ihn kein Offline-Start und
+  keine echte Installierbarkeit. Das generierte `manifest.json` trägt
+  außerdem noch die `flutter create`-Vorgaben (`name: durecmix`,
+  `background_color: #0175C2`) statt DurecMix-Branding.
 
 **Merge `dev/pwa` → main** ist eine Nutzer-Entscheidung, frühestens nach
 S2 (ab da hat die Web-Version eigenständigen Nutzwert als Viewer/Checker).
