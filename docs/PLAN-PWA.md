@@ -90,6 +90,14 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     einen ehrlichen Hinweis in der UI statt der stillen Sackgasse.
   - Der Reader muss ohne `File System Access` auskommen: iOS Safari kennt
     nur `<input type="file">` → Blob → `slice()`.
+  - **Ein Prefix-Read reicht nicht — der Web-Reader muss springen können.**
+    In echten DUREC-Takes steht der `iXML`-Chunk (die Spurnamen!) **hinter**
+    den Audiodaten: `UFX34_00.WAV` (394 MB, 34 ch, 44,1 kHz, 24 Bit) hat
+    `fmt` @12, `data` @36 und `iXML` erst @394.225.760. Ein „erste N MB
+    lesen"-Ansatz liefert also nie Spurnamen. `blob.slice()` ist dafür
+    genau richtig (O(1), liest nur den angeforderten Bereich) — die
+    Engine-Seite braucht folglich eine echte `Read + Seek`-Abstraktion
+    über den Blob, keinen Byte-Puffer.
 - **S3 — Export.** Render nach OPFS + Download (FLAC zuerst). *Exit:
   Downmix eines echten Takes im Browser, Ausgabe bit-identisch zum
   nativen Render.*
