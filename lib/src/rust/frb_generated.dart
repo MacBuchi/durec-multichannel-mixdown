@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -865305758;
+  int get rustContentHash => 1356539390;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -134,6 +134,12 @@ abstract class RustLibApi extends BaseApi {
     ApiReferenceProfile? reference,
   });
 
+  ApiProbe crateApiMixerProbeFromChunks({
+    required List<int> fmtChunk,
+    Uint8List? ixmlChunk,
+    required BigInt dataBytes,
+  });
+
   Future<ApiProbe> crateApiMixerProbeRecording({required String path, int? fd});
 
   Future<int> crateApiMixerReferenceProfileVersion();
@@ -153,6 +159,14 @@ abstract class RustLibApi extends BaseApi {
     required List<ApiTrack> tracks,
     required ApiMaster master,
   });
+
+  ApiChunkScan crateApiMixerScanWavChunks({
+    required List<int> buf,
+    required BigInt bufOffset,
+    required BigInt fileSize,
+  });
+
+  List<String> crateApiMixerTrackNamesFromIxml({required List<int> ixmlChunk});
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -586,6 +600,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  ApiProbe crateApiMixerProbeFromChunks({
+    required List<int> fmtChunk,
+    Uint8List? ixmlChunk,
+    required BigInt dataBytes,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(fmtChunk, serializer);
+          sse_encode_opt_list_prim_u_8_strict(ixmlChunk, serializer);
+          sse_encode_u_64(dataBytes, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_api_probe,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMixerProbeFromChunksConstMeta,
+        argValues: [fmtChunk, ixmlChunk, dataBytes],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerProbeFromChunksConstMeta =>
+      const TaskConstMeta(
+        debugName: "probe_from_chunks",
+        argNames: ["fmtChunk", "ixmlChunk", "dataBytes"],
+      );
+
+  @override
   Future<ApiProbe> crateApiMixerProbeRecording({
     required String path,
     int? fd,
@@ -599,7 +645,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -629,7 +675,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -677,7 +723,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 15,
+              funcId: 16,
               port: port_,
             );
           },
@@ -733,7 +779,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -752,6 +798,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     debugName: "save_session",
     argNames: ["sessionPath", "tracks", "master"],
   );
+
+  @override
+  ApiChunkScan crateApiMixerScanWavChunks({
+    required List<int> buf,
+    required BigInt bufOffset,
+    required BigInt fileSize,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(buf, serializer);
+          sse_encode_u_64(bufOffset, serializer);
+          sse_encode_u_64(fileSize, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 18)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_api_chunk_scan,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMixerScanWavChunksConstMeta,
+        argValues: [buf, bufOffset, fileSize],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerScanWavChunksConstMeta => const TaskConstMeta(
+    debugName: "scan_wav_chunks",
+    argNames: ["buf", "bufOffset", "fileSize"],
+  );
+
+  @override
+  List<String> crateApiMixerTrackNamesFromIxml({required List<int> ixmlChunk}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(ixmlChunk, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 19)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMixerTrackNamesFromIxmlConstMeta,
+        argValues: [ixmlChunk],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerTrackNamesFromIxmlConstMeta =>
+      const TaskConstMeta(
+        debugName: "track_names_from_ixml",
+        argNames: ["ixmlChunk"],
+      );
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
@@ -811,6 +914,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       min: dco_decode_list_prim_f_32_strict(arr[0]),
       max: dco_decode_list_prim_f_32_strict(arr[1]),
       peakDbfs: dco_decode_f_32(arr[2]),
+    );
+  }
+
+  @protected
+  ApiChunk dco_decode_api_chunk(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return ApiChunk(
+      id: dco_decode_String(arr[0]),
+      offset: dco_decode_u_64(arr[1]),
+      size: dco_decode_u_64(arr[2]),
+    );
+  }
+
+  @protected
+  ApiChunkScan dco_decode_api_chunk_scan(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ApiChunkScan(
+      chunks: dco_decode_list_api_chunk(arr[0]),
+      nextOffset: dco_decode_opt_box_autoadd_u_64(arr[1]),
     );
   }
 
@@ -1086,9 +1214,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<String> dco_decode_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
   List<ApiChannelWaveform> dco_decode_list_api_channel_waveform(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_api_channel_waveform).toList();
+  }
+
+  @protected
+  List<ApiChunk> dco_decode_list_api_chunk(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_api_chunk).toList();
   }
 
   @protected
@@ -1125,6 +1265,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Float64List dco_decode_list_prim_f_64_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Float64List;
+  }
+
+  @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as List<int>;
   }
 
   @protected
@@ -1183,6 +1329,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
   }
 
   @protected
@@ -1322,6 +1474,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       max: var_max,
       peakDbfs: var_peakDbfs,
     );
+  }
+
+  @protected
+  ApiChunk sse_decode_api_chunk(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_offset = sse_decode_u_64(deserializer);
+    var var_size = sse_decode_u_64(deserializer);
+    return ApiChunk(id: var_id, offset: var_offset, size: var_size);
+  }
+
+  @protected
+  ApiChunkScan sse_decode_api_chunk_scan(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_chunks = sse_decode_list_api_chunk(deserializer);
+    var var_nextOffset = sse_decode_opt_box_autoadd_u_64(deserializer);
+    return ApiChunkScan(chunks: var_chunks, nextOffset: var_nextOffset);
   }
 
   @protected
@@ -1645,6 +1814,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <String>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ApiChannelWaveform> sse_decode_list_api_channel_waveform(
     SseDeserializer deserializer,
   ) {
@@ -1654,6 +1835,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <ApiChannelWaveform>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_api_channel_waveform(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<ApiChunk> sse_decode_list_api_chunk(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ApiChunk>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_api_chunk(deserializer));
     }
     return ans_;
   }
@@ -1710,6 +1903,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getFloat64List(len_);
+  }
+
+  @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
   }
 
   @protected
@@ -1794,6 +1994,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_u_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_u_8_strict(deserializer));
     } else {
       return null;
     }
@@ -1957,6 +2168,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_prim_f_32_strict(self.min, serializer);
     sse_encode_list_prim_f_32_strict(self.max, serializer);
     sse_encode_f_32(self.peakDbfs, serializer);
+  }
+
+  @protected
+  void sse_encode_api_chunk(ApiChunk self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_u_64(self.offset, serializer);
+    sse_encode_u_64(self.size, serializer);
+  }
+
+  @protected
+  void sse_encode_api_chunk_scan(ApiChunkScan self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_api_chunk(self.chunks, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.nextOffset, serializer);
   }
 
   @protected
@@ -2204,6 +2430,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_api_channel_waveform(
     List<ApiChannelWaveform> self,
     SseSerializer serializer,
@@ -2212,6 +2447,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_api_channel_waveform(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_api_chunk(
+    List<ApiChunk> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_api_chunk(item, serializer);
     }
   }
 
@@ -2269,6 +2516,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putFloat64List(self);
+  }
+
+  @protected
+  void sse_encode_list_prim_u_8_loose(
+    List<int> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint8List(
+      self is Uint8List ? self : Uint8List.fromList(self),
+    );
   }
 
   @protected
@@ -2357,6 +2616,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_u_64(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_u_8_strict(self, serializer);
     }
   }
 

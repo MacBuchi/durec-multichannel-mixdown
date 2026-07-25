@@ -8,6 +8,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 
 import 'platform_shim_types.dart';
@@ -67,10 +68,42 @@ Future<void> writeBinaryFile(String path, Uint8List bytes) async {
 }
 
 /// No desktop-style directory listing in the browser; the web build gets
-/// its files from pickers (S2). Empty keeps the browser page functional.
+/// its files from [pickRecordings] instead.
 Future<List<WavFileInfo>> listWavFiles(String dirPath) async {
   debugPrint('listWavFiles($dirPath) is a no-op on the web');
   return const [];
+}
+
+/// True where folder picking is unavailable and the UI must offer a file
+/// picker instead. `file_selector_web.getDirectoryPath()` returns null
+/// unconditionally — tapping "Choose folder" would be a silent dead end.
+const canPickFolders = false;
+
+/// Opens the browser file picker and wraps each pick in lazy range access.
+///
+/// `XFile.openRead(start, end)` slices the underlying `Blob`, so a 400 MB
+/// take is never loaded — only the chunk headers and the iXML payload are
+/// actually fetched.
+Future<List<PickedRecording>> pickRecordings() async {
+  const group = XTypeGroup(label: 'WAV', extensions: ['wav'], mimeTypes: []);
+  final files = await openFiles(acceptedTypeGroups: const [group]);
+  return [
+    for (final f in files)
+      PickedRecording(
+        // Blobs have no path; the name keeps session keys readable and
+        // stable enough for one browser session.
+        source: 'blob:${f.name}',
+        name: f.name,
+        sizeBytes: await f.length(),
+        read: (start, end) async {
+          final chunks = <int>[];
+          await for (final part in f.openRead(start, end)) {
+            chunks.addAll(part);
+          }
+          return Uint8List.fromList(chunks);
+        },
+      ),
+  ];
 }
 
 Future<HttpTextResponse> httpGetText(

@@ -2107,3 +2107,118 @@ fn merge_profiles_mixed_sample_rates_uses_highest_grid() {
     let plan = design_mastering(&target, &merged).expect("design from merged profile");
     assert!(plan.fir_mid.iter().all(|t| t.is_finite()));
 }
+
+// ── range-based probing (web build, docs/PLAN-PWA.md S2) ────────────────────
+
+/// Drives `scan_chunks` the way the browser does: hand it small windows out
+/// of the file and follow `next_offset` until the scan is exhausted. The
+/// window is deliberately tiny so the multi-pass path is exercised.
+fn scan_all(file: &[u8], window: usize) -> Vec<wav::ChunkEntry> {
+    let mut chunks = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let start = offset as usize;
+        let end = (start + window).min(file.len());
+        let scan =
+            wav::scan_chunks(&file[start..end], offset, file.len() as u64).expect("scan window");
+        chunks.extend(scan.chunks);
+        match scan.next_offset {
+            Some(next) => offset = next,
+            None => return chunks,
+        }
+    }
+}
+
+#[test]
+fn scan_chunks_finds_ixml_behind_the_audio_payload() {
+    // The layout of a real DUREC take: iXML sits AFTER multi-MB of audio,
+    // so a prefix-only reader would never see the track names (#93).
+    let samples: Vec<i16> = vec![7; 34 * 44100];
+    let file = wav16(34, 44100, &samples, Some(DUREC_IXML));
+    let chunks = scan_all(&file, 4096);
+
+    let ids: Vec<&str> = chunks.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, vec!["fmt ", "data", "iXML"]);
+    let data = &chunks[1];
+    let ixml = &chunks[2];
+    assert_eq!(data.size, samples.len() as u64 * 2);
+    assert!(
+        ixml.offset > data.offset + data.size,
+        "iXML must be located behind the audio, got {} vs data end {}",
+        ixml.offset,
+        data.offset + data.size
+    );
+    assert_eq!(
+        &file[ixml.offset as usize..(ixml.offset + ixml.size) as usize],
+        DUREC_IXML.as_bytes()
+    );
+}
+
+#[test]
+fn scan_chunks_window_size_does_not_change_the_result() {
+    let file = wav16(3, 44100, &vec![0i16; 3 * 4410], Some(DUREC_IXML));
+    let reference = scan_all(&file, file.len());
+    for window in [16, 21, 64, 1024] {
+        assert_eq!(
+            scan_all(&file, window),
+            reference,
+            "window {window} disagreed with a single-shot scan"
+        );
+    }
+}
+
+#[test]
+fn probe_from_parts_matches_the_filesystem_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("take.wav");
+    let samples: Vec<i16> = vec![0; 3 * 44100];
+    let file = wav16(3, 44100, &samples, Some(DUREC_IXML));
+    std::fs::write(&path, &file).unwrap();
+    let expected = wav::probe(&InputHandle::Path(path.to_str().unwrap().into())).unwrap();
+
+    // Same steps the web build takes: locate chunks, fetch only those two
+    // payloads, assemble the probe.
+    let chunks = scan_all(&file, 512);
+    let part = |id: &str| {
+        chunks
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| &file[c.offset as usize..(c.offset + c.size) as usize])
+    };
+    let info = wav::probe_from_parts(
+        part("fmt ").unwrap(),
+        part("iXML"),
+        chunks.iter().find(|c| c.id == "data").unwrap().size,
+    )
+    .unwrap();
+
+    assert_eq!(info, expected);
+    assert_eq!(
+        wav::track_names_from_ixml(part("iXML").unwrap()),
+        vec!["Vocals", "Drums OH L", "Drums OH R"]
+    );
+}
+
+#[test]
+fn probe_from_parts_without_ixml_reports_zero_tracks() {
+    let file = wav16(2, 48000, &[0i16; 96000], None);
+    let chunks = scan_all(&file, 256);
+    assert!(chunks.iter().all(|c| c.id != "iXML"));
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let info = wav::probe_from_parts(
+        &file[fmt.offset as usize..(fmt.offset + fmt.size) as usize],
+        None,
+        chunks.iter().find(|c| c.id == "data").unwrap().size,
+    )
+    .unwrap();
+    assert_eq!(info.channels, 2);
+    assert_eq!(info.sample_rate, 48000);
+    assert_eq!(info.num_frames, 48000);
+    assert_eq!(info.ixml_track_count, 0);
+}
+
+#[test]
+fn scan_chunks_rejects_non_wav() {
+    let junk = b"NOTAWAVEFILE................";
+    assert!(wav::scan_chunks(junk, 0, junk.len() as u64).is_err());
+}

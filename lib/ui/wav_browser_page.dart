@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../state/batch_export.dart';
 import '../state/mixer_state.dart';
@@ -71,11 +72,22 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   }
 
   Future<void> _changeFolder() async {
+    if (!canPickFolders) {
+      // Web: no folder picker exists, the recordings are picked directly.
+      await widget.browser.pickAndOpenFiles();
+      return;
+    }
     final picked = await widget.browser.pickFolder();
     if (picked != null) {
       await widget.browser.openFolder(picked);
     }
   }
+
+  Widget _pickButton() => FilledButton.icon(
+    onPressed: _changeFolder,
+    icon: Icon(canPickFolders ? Icons.folder_open : Icons.audio_file_outlined),
+    label: Text(canPickFolders ? 'Choose folder' : 'Choose files'),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -185,23 +197,15 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
               style: TextStyle(color: AppColors.of(context).error),
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _changeFolder,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Choose folder'),
-            ),
+            _pickButton(),
           ],
         ),
       );
     }
-    if (b.folder == null) {
-      return Center(
-        child: FilledButton.icon(
-          onPressed: _changeFolder,
-          icon: const Icon(Icons.folder_open),
-          label: const Text('Choose folder'),
-        ),
-      );
+    // Picked-file listings (web) have no folder, so an empty list — not a
+    // null folder — is what means "nothing chosen yet".
+    if (b.folder == null && b.entries.isEmpty) {
+      return Center(child: _pickButton());
     }
     if (b.loading) {
       return const Center(child: CircularProgressIndicator());

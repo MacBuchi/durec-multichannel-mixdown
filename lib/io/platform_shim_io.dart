@@ -98,6 +98,14 @@ Future<HttpTextResponse> httpPostJson(
   }
 }
 
+/// Native platforms have real folder pickers (SAF tree on Android, a path
+/// dialog elsewhere), so the browser page keeps its folder flow.
+const canPickFolders = true;
+
+/// Only used where [canPickFolders] is false (web); native builds browse
+/// folders instead of picking individual files.
+Future<List<PickedRecording>> pickRecordings() async => const [];
+
 /// Download and install an APK in-app (Android only; ota_update plugin).
 Stream<ApkInstallEvent> installApk(String apkUrl, String filename) {
   return OtaUpdate().execute(apkUrl, destinationFilename: filename).map((
