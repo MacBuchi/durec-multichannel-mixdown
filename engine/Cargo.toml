@@ -12,13 +12,25 @@ hound = "3.5"
 # ≥0.17 needs an initialized ndk_context on Android (the AAudio backend
 # queries AudioManager over JNI) — provided by the MainActivity handshake
 # in rust/src/android.rs. Without it every play tap panics (issue #88).
-cpal = "0.18"
+cpal = { version = "0.18", optional = true }
 ebur128 = "0.1"
-rtrb = "0.3"
+rtrb = { version = "0.3", optional = true }
 flacenc = "0.5.1"
-mp3lame-encoder = "0.2.4"
+mp3lame-encoder = { version = "0.2.4", optional = true }
 realfft = "3"
 symphonia = { version = "0.6", features = ["mp3"] }
+
+[features]
+# Native builds keep today's full engine. The wasm32 PWA spike builds with
+# --no-default-features: cpal needs a per-platform audio backend and LAME
+# is C that doesn't cross-compile to wasm32-unknown-unknown (issue #93).
+default = ["playback", "mp3"]
+playback = ["dep:cpal", "dep:rtrb"]
+mp3 = ["dep:mp3lame-encoder"]
+
+[[example]]
+name = "play_demo"
+required-features = ["playback"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -60,6 +60,7 @@ pub enum StereoSink {
         format: OutputFormat,
     },
     Flac(FlacWriter),
+    #[cfg(feature = "mp3")]
     Mp3(Mp3Writer),
 }
 
@@ -102,7 +103,12 @@ impl StereoSink {
                     bits,
                 )?))
             }
+            #[cfg(feature = "mp3")]
             OutputFormat::Mp3 => Ok(StereoSink::Mp3(Mp3Writer::create(file, sample_rate)?)),
+            #[cfg(not(feature = "mp3"))]
+            OutputFormat::Mp3 => Err(EngineError::Encode(
+                "MP3 export is not built into this target (mp3 feature disabled)".into(),
+            )),
         }
     }
 
@@ -141,6 +147,7 @@ impl StereoSink {
                 Ok(())
             }
             StereoSink::Flac(f) => f.write_block(stereo, dither),
+            #[cfg(feature = "mp3")]
             StereoSink::Mp3(m) => m.write_block(stereo),
         }
     }
@@ -149,6 +156,7 @@ impl StereoSink {
         match self {
             StereoSink::Wav { writer, .. } => writer.finalize().map_err(enc_err),
             StereoSink::Flac(f) => f.finalize(),
+            #[cfg(feature = "mp3")]
             StereoSink::Mp3(m) => m.finalize(),
         }
     }
@@ -276,6 +284,7 @@ fn write_flac_header<W: Write>(w: &mut W, info: &flacenc::component::StreamInfo)
 
 /// Streaming MP3 writer (LAME, CBR 320 kbps, best quality). LAME takes the
 /// float samples directly, so quantisation/dither do not apply here.
+#[cfg(feature = "mp3")]
 pub struct Mp3Writer {
     file: std::io::BufWriter<std::fs::File>,
     encoder: mp3lame_encoder::Encoder,
@@ -284,6 +293,7 @@ pub struct Mp3Writer {
     out: Vec<u8>,
 }
 
+#[cfg(feature = "mp3")]
 impl Mp3Writer {
     fn create(file: std::io::BufWriter<std::fs::File>, sample_rate: u32) -> Result<Mp3Writer> {
         let mut builder = mp3lame_encoder::Builder::new()
