@@ -57,3 +57,18 @@ class HttpTextResponse {
   final int statusCode;
   final String body;
 }
+
+/// Where the rendered bytes go. The browser cannot write a file, so the
+/// caller decides what to do with each block as it arrives.
+///
+/// Order matters and is **not** the order of production: the encoders patch
+/// their header (RIFF sizes, FLAC STREAMINFO) only once the render is
+/// complete, so [head] is delivered last but belongs first. The finished file
+/// is `head ++ body blocks in order ++ tail`.
+abstract class RenderOutput {
+  /// One encoded block, in order.
+  void addBody(Uint8List bytes);
+
+  /// Called once at the end with the patched header and the encoder's tail.
+  Future<void> complete(Uint8List head, Uint8List tail);
+}

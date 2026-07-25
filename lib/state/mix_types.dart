@@ -1,3 +1,4 @@
+import '../io/platform_shim.dart';
 import '../src/rust/api/mixer.dart' as rust;
 
 /// Mutable UI-side copy of one EQ band.
@@ -119,6 +120,14 @@ const formatLabels = {
   rust.ApiFormat.flac24: 'FLAC 24',
   rust.ApiFormat.mp3: 'MP3 320',
 };
+
+/// The formats this build can actually produce — MP3 needs LAME, which the
+/// web engine does not have. Always list from here, never from
+/// `ApiFormat.values`, or the picker offers a target that fails on export.
+final availableFormats = [
+  for (final f in rust.ApiFormat.values)
+    if (f != rust.ApiFormat.mp3 || canEncodeMp3) f,
+];
 
 enum LoudnessChoice {
   none('none'),

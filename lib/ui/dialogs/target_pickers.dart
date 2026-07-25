@@ -46,7 +46,7 @@ Future<void> pickFormatDialog(BuildContext context, MixerState state) async {
     builder: (context) => SimpleDialog(
       title: const Text('Export format'),
       children: [
-        for (final f in rust.ApiFormat.values)
+        for (final f in availableFormats)
           SimpleDialogOption(
             onPressed: () => Navigator.of(context).pop(f),
             child: Text(

@@ -120,10 +120,35 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     genau richtig (O(1), liest nur den angeforderten Bereich) — die
     Engine-Seite braucht folglich eine echte `Read + Seek`-Abstraktion
     über den Blob, keinen Byte-Puffer.
-- **S3 — Export.** Render nach OPFS + Download (FLAC zuerst). *Exit:
-  Downmix eines echten Takes im Browser, Ausgabe bit-identisch zum
-  nativen Render.* Bis dahin sagt der Web-Build das ehrlich (siehe
-  „Fehlende Stufen müssen sich melden").
+- **S3 — Export (erledigt 2026-07-25).** Der Browser rendert und lädt
+  herunter. *Exit erfüllt:* der gestreamte Render ist **byte-identisch**
+  zum nativen (Test `streamed_render_matches_the_file_render_byte_for_byte`
+  und `byte_driven_render_matches_the_file_render`, WAV16/24 und FLAC16/24
+  samt Reports). OPFS brauchte es nicht.
+  - **Ein DSP, zwei Antriebe.** `render_io` ist zweipassig und zieht die
+    Blöcke über `Read + Seek`; im Browser gibt es kein synchrones Seek auf
+    einem Blob, dort schiebt Dart und liest denselben Bereich schlicht
+    zweimal (Lesen ist seit dem Blob-Fix billig). Die Pro-Block-Arbeit
+    liegt deshalb in `RenderPass1`/`RenderPass2`, `render_io` und
+    `analyze_mix_mastering` sind nur noch Schleifen darüber,
+    `render::StreamRender` ist der Byte-Antrieb für den Browser.
+  - **Der Header entsteht zuletzt, gehört aber nach vorn.** hound patcht
+    die RIFF-Größen, der FLAC-Writer die STREAMINFO — beide springen dafür
+    zurück, aber nur in ihren Kopf. `sink::ChunkSink` hält genau dieses
+    64-KB-Fenster und gibt den Rumpf blockweise heraus; Dart setzt
+    `head ++ Rümpfe ++ tail` als `Blob` zusammen. Blob-Teile liegen
+    **außerhalb** des JS-Heaps (der Browser lagert auf Platte aus), sonst
+    bräuchte ein 90-Minuten-WAV ~1,5 GB Speicher.
+  - **MP3 fehlt im Web** (LAME ist C, baut nicht für wasm32). Die
+    Format-Auswahl kommt deshalb aus `availableFormats`, nie aus
+    `ApiFormat.values` — sonst bietet der Picker ein Ziel an, das beim
+    Export mit einem Encoder-Fehler endet.
+  - **Noch eine dart2js-Falle:** `x.clamp(1, 1 << 62)` wirft im Browser
+    „Invalid argument: 1", weil `1 << 62` dort zu 0 wird. 64-Bit-Konstanten
+    und -Shifts gibt es in dart2js nicht — vgl. den FNV-Hash in S1.
+  - Offen: Fortschrittsanzeige während des Renders ist da, aber ein
+    Abbrechen-Knopf fehlt; sehr große WAV-Ausgaben sind auf dem iPad
+    ungetestet (FLAC ist die sichere Wahl).
 - **S4 — Playback.** AudioWorklet-Pfad (cpal-wasm nur falls es überzeugt).
   *Exit: Live-Preview mit Metern, Latenz akzeptabel.*
 - **S5 — Deploy auf GitHub Pages (Grundlage erledigt 2026-07-25,

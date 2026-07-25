@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `with_renderer`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -224,6 +224,53 @@ Future<void> playerUpdateParams({
 
 /// Poll playback position and meters (call at UI frame rate).
 ApiPlayerState playerState() => RustLib.instance.api.crateApiMixerPlayerState();
+
+/// Begin a streamed render. `fmt_chunk` comes from [`scan_wav_chunks`];
+/// `range_frames` is the length of the range Dart will push (trim applied on
+/// its side, since it decides which bytes to read).
+Future<int> renderStreamBegin({
+  required List<int> fmtChunk,
+  required BigInt rangeFrames,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  ApiReferenceProfile? reference,
+}) => RustLib.instance.api.crateApiMixerRenderStreamBegin(
+  fmtChunk: fmtChunk,
+  rangeFrames: rangeFrames,
+  tracks: tracks,
+  master: master,
+  reference: reference,
+);
+
+/// Feed the next slice of the `data` payload to pass 1 (measurement).
+Future<void> renderStreamPass1Push({
+  required int id,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiMixerRenderStreamPass1Push(
+  id: id,
+  bytes: bytes,
+);
+
+/// Close pass 1 and open the encoder. Dart then replays the same byte range.
+Future<void> renderStreamStartPass2({required int id}) =>
+    RustLib.instance.api.crateApiMixerRenderStreamStartPass2(id: id);
+
+/// Feed the next slice to pass 2 and take the encoded bytes it produced.
+Future<Uint8List> renderStreamPass2Push({
+  required int id,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiMixerRenderStreamPass2Push(
+  id: id,
+  bytes: bytes,
+);
+
+/// Finish the render and drop it.
+Future<ApiRenderTail> renderStreamFinish({required int id}) =>
+    RustLib.instance.api.crateApiMixerRenderStreamFinish(id: id);
+
+/// Drop a render that the user cancelled or that failed mid-way.
+Future<void> renderStreamCancel({required int id}) =>
+    RustLib.instance.api.crateApiMixerRenderStreamCancel(id: id);
 
 class ApiAnalysis {
   final List<ApiChannelWaveform> waveforms;
@@ -709,6 +756,32 @@ class ApiRenderReport {
           sourceIntegratedLufs == other.sourceIntegratedLufs &&
           masteringApplied == other.masteringApplied &&
           masteringGainDb == other.masteringGainDb;
+}
+
+/// The finished render's fixed parts: `head ++ every block from
+/// [`render_stream_pass2_push`] ++ `tail` is the complete file.
+class ApiRenderTail {
+  final Uint8List head;
+  final Uint8List tail;
+  final ApiRenderReport report;
+
+  const ApiRenderTail({
+    required this.head,
+    required this.tail,
+    required this.report,
+  });
+
+  @override
+  int get hashCode => head.hashCode ^ tail.hashCode ^ report.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiRenderTail &&
+          runtimeType == other.runtimeType &&
+          head == other.head &&
+          tail == other.tail &&
+          report == other.report;
 }
 
 class ApiTrack {

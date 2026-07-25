@@ -1045,3 +1045,109 @@ fn idle_player_state() -> ApiPlayerState {
         correlation: 0.0,
     }
 }
+
+// ── streamed render (no filesystem) ─────────────────────────────────────────
+//
+// The browser cannot hand the engine a seekable file, so Dart drives the two
+// render passes itself and collects the encoded output block by block
+// (docs/PLAN-PWA.md S3). Same registry shape as the analyzers above.
+
+static RENDERERS: OnceLock<Mutex<HashMap<u32, render::StreamRender>>> = OnceLock::new();
+static NEXT_RENDERER_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn renderers() -> &'static Mutex<HashMap<u32, render::StreamRender>> {
+    RENDERERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn with_renderer<T>(
+    id: u32,
+    f: impl FnOnce(&mut render::StreamRender) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let mut map = renderers().lock().unwrap();
+    let renderer = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed render with id {id}"))?;
+    f(renderer)
+}
+
+/// The finished render's fixed parts: `head ++ every block from
+/// [`render_stream_pass2_push`] ++ `tail` is the complete file.
+pub struct ApiRenderTail {
+    pub head: Vec<u8>,
+    pub tail: Vec<u8>,
+    pub report: ApiRenderReport,
+}
+
+/// Begin a streamed render. `fmt_chunk` comes from [`scan_wav_chunks`];
+/// `range_frames` is the length of the range Dart will push (trim applied on
+/// its side, since it decides which bytes to read).
+pub fn render_stream_begin(
+    fmt_chunk: Vec<u8>,
+    range_frames: u64,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    reference: Option<ApiReferenceProfile>,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let settings = to_engine_settings(&master);
+    let profile = match (&master.mastering_enabled, reference) {
+        (true, Some(p)) => Some(to_engine_profile(p)),
+        _ => None,
+    };
+    let renderer = render::StreamRender::new(spec, range_frames, engine_tracks, settings, profile)?;
+    let mut counter = NEXT_RENDERER_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    renderers().lock().unwrap().insert(id, renderer);
+    Ok(id)
+}
+
+/// Feed the next slice of the `data` payload to pass 1 (measurement).
+pub fn render_stream_pass1_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<()> {
+    with_renderer(id, |r| r.push_pass1(&bytes).context("render pass 1"))
+}
+
+/// Close pass 1 and open the encoder. Dart then replays the same byte range.
+pub fn render_stream_start_pass2(id: u32) -> anyhow::Result<()> {
+    with_renderer(id, |r| r.start_pass2().context("start render pass 2"))
+}
+
+/// Feed the next slice to pass 2 and take the encoded bytes it produced.
+pub fn render_stream_pass2_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+    with_renderer(id, |r| r.push_pass2(&bytes).context("render pass 2"))
+}
+
+/// Finish the render and drop it.
+pub fn render_stream_finish(id: u32) -> anyhow::Result<ApiRenderTail> {
+    let renderer = renderers()
+        .lock()
+        .unwrap()
+        .remove(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed render with id {id}"))?;
+    let out = renderer.finish()?;
+    Ok(ApiRenderTail {
+        head: out.head,
+        tail: out.tail,
+        report: ApiRenderReport {
+            peak_dbfs_before: out.report.peak_dbfs_before,
+            gain_applied_db: out.report.gain_applied_db,
+            duration_seconds: out.report.duration_seconds,
+            sample_rate: out.report.sample_rate,
+            integrated_lufs: out.report.integrated_lufs,
+            true_peak_dbtp: out.report.true_peak_dbtp,
+            lra_lu: out.report.lra_lu,
+            source_integrated_lufs: out.report.source_integrated_lufs,
+            mastering_applied: out.report.mastering_applied,
+            mastering_gain_db: out.report.mastering_gain_db,
+        },
+    })
+}
+
+/// Drop a render that the user cancelled or that failed mid-way.
+pub fn render_stream_cancel(id: u32) {
+    renderers().lock().unwrap().remove(&id);
+}

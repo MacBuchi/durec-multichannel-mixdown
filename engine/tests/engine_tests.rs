@@ -9,8 +9,12 @@ use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
-use durecmix_engine::render::{render_to_file, LoudnessMode, OutputFormat, RenderSettings};
+use durecmix_engine::render::{
+    plan_from_pass1, render_to_file, LoudnessMode, OutputFormat, RenderPass1, RenderPass2,
+    RenderSettings, RenderSource, StreamRender,
+};
 use durecmix_engine::session::Session;
+use durecmix_engine::sink::{ChunkSink, StereoSink};
 use durecmix_engine::wav::{self, InputHandle, SampleFormat, WavReader};
 use durecmix_engine::EngineError;
 
@@ -1697,7 +1701,7 @@ fn reference_profile_serde_and_validation() {
 // ── mastering: reference decoding ───────────────────────────────────────────
 
 use durecmix_engine::reference::analyze_reference;
-use durecmix_engine::sink::{OutputHandle, StereoSink};
+use durecmix_engine::sink::OutputHandle;
 
 fn write_ref_fixture(path: &std::path::Path, format: OutputFormat, stereo: &[f64], sr: u32) {
     let mut sink = StereoSink::create(
@@ -2312,4 +2316,209 @@ fn pushed_analysis_handles_24_bit_frames() {
         "24-bit scaling is off: {} dBFS",
         a.waveforms[0].peak_dbfs
     );
+}
+
+// ── streamed render (browser driver) ────────────────────────────────────────
+
+/// Drive both render passes from outside, the way the web build must.
+///
+/// The browser has no synchronous seek on a `Blob`, so Dart pushes the source
+/// blocks instead of the engine pulling them. Block sizes therefore no longer
+/// line up with `BLOCK_FRAMES` — this pushes a deliberately awkward prime so a
+/// block-size dependency anywhere in the chain would show up.
+fn render_streamed(
+    in_path: &std::path::Path,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    push_frames: usize,
+) -> (Vec<u8>, durecmix_engine::render::RenderReport) {
+    let input = InputHandle::Path(in_path.to_string_lossy().into_owned());
+    let spec = input.open().unwrap().spec();
+    let channels = spec.channels as usize;
+    let total = input.open().unwrap().num_frames();
+
+    let src = RenderSource {
+        channels,
+        sample_rate: spec.sample_rate,
+        tracks,
+        range_frames: total,
+    };
+    let mut pass1 = RenderPass1::new(&src, settings, false).unwrap();
+    let mut reader = input.open().unwrap();
+    let mut buf = Vec::new();
+    while reader.read_frames(&mut buf, push_frames).unwrap() > 0 {
+        pass1.push_frames(&buf);
+    }
+    let measured = pass1.finish();
+    let plan = plan_from_pass1(settings, &measured, None).unwrap();
+
+    // The sink hands out the finished bytes block by block; the caller
+    // concatenates head ++ tails, exactly like the Dart side.
+    let sink = ChunkSink::new();
+    let mut pass2 = RenderPass2::new(
+        &src,
+        settings,
+        &measured,
+        plan,
+        StereoSink::new(sink.clone(), settings.format, spec.sample_rate).unwrap(),
+    )
+    .unwrap();
+    let mut reader = input.open().unwrap();
+    let mut tails: Vec<u8> = Vec::new();
+    while reader.read_frames(&mut buf, push_frames).unwrap() > 0 {
+        pass2.push_frames(&buf).unwrap();
+        tails.extend_from_slice(&sink.take_tail());
+    }
+    let report = pass2.finish().unwrap();
+    tails.extend_from_slice(&sink.take_tail());
+
+    let mut bytes = sink.head();
+    bytes.extend_from_slice(&tails);
+    (bytes, report)
+}
+
+#[test]
+fn streamed_render_matches_the_file_render_byte_for_byte() {
+    // ~4 s of 4-channel material, so the output comfortably outgrows the
+    // sink's 64 KB header window and actually exercises the tail path.
+    let frames = 200_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 220.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+                ((t * 330.0 * std::f64::consts::TAU).sin() * 0.4 * 32767.0) as i16,
+                ((t * 55.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                0,
+            ]
+        })
+        .collect();
+
+    for format in [
+        OutputFormat::Wav24,
+        OutputFormat::Wav16,
+        OutputFormat::Flac24,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        std::fs::write(&in_path, wav16(4, 48_000, &samples, None)).unwrap();
+
+        let tracks = vec![
+            track(1, -3.0, -0.5),
+            track(2, 0.0, 0.5),
+            track(3, -6.0, 0.0),
+        ];
+        let settings = RenderSettings {
+            loudness: LoudnessMode::LufsIntegrated(-14.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_in_ms: 120.0,
+            fade_out_ms: 250.0,
+            ..RenderSettings::default()
+        };
+
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        // 7919 is prime and shares no factor with BLOCK_FRAMES (65536) or the
+        // FLAC block size (4096).
+        let (streamed, streamed_report) = render_streamed(&in_path, &tracks, &settings, 7919);
+
+        assert_eq!(
+            streamed.len(),
+            native.len(),
+            "{format:?}: streamed render is {} bytes, file render {}",
+            streamed.len(),
+            native.len()
+        );
+        let first_diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(first_diff, "identical", "{format:?}");
+        assert_eq!(streamed_report, native_report, "{format:?}: report differs");
+    }
+}
+
+/// The full browser path: push raw `data`-chunk bytes twice, once per pass.
+///
+/// This is what the web build actually runs, so it has to match the file
+/// render byte for byte too — including block boundaries that fall
+/// mid-frame, which is the normal case when Dart slices a `Blob`.
+#[test]
+fn byte_driven_render_matches_the_file_render() {
+    let frames = 120_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 180.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 90.0 * std::f64::consts::TAU).sin() * 0.5 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    for format in [OutputFormat::Wav24, OutputFormat::Flac16] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        let wav = wav16(2, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let tracks = vec![track(1, -2.0, -1.0), track(2, -4.0, 1.0)];
+        let settings = RenderSettings {
+            loudness: LoudnessMode::PeakDbfs(-1.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_out_ms: 400.0,
+            ..RenderSettings::default()
+        };
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        // Locate the payload the way the web build does, then push it in
+        // blocks whose size is deliberately not a multiple of the 4-byte
+        // frame — every block ends mid-frame.
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let payload = &wav[data.offset as usize..][..data.size as usize];
+        let total_frames = data.size / spec.bytes_per_frame() as u64;
+
+        let mut render =
+            StreamRender::new(spec, total_frames, tracks.clone(), settings.clone(), None).unwrap();
+        const BLOCK: usize = 65_537; // odd, so no block ends on a frame edge
+        for block in payload.chunks(BLOCK) {
+            render.push_pass1(block).unwrap();
+        }
+        render.start_pass2().unwrap();
+        let mut body = Vec::new();
+        for block in payload.chunks(BLOCK) {
+            body.extend_from_slice(&render.push_pass2(block).unwrap());
+        }
+        let out = render.finish().unwrap();
+
+        let mut streamed = out.head;
+        streamed.extend_from_slice(&body);
+        streamed.extend_from_slice(&out.tail);
+
+        assert_eq!(streamed.len(), native.len(), "{format:?}: length differs");
+        let diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(diff, "identical", "{format:?}");
+        assert_eq!(out.report, native_report, "{format:?}: report differs");
+    }
 }

@@ -91,6 +91,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiRenderReport dco_decode_api_render_report(dynamic raw);
 
   @protected
+  ApiRenderTail dco_decode_api_render_tail(dynamic raw);
+
+  @protected
   ApiTrack dco_decode_api_track(dynamic raw);
 
   @protected
@@ -291,6 +294,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiRenderReport sse_decode_api_render_report(SseDeserializer deserializer);
+
+  @protected
+  ApiRenderTail sse_decode_api_render_tail(SseDeserializer deserializer);
 
   @protected
   ApiTrack sse_decode_api_track(SseDeserializer deserializer);
@@ -525,6 +531,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ApiRenderReport self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_api_render_tail(ApiRenderTail self, SseSerializer serializer);
 
   @protected
   void sse_encode_api_track(ApiTrack self, SseSerializer serializer);

@@ -253,6 +253,45 @@ impl<R: Read + Seek> WavReader<R> {
 /// Decode raw interleaved PCM into normalised `f64` samples, appending to
 /// `out`. `raw` must hold whole samples; callers streaming from a byte
 /// source (the web build pushes `Blob` slices) keep the remainder.
+/// Turns a byte stream of the `data` chunk into whole frames.
+///
+/// Slices handed in by the platform (a 4 MB `Blob` range in the browser) end
+/// wherever they end — mid-frame more often than not. This carries the
+/// remainder over to the next call, so no sample is lost or split.
+pub struct FrameDecoder {
+    spec: WavSpec,
+    tail: Vec<u8>,
+}
+
+impl FrameDecoder {
+    pub fn new(spec: WavSpec) -> FrameDecoder {
+        FrameDecoder {
+            spec,
+            tail: Vec::new(),
+        }
+    }
+
+    /// Decode every whole frame in `bytes` (plus any carried remainder) into
+    /// `out`, which is cleared first.
+    pub fn push(&mut self, bytes: &[u8], out: &mut Vec<f64>) -> Result<()> {
+        let bpf = self.spec.bytes_per_frame();
+        // Rejoin whatever was left dangling mid-frame last time.
+        let joined;
+        let bytes = if self.tail.is_empty() {
+            bytes
+        } else {
+            self.tail.extend_from_slice(bytes);
+            joined = std::mem::take(&mut self.tail);
+            &joined[..]
+        };
+        let whole = bytes.len() - bytes.len() % bpf;
+        out.clear();
+        decode_samples(&self.spec, &bytes[..whole], out)?;
+        self.tail = bytes[whole..].to_vec();
+        Ok(())
+    }
+}
+
 pub fn decode_samples(spec: &WavSpec, raw: &[u8], out: &mut Vec<f64>) -> Result<()> {
     match (spec.sample_format, spec.bits_per_sample) {
         (SampleFormat::Int, 16) => {

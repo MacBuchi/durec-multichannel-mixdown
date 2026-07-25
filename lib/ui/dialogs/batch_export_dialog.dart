@@ -112,7 +112,7 @@ Widget _jobFormatDropdown(BatchJob job, StateSetter setDialogState) {
   return DropdownButton<rust.ApiFormat>(
     value: job.format,
     underline: const SizedBox.shrink(),
-    items: rust.ApiFormat.values
+    items: availableFormats
         .map(
           (f) => DropdownMenuItem(
             value: f,
