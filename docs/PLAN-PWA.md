@@ -205,7 +205,7 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   **iOS-Safari-Nachweis ist erbracht**: Laden und Import laufen auf einem
   iPad Air (Nutzertest 2026-07-25).
 
-## Der Web-Reader darf nicht über `XFile.openRead` gehen
+## Der Web-Reader muss das echte `File` behalten
 
 Die Analyse war im Browser ~30× langsamer als nativ, und **die Ursache war
 weder wasm noch die Blob-API.** Gemessen an `UFX05_00_Breeze.WAV`
@@ -228,11 +228,26 @@ gemessenen 1568 MB/s sind das vorhergesagte 97,7 s gegen 96,6 s gemessene.
 Der Aufwand ist also **quadratisch in der Dateigröße**; bei einem 2-GB-Take
 wäre es nicht dreißigmal, sondern über hundertmal zu langsam.
 
-`platform_shim_web._lazyRecording` holt den Blob deshalb **einmal** und
-schneidet selbst. Lesen: 96,6 s → **0,7 s**. Ende zu Ende: 107 s → **3,7 s**
-(917-MB-Take: 4,4 s; nativ 1,02 s). Der Blob bleibt dateigestützt — ein
-Handle, keine Bytes auf dem JS-Heap —, das Halten kostet also auch bei
-mehreren GB nichts.
+Der erste Fix holte den Blob deshalb **einmal** per `fetch` auf die
+Objekt-URL und schnitt selbst. Lesen: 96,6 s → **0,7 s**. Ende zu Ende:
+107 s → **3,7 s** (917-MB-Take: 4,4 s; nativ 1,02 s).
+
+**Er hatte aber eine zweite Grenze, die erst der iPad-Test zeigte: Dateien
+über ~1 GB ließen sich gar nicht mehr importieren.** `response.blob()`
+*materialisiert eine vollständige zweite Kopie* der Datei, bevor der erste
+Range-Read läuft. Chrome lagert die auf die Platte aus, deshalb fiel es am
+Desktop nicht auf; WebKit hält sie im RAM, und damit reißt ein >1-GB-Take
+das Speicherbudget des Tabs.
+
+Die Wurzel beider Fehler ist dieselbe: `file_selector` gibt das `File` nicht
+heraus. `pickRecordings` baut sein `<input type="file">` deshalb **selbst**
+(`platform_shim_web.dart`) und behält das echte `web.File`. Ein `File` *ist*
+ein `Blob` und ist von der Datei auf der Platte gedeckt — `slice()` liefert
+wieder nur eine Sicht, nichts wird kopiert. Damit fällt die
+Größenbeschränkung weg und die Hydrierung gleich mit.
+
+**Nie wieder über `XFile` gehen** — weder `openRead` noch `fetch` auf
+`file.path`. Beide fangen bei derselben verlustbehafteten Hülle an.
 
 **`+simd128` bringt nichts** (2631 ms → 2559 ms, 3 %, im Rauschen): die
 Decode- und Akkumulierschleifen vektorisieren nicht von selbst. Bewusst
@@ -258,6 +273,14 @@ und die UI beantwortet den Tap mit einem Satz statt mit Schweigen oder einem
 Stacktrace. Wo der Weg ohne die Stufe gar keinen Sinn ergibt (Batch-Export),
 verschwindet der Einstieg. Das ist dieselbe Lehre wie bei „Choose folder"
 weiter oben — sie gilt für jede folgende Stufe mit.
+
+**Und sie gilt für *jeden* Einstieg, nicht nur den offensichtlichen.** Der
+Web-Zweig kam zunächst nur in `_changeFolder` an (Startbildschirm und
+Ordner-Symbol); der Tap auf den Dateinamen in der Kopfzeile — in der APK der
+schnelle Weg zwischen Takes — lief weiter über `_openBrowser` in
+`pickFolder()` → `getDirectoryPath()` → `null` und tat sichtbar nichts
+(iPad-Test 2026-07-26). Wer eine Fähigkeit portiert, muss **alle** Aufrufer
+suchen, nicht den erstbesten.
 
 **Merge `dev/pwa` → main** ist eine Nutzer-Entscheidung, frühestens nach
 S2 (ab da hat die Web-Version eigenständigen Nutzwert als Viewer/Checker).

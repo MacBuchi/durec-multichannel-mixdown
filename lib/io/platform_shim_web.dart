@@ -10,7 +10,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 
@@ -153,47 +152,73 @@ class BlobRenderOutput implements RenderOutput {
 }
 
 /// Opens the browser file picker and wraps each pick in lazy range access.
-Future<List<PickedRecording>> pickRecordings() async {
-  const group = XTypeGroup(label: 'WAV', extensions: ['wav'], mimeTypes: []);
-  final files = await openFiles(acceptedTypeGroups: const [group]);
-  return [for (final f in files) await _lazyRecording(f)];
-}
-
-/// Wraps one picked file so ranges come straight off its `Blob`.
 ///
-/// **Do not go back to `XFile.openRead(start, end)` here.** It looks like the
-/// obvious API and it is quadratic: `file_selector_web` builds its `XFile`
-/// from `URL.createObjectURL(file)` alone and never hands over the `File`, so
-/// `cross_file` holds no Blob to slice. Every single call therefore
-/// re-hydrates the *whole* file over XHR and then keeps 4 MB of it.
-/// Analysing a 782 MB take that way copied 150 GB and spent 97 s in reads
-/// against 2.6 s of actual analysis; hydrating once and slicing here brings
-/// the reads down to ~0.5 s (docs/PLAN-PWA.md).
-///
-/// The Blob stays file-backed — it is a handle, not bytes on the JS heap —
-/// so holding it costs nothing even for a multi-GB take.
-Future<PickedRecording> _lazyRecording(XFile file) async {
-  final size = await file.length();
-  Future<web.Blob>? blob;
+/// **Deliberately not `file_selector`'s `openFiles()`.** That plugin throws
+/// the picked `File` away and keeps only `URL.createObjectURL(file)`, which
+/// leaves us nothing to slice — see [_lazyRecording] for what that cost. The
+/// `<input>` here is the same one the plugin builds, minus the lossy wrapper:
+/// the real `File` survives, so reads go straight to disk.
+Future<List<PickedRecording>> pickRecordings() {
+  final completer = Completer<List<PickedRecording>>();
+  final input = web.document.createElement('input') as web.HTMLInputElement
+    ..type = 'file'
+    // Safari on iOS ignores an extension-only accept list for files coming
+    // out of iCloud Drive, so the WAV MIME types ride along.
+    ..accept = '.wav,audio/wav,audio/x-wav,audio/wave'
+    ..multiple = true;
+  // Must be in the document for the click to open a picker in Safari.
+  web.document.body!.appendChild(input);
 
-  Future<web.Blob> hydrate() async {
-    final response = await web.window.fetch(file.path.toJS).toDart;
-    return response.blob().toDart;
+  void finish(List<PickedRecording> picked) {
+    if (completer.isCompleted) return;
+    input.remove();
+    completer.complete(picked);
   }
 
-  return PickedRecording(
-    // Blobs have no path; the name keeps session keys readable and stable
-    // enough for one browser session.
-    source: 'blob:${file.name}',
-    name: file.name,
-    sizeBytes: size,
-    read: (start, end) async {
-      final source = await (blob ??= hydrate());
-      final buffer = await source.slice(start, end).arrayBuffer().toDart;
-      return buffer.toDart.asUint8List();
-    },
-  );
+  input.onChange.first.then((_) {
+    final files = input.files;
+    finish([
+      if (files != null)
+        for (var i = 0; i < files.length; i++) _lazyRecording(files.item(i)!),
+    ]);
+  });
+  // Dismissing the picker fires `cancel`, never `change` — without this the
+  // future would never complete and the caller would wait forever.
+  input.addEventListener('cancel', ((web.Event _) => finish(const [])).toJS);
+  input.click();
+  return completer.future;
 }
+
+/// Wraps one picked file so ranges come straight off it.
+///
+/// A `File` **is** a `Blob`, and a picked one is backed by the file on disk:
+/// `slice()` hands back another lazy view, so a multi-GB take never enters
+/// memory and holding it costs nothing.
+///
+/// **Do not reintroduce a `fetch()` of a blob URL here, and do not go back to
+/// `XFile.openRead(start, end)`.** Both start from `file_selector`'s
+/// `XFile`, which carries only `URL.createObjectURL(file)`:
+/// * `openRead` is quadratic — `cross_file` has no Blob to slice, so every
+///   call re-fetches the *whole* file and keeps 4 MB of it. Analysing a
+///   782 MB take copied 150 GB and spent 97 s in reads against 2.6 s of
+///   actual analysis.
+/// * fetching the blob URL once fixed that, but `response.blob()`
+///   *materialises a second copy* of the file. Chrome spills it to disk;
+///   WebKit keeps it in RAM, so a >1 GB take blew the iPad tab's memory
+///   budget and the import failed outright.
+///
+/// Keeping the `File` avoids both (docs/PLAN-PWA.md).
+PickedRecording _lazyRecording(web.File file) => PickedRecording(
+  // Blobs have no path; the name keeps session keys readable and stable
+  // enough for one browser session.
+  source: 'blob:${file.name}',
+  name: file.name,
+  sizeBytes: file.size,
+  read: (start, end) async {
+    final buffer = await file.slice(start, end).arrayBuffer().toDart;
+    return buffer.toDart.asUint8List();
+  },
+);
 
 Future<HttpTextResponse> httpGetText(
   Uri url, {

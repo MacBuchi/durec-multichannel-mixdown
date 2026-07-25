@@ -55,6 +55,19 @@ class _MixerScreenState extends State<MixerScreen> {
   Future<void> _openBrowser() async {
     final settings = await AppSettings.load();
     final browser = _browser ??= WavBrowser(settings);
+    if (!canPickFolders) {
+      // No folder to reopen in a browser (see platform_shim_web.dart): the
+      // listing IS the last pick, so show it and let the page's "Choose
+      // files" button pull in more. Falling through to pickFolder() here
+      // made the title tap a dead end — getDirectoryPath() returns null on
+      // the web, so nothing happened at all.
+      if (browser.entries.isEmpty) {
+        await browser.pickAndOpenFiles();
+        if (browser.entries.isEmpty) return;
+      }
+      await _showBrowser(browser);
+      return;
+    }
     if (browser.folder == null) {
       final last = settings.lastFolder;
       if (last != null) {
