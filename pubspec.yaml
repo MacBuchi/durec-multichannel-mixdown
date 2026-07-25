@@ -17,7 +17,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
 # Milestone-aligned: M1=0.1, M2=0.2, M3a=0.3 (tags vX.Y.Z drive release.yml).
-version: 0.12.14+1
+version: 0.12.15+1
 
 environment:
   sdk: ^3.11.0
@@ -71,6 +71,9 @@ flutter:
 
   assets:
     - assets/icon/logo_mark.png
+    # Shown in About → What's new; test/changelog_test.dart guards that the
+    # top entry matches this pubspec's version.
+    - CHANGELOG.md
     # Notices of the Rust crates linked into the engine — invisible to
     # Flutter's LicenseRegistry, so main.dart feeds them in by hand.
     # Regenerate with tool/gen_rust_licenses.py.
