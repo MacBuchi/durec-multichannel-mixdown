@@ -9,8 +9,12 @@ use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
-use durecmix_engine::render::{render_to_file, LoudnessMode, OutputFormat, RenderSettings};
+use durecmix_engine::render::{
+    plan_from_pass1, render_to_file, LoudnessMode, OutputFormat, RenderPass1, RenderPass2,
+    RenderSettings, RenderSource,
+};
 use durecmix_engine::session::Session;
+use durecmix_engine::sink::{ChunkSink, StereoSink};
 use durecmix_engine::wav::{self, InputHandle, SampleFormat, WavReader};
 use durecmix_engine::EngineError;
 
@@ -1697,7 +1701,7 @@ fn reference_profile_serde_and_validation() {
 // ── mastering: reference decoding ───────────────────────────────────────────
 
 use durecmix_engine::reference::analyze_reference;
-use durecmix_engine::sink::{OutputHandle, StereoSink};
+use durecmix_engine::sink::OutputHandle;
 
 fn write_ref_fixture(path: &std::path::Path, format: OutputFormat, stereo: &[f64], sr: u32) {
     let mut sink = StereoSink::create(
@@ -2312,4 +2316,131 @@ fn pushed_analysis_handles_24_bit_frames() {
         "24-bit scaling is off: {} dBFS",
         a.waveforms[0].peak_dbfs
     );
+}
+
+// ── streamed render (browser driver) ────────────────────────────────────────
+
+/// Drive both render passes from outside, the way the web build must.
+///
+/// The browser has no synchronous seek on a `Blob`, so Dart pushes the source
+/// blocks instead of the engine pulling them. Block sizes therefore no longer
+/// line up with `BLOCK_FRAMES` — this pushes a deliberately awkward prime so a
+/// block-size dependency anywhere in the chain would show up.
+fn render_streamed(
+    in_path: &std::path::Path,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    push_frames: usize,
+) -> (Vec<u8>, durecmix_engine::render::RenderReport) {
+    let input = InputHandle::Path(in_path.to_string_lossy().into_owned());
+    let spec = input.open().unwrap().spec();
+    let channels = spec.channels as usize;
+    let total = input.open().unwrap().num_frames();
+
+    let src = RenderSource {
+        channels,
+        sample_rate: spec.sample_rate,
+        tracks,
+        range_frames: total,
+    };
+    let mut pass1 = RenderPass1::new(&src, settings, false).unwrap();
+    let mut reader = input.open().unwrap();
+    let mut buf = Vec::new();
+    while reader.read_frames(&mut buf, push_frames).unwrap() > 0 {
+        pass1.push_frames(&buf);
+    }
+    let measured = pass1.finish();
+    let plan = plan_from_pass1(settings, &measured, None).unwrap();
+
+    // The sink hands out the finished bytes block by block; the caller
+    // concatenates head ++ tails, exactly like the Dart side.
+    let sink = ChunkSink::new();
+    let mut pass2 = RenderPass2::new(
+        &src,
+        settings,
+        &measured,
+        plan,
+        StereoSink::new(sink.clone(), settings.format, spec.sample_rate).unwrap(),
+    )
+    .unwrap();
+    let mut reader = input.open().unwrap();
+    let mut tails: Vec<u8> = Vec::new();
+    while reader.read_frames(&mut buf, push_frames).unwrap() > 0 {
+        pass2.push_frames(&buf).unwrap();
+        tails.extend_from_slice(&sink.take_tail());
+    }
+    let report = pass2.finish().unwrap();
+    tails.extend_from_slice(&sink.take_tail());
+
+    let mut bytes = sink.head();
+    bytes.extend_from_slice(&tails);
+    (bytes, report)
+}
+
+#[test]
+fn streamed_render_matches_the_file_render_byte_for_byte() {
+    // ~4 s of 4-channel material, so the output comfortably outgrows the
+    // sink's 64 KB header window and actually exercises the tail path.
+    let frames = 200_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 220.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+                ((t * 330.0 * std::f64::consts::TAU).sin() * 0.4 * 32767.0) as i16,
+                ((t * 55.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                0,
+            ]
+        })
+        .collect();
+
+    for format in [
+        OutputFormat::Wav24,
+        OutputFormat::Wav16,
+        OutputFormat::Flac24,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        std::fs::write(&in_path, wav16(4, 48_000, &samples, None)).unwrap();
+
+        let tracks = vec![
+            track(1, -3.0, -0.5),
+            track(2, 0.0, 0.5),
+            track(3, -6.0, 0.0),
+        ];
+        let settings = RenderSettings {
+            loudness: LoudnessMode::LufsIntegrated(-14.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_in_ms: 120.0,
+            fade_out_ms: 250.0,
+            ..RenderSettings::default()
+        };
+
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        // 7919 is prime and shares no factor with BLOCK_FRAMES (65536) or the
+        // FLAC block size (4096).
+        let (streamed, streamed_report) = render_streamed(&in_path, &tracks, &settings, 7919);
+
+        assert_eq!(
+            streamed.len(),
+            native.len(),
+            "{format:?}: streamed render is {} bytes, file render {}",
+            streamed.len(),
+            native.len()
+        );
+        let first_diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(first_diff, "identical", "{format:?}");
+        assert_eq!(streamed_report, native_report, "{format:?}: report differs");
+    }
 }

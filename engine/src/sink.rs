@@ -7,6 +7,7 @@
 //! on 16-bit integer targets only (FLAC/WAV — MP3 takes float input).
 
 use std::io::{Seek, SeekFrom, Write};
+use std::sync::{Arc, Mutex};
 
 use flacenc::bitsink::ByteSink;
 use flacenc::component::BitRepr;
@@ -54,23 +55,165 @@ impl OutputHandle {
     }
 }
 
-pub enum StereoSink {
-    Wav {
-        writer: hound::WavWriter<std::io::BufWriter<std::fs::File>>,
-        format: OutputFormat,
-    },
-    Flac(FlacWriter),
-    #[cfg(feature = "mp3")]
-    Mp3(Mp3Writer),
+/// How many leading bytes stay patchable in a [`ChunkSink`]. Both encoders
+/// seek back only into their header (RIFF sizes at 4/40, FLAC STREAMINFO at
+/// 8), so a generous fixed window covers them with room to spare.
+const CHUNK_HEAD_BYTES: usize = 64 * 1024;
+
+struct ChunkBuffers {
+    /// Bytes `[0, CHUNK_HEAD_BYTES)` — kept until the end so the encoder can
+    /// seek back and patch its header.
+    head: Vec<u8>,
+    /// Bytes past the head that have not been taken yet.
+    tail: Vec<u8>,
+    /// Logical offset of `tail[0]`; grows with every [`ChunkSink::take_tail`].
+    tail_start: u64,
+    pos: u64,
 }
 
-impl StereoSink {
+impl Default for ChunkBuffers {
+    fn default() -> Self {
+        ChunkBuffers {
+            head: Vec::new(),
+            tail: Vec::new(),
+            tail_start: CHUNK_HEAD_BYTES as u64,
+            pos: 0,
+        }
+    }
+}
+
+/// A seekable sink that never holds the whole output.
+///
+/// Targets without a filesystem (the browser) cannot give the encoders the
+/// `Write + Seek` file they expect, and buffering a render in memory is out
+/// of the question — a 90-minute stereo WAV is ~1.5 GB. This keeps only the
+/// patchable header plus the bytes produced since the last
+/// [`take_tail`](Self::take_tail); the caller drains it block by block and
+/// concatenates `head ++ tail₀ ++ tail₁ ++ …`.
+///
+/// Seeking backwards is allowed **only inside the header window**; the
+/// encoders never do more than that, and a violation is an error rather
+/// than silent corruption.
+#[derive(Clone, Default)]
+pub struct ChunkSink(Arc<Mutex<ChunkBuffers>>);
+
+impl ChunkSink {
+    pub fn new() -> ChunkSink {
+        ChunkSink::default()
+    }
+
+    /// Takes the bytes produced since the previous call.
+    ///
+    /// Buffering upstream (a `BufWriter`) may hold some back; that is fine,
+    /// order is preserved and the remainder arrives with a later call or on
+    /// finalize.
+    pub fn take_tail(&self) -> Vec<u8> {
+        let mut b = self.0.lock().unwrap();
+        b.tail_start += b.tail.len() as u64;
+        std::mem::take(&mut b.tail)
+    }
+
+    /// The header, final only after the sink has been finalized.
+    pub fn head(&self) -> Vec<u8> {
+        self.0.lock().unwrap().head.clone()
+    }
+}
+
+impl Write for ChunkSink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut b = self.0.lock().unwrap();
+        let mut done = 0usize;
+
+        // The part that still falls inside the patchable header window.
+        if b.pos < CHUNK_HEAD_BYTES as u64 {
+            let at = b.pos as usize;
+            let n = buf.len().min(CHUNK_HEAD_BYTES - at);
+            if b.head.len() < at + n {
+                b.head.resize(at + n, 0);
+            }
+            b.head[at..at + n].copy_from_slice(&buf[..n]);
+            b.pos += n as u64;
+            done = n;
+        }
+        if done == buf.len() {
+            return Ok(done);
+        }
+
+        // The rest goes into the drainable tail.
+        if b.pos < b.tail_start {
+            return Err(std::io::Error::other(
+                "ChunkSink: write into already-taken output",
+            ));
+        }
+        let at = (b.pos - b.tail_start) as usize;
+        if at > b.tail.len() {
+            return Err(std::io::Error::other("ChunkSink: write past the end"));
+        }
+        let rest = &buf[done..];
+        let overlap = rest.len().min(b.tail.len() - at);
+        b.tail[at..at + overlap].copy_from_slice(&rest[..overlap]);
+        b.tail.extend_from_slice(&rest[overlap..]);
+        b.pos += rest.len() as u64;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Seek for ChunkSink {
+    fn seek(&mut self, from: SeekFrom) -> std::io::Result<u64> {
+        let mut b = self.0.lock().unwrap();
+        let end = b.tail_start + b.tail.len() as u64;
+        let target = match from {
+            SeekFrom::Start(n) => n as i64,
+            SeekFrom::Current(n) => b.pos as i64 + n,
+            SeekFrom::End(n) => end as i64 + n,
+        };
+        if target < 0 {
+            return Err(std::io::Error::other("ChunkSink: seek before start"));
+        }
+        let target = target as u64;
+        if target < b.tail_start && target >= CHUNK_HEAD_BYTES as u64 {
+            return Err(std::io::Error::other(
+                "ChunkSink: seek into already-taken output",
+            ));
+        }
+        b.pos = target;
+        Ok(target)
+    }
+}
+
+pub enum StereoSink<W: Write + Seek> {
+    Wav {
+        writer: hound::WavWriter<W>,
+        format: OutputFormat,
+    },
+    Flac(FlacWriter<W>),
+    #[cfg(feature = "mp3")]
+    Mp3(Mp3Writer<W>),
+}
+
+impl StereoSink<std::io::BufWriter<std::fs::File>> {
+    /// Render target on a real filesystem (path or SAF fd).
     pub fn create(
         out: &OutputHandle,
         format: OutputFormat,
         sample_rate: u32,
-    ) -> Result<StereoSink> {
-        let file = std::io::BufWriter::new(out.create_file()?);
+    ) -> Result<StereoSink<std::io::BufWriter<std::fs::File>>> {
+        StereoSink::new(
+            std::io::BufWriter::new(out.create_file()?),
+            format,
+            sample_rate,
+        )
+    }
+}
+
+impl<W: Write + Seek> StereoSink<W> {
+    /// Render target over any seekable writer — a file natively, a
+    /// [`ChunkSink`] where there is no filesystem.
+    pub fn new(file: W, format: OutputFormat, sample_rate: u32) -> Result<StereoSink<W>> {
         match format {
             OutputFormat::Wav16 | OutputFormat::Wav24 | OutputFormat::Wav32Float => {
                 let spec = hound::WavSpec {
@@ -166,8 +309,8 @@ impl StereoSink {
 /// frames are encoded and appended one by one, and the header is patched
 /// with the final block/frame statistics on finalize. The MD5 field stays
 /// zeroed (= "verification disabled" per spec).
-pub struct FlacWriter {
-    file: std::io::BufWriter<std::fs::File>,
+pub struct FlacWriter<W: Write + Seek> {
+    file: W,
     config: flacenc::error::Verified<flacenc::config::Encoder>,
     stream_info: flacenc::component::StreamInfo,
     pending: Vec<i32>, // interleaved, quantised
@@ -176,12 +319,8 @@ pub struct FlacWriter {
     wrote_full_block: bool,
 }
 
-impl FlacWriter {
-    fn create(
-        file: std::io::BufWriter<std::fs::File>,
-        sample_rate: u32,
-        bits: usize,
-    ) -> Result<FlacWriter> {
+impl<W: Write + Seek> FlacWriter<W> {
+    fn create(file: W, sample_rate: u32, bits: usize) -> Result<FlacWriter<W>> {
         let config = flacenc::config::Encoder::default()
             .into_verified()
             .map_err(|(_, e)| enc_err(e))?;
@@ -285,8 +424,8 @@ fn write_flac_header<W: Write>(w: &mut W, info: &flacenc::component::StreamInfo)
 /// Streaming MP3 writer (LAME, CBR 320 kbps, best quality). LAME takes the
 /// float samples directly, so quantisation/dither do not apply here.
 #[cfg(feature = "mp3")]
-pub struct Mp3Writer {
-    file: std::io::BufWriter<std::fs::File>,
+pub struct Mp3Writer<W: Write> {
+    file: W,
     encoder: mp3lame_encoder::Encoder,
     left: Vec<f64>,
     right: Vec<f64>,
@@ -294,8 +433,8 @@ pub struct Mp3Writer {
 }
 
 #[cfg(feature = "mp3")]
-impl Mp3Writer {
-    fn create(file: std::io::BufWriter<std::fs::File>, sample_rate: u32) -> Result<Mp3Writer> {
+impl<W: Write> Mp3Writer<W> {
+    fn create(file: W, sample_rate: u32) -> Result<Mp3Writer<W>> {
         let mut builder = mp3lame_encoder::Builder::new()
             .ok_or_else(|| EngineError::Encode("lame init failed".into()))?;
         builder.set_num_channels(2).map_err(enc_err)?;
