@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import '../io/ios_files.dart';
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
+import 'range_render.dart';
 
 /// Single-file export and the batch queue (several loudness/format targets
 /// of the current mix into one folder). Owned and composed by [MixerState],
@@ -95,6 +97,49 @@ class ExportController {
     } finally {
       if (Saf.isAvailable) unawaited(Saf.exportStopped());
       if (iosBgTask != null) unawaited(IosFiles.endBackgroundTask(iosBgTask));
+    }
+    rendering = false;
+    _owner.notify();
+  }
+
+  /// Render a take that has no path — the browser's `Blob` source — and hand
+  /// the result to the platform (a download).
+  ///
+  /// Same two-pass render as [export]; only the source and the destination
+  /// differ, and both live behind [renderByRanges] / [RenderOutput].
+  Future<void> exportByRanges(String filename) async {
+    final read = _owner.sourceReader;
+    if (read == null || rendering) return;
+    final size = _owner.sourceSize;
+    rendering = true;
+    renderProgress = 0;
+    lastReport = null;
+    _owner.error = null;
+    _owner.notify();
+    try {
+      rust.ApiReferenceProfile? reference;
+      if (_owner.master.masteringEnabled) {
+        reference = await _owner.mastering.ensureProfile();
+        if (reference == null) {
+          throw StateError('Mastering is on but no reference track is set');
+        }
+      }
+      lastReport = await renderByRanges(
+        read,
+        size,
+        tracks: _owner.tracks.map((t) => t.toApi()).toList(),
+        master: _owner.master,
+        reference: reference,
+        output: createDownloadOutput(filename),
+        onProgress: (p) {
+          renderProgress = p;
+          _owner.notify();
+        },
+      );
+      lastOutputPath = filename;
+      await _owner.saveSession();
+    } catch (e) {
+      _owner.error = e.toString();
     }
     rendering = false;
     _owner.notify();

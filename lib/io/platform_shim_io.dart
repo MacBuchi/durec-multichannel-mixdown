@@ -113,6 +113,14 @@ const canPlayAudio = true;
 /// targets.
 const canExportAudio = true;
 
+/// LAME is compiled in on every native target (Cargo feature `mp3`).
+const canEncodeMp3 = true;
+
+/// Native builds render straight to the chosen file, so the streamed
+/// download path is never taken here.
+RenderOutput createDownloadOutput(String filename) =>
+    throw UnsupportedError('native builds export to a file, not a download');
+
 /// Download and install an APK in-app (Android only; ota_update plugin).
 Stream<ApkInstallEvent> installApk(String apkUrl, String filename) {
   return OtaUpdate().execute(apkUrl, destinationFilename: filename).map((

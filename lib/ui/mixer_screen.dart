@@ -164,6 +164,13 @@ class _MixerScreenState extends State<MixerScreen> {
       _snack('Export is not available in the web version yet.');
       return;
     }
+    // A take opened in the browser has no path — it is rendered through its
+    // byte ranges and delivered as a download.
+    if (state.sourceReader != null) {
+      await state.exporter.exportByRanges(state.exporter.suggestedName());
+      if (state.error == null && mounted) _snack('Export finished');
+      return;
+    }
     if (Saf.isAvailable) {
       final mime = switch (state.format) {
         rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'audio/flac',
@@ -231,12 +238,12 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
-  /// Batch export needs a directory picker, which file_selector only
-  /// implements on desktop; phones export one file at a time. On web
-  /// `getDirectoryPath()` returns null, so the dialog would render and then
-  /// quietly do nothing — hide the entry point until S3 lands.
+  /// Batch export needs a directory to write several files into, so it hangs
+  /// on the folder picker rather than on export itself: file_selector only
+  /// implements it on desktop, and on web `getDirectoryPath()` returns null —
+  /// the dialog would open and then quietly do nothing.
   bool get _batchAvailable =>
-      !isAndroidPlatform && !isIOSPlatform && canExportAudio;
+      !isAndroidPlatform && !isIOSPlatform && canPickFolders;
 
   @override
   Widget build(BuildContext context) {
@@ -891,7 +898,7 @@ class _MixerScreenState extends State<MixerScreen> {
     return DropdownButton<rust.ApiFormat>(
       value: state.format,
       underline: const SizedBox.shrink(),
-      items: rust.ApiFormat.values
+      items: availableFormats
           .map((f) => DropdownMenuItem(value: f, child: Text(formatLabels[f]!)))
           .toList(),
       onChanged: (f) => f != null ? state.setFormat(f) : null,

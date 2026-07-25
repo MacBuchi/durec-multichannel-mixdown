@@ -86,10 +86,65 @@ const canPickFolders = false;
 /// `AnyhowException(...)` in the mixer header (PLAN-PWA S4).
 const canPlayAudio = false;
 
-/// Rendering writes with `std::fs`, which has no browser equivalent yet, and
-/// `getSaveLocation()` throws on web — an unguarded Export tap dies in an
-/// unhandled exception and shows the user nothing at all (PLAN-PWA S3).
-const canExportAudio = false;
+/// Export goes through [BlobRenderOutput] instead of a save dialog — the
+/// engine streams the encoded blocks and the browser offers the result as a
+/// download (PLAN-PWA S3).
+const canExportAudio = true;
+
+/// LAME is C and does not build for wasm32-unknown-unknown, so the `mp3`
+/// Cargo feature is off in the web engine — offering MP3 would hand the user
+/// an encoder error instead of a file (docs/PLAN-PWA.md).
+const canEncodeMp3 = false;
+
+/// The browser's export destination: a download.
+RenderOutput createDownloadOutput(String filename) =>
+    BlobRenderOutput(filename);
+
+/// Collects the rendered blocks and hands the finished file to the browser.
+///
+/// The parts stay `Blob`s, which the browser keeps **off** the JS heap (and
+/// spills to disk when large) — the alternative, concatenating into one
+/// `Uint8List`, would need the whole render in memory, and a 90-minute WAV is
+/// ~1.5 GB.
+class BlobRenderOutput implements RenderOutput {
+  BlobRenderOutput(this.filename);
+
+  final String filename;
+  final List<web.Blob> _parts = [];
+
+  @override
+  void addBody(Uint8List bytes) {
+    if (bytes.isEmpty) return;
+    _parts.add(_blobOf(bytes));
+  }
+
+  @override
+  Future<void> complete(Uint8List head, Uint8List tail) async {
+    // The header is produced last but belongs first: the encoders patch it
+    // once the render is done.
+    final parts = <web.Blob>[_blobOf(head), ..._parts, _blobOf(tail)];
+    final blob = web.Blob(
+      parts.map((p) => p as JSAny).toList().toJS,
+      web.BlobPropertyBag(type: 'application/octet-stream'),
+    );
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement
+      ..href = url
+      ..download = filename;
+    web.document.body!.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // Revoking while the browser is still writing the file cuts the download
+    // off — Safari in particular starts it well after the click returns. The
+    // URL is held for a while and then released so the (possibly gigabyte)
+    // blob does not outlive the tab's need for it.
+    await Future<void>.delayed(const Duration(minutes: 5));
+    web.URL.revokeObjectURL(url);
+  }
+
+  static web.Blob _blobOf(Uint8List bytes) =>
+      web.Blob([bytes.toJS as JSAny].toJS);
+}
 
 /// Opens the browser file picker and wraps each pick in lazy range access.
 Future<List<PickedRecording>> pickRecordings() async {
