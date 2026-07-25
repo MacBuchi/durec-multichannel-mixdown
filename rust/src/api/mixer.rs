@@ -1095,13 +1095,7 @@ pub fn render_stream_begin(
         (true, Some(p)) => Some(to_engine_profile(p)),
         _ => None,
     };
-    let renderer = render::StreamRender::new(
-        spec,
-        range_frames,
-        engine_tracks,
-        settings,
-        profile,
-    )?;
+    let renderer = render::StreamRender::new(spec, range_frames, engine_tracks, settings, profile)?;
     let mut counter = NEXT_RENDERER_ID
         .get_or_init(|| Mutex::new(0))
         .lock()
