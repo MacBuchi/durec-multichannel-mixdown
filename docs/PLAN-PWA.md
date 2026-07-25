@@ -122,7 +122,8 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     über den Blob, keinen Byte-Puffer.
 - **S3 — Export.** Render nach OPFS + Download (FLAC zuerst). *Exit:
   Downmix eines echten Takes im Browser, Ausgabe bit-identisch zum
-  nativen Render.*
+  nativen Render.* Bis dahin sagt der Web-Build das ehrlich (siehe
+  „Fehlende Stufen müssen sich melden").
 - **S4 — Playback.** AudioWorklet-Pfad (cpal-wasm nur falls es überzeugt).
   *Exit: Live-Preview mit Metern, Latenz akzeptabel.*
 - **S5 — Deploy auf GitHub Pages (Grundlage erledigt 2026-07-25,
@@ -151,6 +152,24 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
 
   Offen: Offline-Start (Caching in `coi-sw.js`), Update-Hinweis,
   **iOS-Safari-Nachweis auf dem Gerät**.
+
+## Fehlende Stufen müssen sich melden
+
+Solange S3/S4 fehlen, stehen ihre Bedienelemente trotzdem in der UI — und
+taten bis 2026-07-25 im Web genau zwei Dinge, die beide falsch sind: **Play**
+schrieb `AnyhowException(live playback is not available…)` als rohen
+Entwicklerstring an den Rand der Kopfzeile, **Export** lief in
+`getSaveLocation()`, das im Browser wirft — die Exception ging unbehandelt
+verloren und der Nutzer sah **gar nichts**. Der Batch-Export öffnete seinen
+Dialog und tat danach still nichts, weil `getDirectoryPath()` im Web `null`
+liefert.
+
+Deshalb: **jede noch nicht portierte Fähigkeit bekommt ein `const`-Flag im
+Platform-Shim** (`canPlayAudio`, `canExportAudio` neben `canPickFolders`),
+und die UI beantwortet den Tap mit einem Satz statt mit Schweigen oder einem
+Stacktrace. Wo der Weg ohne die Stufe gar keinen Sinn ergibt (Batch-Export),
+verschwindet der Einstieg. Das ist dieselbe Lehre wie bei „Choose folder"
+weiter oben — sie gilt für jede folgende Stufe mit.
 
 **Merge `dev/pwa` → main** ist eine Nutzer-Entscheidung, frühestens nach
 S2 (ab da hat die Web-Version eigenständigen Nutzwert als Viewer/Checker).

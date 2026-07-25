@@ -160,6 +160,10 @@ class _MixerScreenState extends State<MixerScreen> {
 
   Future<void> _export() async {
     if (state.recording == null) return;
+    if (!canExportAudio) {
+      _snack('Export is not available in the web version yet.');
+      return;
+    }
     if (Saf.isAvailable) {
       final mime = switch (state.format) {
         rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'audio/flac',
@@ -228,8 +232,11 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   /// Batch export needs a directory picker, which file_selector only
-  /// implements on desktop; phones export one file at a time.
-  bool get _batchAvailable => !isAndroidPlatform && !isIOSPlatform;
+  /// implements on desktop; phones export one file at a time. On web
+  /// `getDirectoryPath()` returns null, so the dialog would render and then
+  /// quietly do nothing — hide the entry point until S3 lands.
+  bool get _batchAvailable =>
+      !isAndroidPlatform && !isIOSPlatform && canExportAudio;
 
   @override
   Widget build(BuildContext context) {
@@ -763,7 +770,11 @@ class _MixerScreenState extends State<MixerScreen> {
   List<Widget> _transportControls(rust.RecordingInfo rec) {
     return [
       IconButton.filled(
-        onPressed: state.playback.togglePlay,
+        // Kept tappable without playback so the answer is a sentence rather
+        // than a dead button the user keeps prodding.
+        onPressed: canPlayAudio
+            ? state.playback.togglePlay
+            : () => _snack('Playback is not available in the web version yet.'),
         icon: Icon(state.playback.playing ? Icons.stop : Icons.play_arrow),
       ),
       const SizedBox(width: 6),

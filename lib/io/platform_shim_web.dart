@@ -80,6 +80,16 @@ Future<List<WavFileInfo>> listWavFiles(String dirPath) async {
 /// unconditionally — tapping "Choose folder" would be a silent dead end.
 const canPickFolders = false;
 
+/// The `playback` Cargo feature (cpal) is off for wasm — `player_start`
+/// bails out. Without this flag the transport button surfaces the raw
+/// `AnyhowException(...)` in the mixer header (PLAN-PWA S4).
+const canPlayAudio = false;
+
+/// Rendering writes with `std::fs`, which has no browser equivalent yet, and
+/// `getSaveLocation()` throws on web — an unguarded Export tap dies in an
+/// unhandled exception and shows the user nothing at all (PLAN-PWA S3).
+const canExportAudio = false;
+
 /// Opens the browser file picker and wraps each pick in lazy range access.
 ///
 /// `XFile.openRead(start, end)` slices the underlying `Blob`, so a 400 MB
