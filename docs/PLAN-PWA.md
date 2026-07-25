@@ -149,8 +149,34 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   - Offen: Fortschrittsanzeige während des Renders ist da, aber ein
     Abbrechen-Knopf fehlt; sehr große WAV-Ausgaben sind auf dem iPad
     ungetestet (FLAC ist die sichere Wahl).
-- **S4 — Playback.** AudioWorklet-Pfad (cpal-wasm nur falls es überzeugt).
-  *Exit: Live-Preview mit Metern, Latenz akzeptabel.*
+- **S4 — Playback (erledigt 2026-07-25).** AudioWorklet statt cpal-wasm.
+  *Exit erfüllt:* Live-Vorhör mit Metern, Seek und Live-Parametern; im
+  Browser gegen das 8-Kanal-Fixture verifiziert (Playhead läuft, −7,1
+  LUFS-M, TP −1,1 dBTP, corr 0,55, sauberer Stopp am Dateiende).
+  - **Eine Kette, zwei Player.** `preview::PreviewStage` (Mix →
+    Mastering-FIR → True-Peak-Limiter → f32 → Meter) bedient den nativen
+    Decode-Thread *und* den Browser. Ein Test hält fest, dass die Vorhör
+    **sample-genau der Export** ist: Render mit `LoudnessMode::None` nach
+    32-Bit-Float gegen `WebPlayer`, maximale Abweichung exakt 0.0. Der
+    Render ist um genau den Limiter-Lookahead länger, weil Pass 2 die
+    Delay-Line ausspült und eine Live-Vorhör kein Ende hat.
+  - **Der AudioContext braucht die Samplerate der Datei.** Ein
+    44,1-kHz-Take durch einen 48-kHz-Context klingt zu hoch —
+    `AudioContext({sampleRate})` statt der Browser-Vorgabe.
+  - **Das Ende erkennt man am Ring, nicht an Zählern.** Web Audio holt nur
+    ganze 128-Frame-Blöcke ab; ein kürzerer Rest (gemessen: 96 Frames)
+    bleibt für immer liegen, während das Worklet unterläuft. „Jeder
+    geschriebene Frame gespielt" wird deshalb nie wahr, „Ring zu 90 % leer"
+    schneidet umgekehrt das Ende ab. Richtig ist: alles gefüttert **und**
+    weniger als ein Block im Ring.
+  - **Underruns gab es keine.** Die Messung zeigt den Ring durchgehend voll
+    (88198 von 88200 Samples) und Pumpe und Wiedergabe exakt im Takt —
+    1792 Frames je 40-ms-Tick. Die Pumpe muss nur *vorauslaufen*, nicht
+    echtzeitfähig sein; Mischen ist um ein Vielfaches schneller als
+    Wiedergabe.
+  - Offen: Latenz von Parameteränderungen ist die Ringtiefe (~1 s), weil
+    fertig gemischtes Audio erst abfließen muss. Kürzerer Ring oder
+    Neumischen ab Playhead wären die Hebel.
 - **S5 — Deploy auf GitHub Pages (Grundlage erledigt 2026-07-25,
   vorgezogen für den iPad-Test).** `web/coi-sw.js` stellt die
   Cross-Origin-Isolation selbst her, weil Pages keine Header setzen kann;
@@ -175,8 +201,9 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     *Navigations*-Antwort. Die Bedingung ist `!crossOriginIsolated`,
     einmalig abgesichert über `sessionStorage`.
 
-  Offen: Offline-Start (Caching in `coi-sw.js`), Update-Hinweis,
-  **iOS-Safari-Nachweis auf dem Gerät**.
+  Offen: Offline-Start (Caching in `coi-sw.js`), Update-Hinweis. Der
+  **iOS-Safari-Nachweis ist erbracht**: Laden und Import laufen auf einem
+  iPad Air (Nutzertest 2026-07-25).
 
 ## Der Web-Reader darf nicht über `XFile.openRead` gehen
 

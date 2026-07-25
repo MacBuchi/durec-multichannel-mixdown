@@ -24,6 +24,7 @@ class WebPlayback {
     required this.mastering,
     required this.reference,
     required this.onTick,
+    required this.onError,
   });
 
   final RangeReader read;
@@ -35,6 +36,10 @@ class WebPlayback {
   final rust.ApiMixStats? Function() mastering;
   final rust.ApiReferenceProfile? Function() reference;
   final void Function() onTick;
+
+  /// The pump runs detached from any awaiting caller, so a throw here would
+  /// otherwise vanish and leave the transport stuck mid-play.
+  final void Function(Object error) onError;
 
   static const _tick = Duration(milliseconds: 40);
 
@@ -70,18 +75,21 @@ class WebPlayback {
 
   int get underruns => _sink?.underruns ?? 0;
 
-  /// True once the whole source has been fed **and** every frame handed over
-  /// has actually been played.
+  /// True once the whole source has been fed and less is left in the ring
+  /// than the worklet can pull.
   ///
-  /// Counting frames rather than watching the ring empty out: "ring is nearly
-  /// empty" cut the last fraction of a second off every take.
+  /// Ask the ring, not the counters. "Every written frame played" looks exact
+  /// and can never come true: Web Audio pulls whole 128-frame quanta, so a
+  /// shorter remainder — measured at 96 frames on a real take — sits there
+  /// forever while the worklet underruns. The earlier "ring 90 % empty" erred
+  /// the other way and cut the end off.
   bool get finished =>
-      _feedAt >= _dataEnd && _playedSinceStart >= _framesWritten;
+      _feedAt >= _dataEnd && (_sink?.bufferedSamples ?? 0) < _renderQuantum * 2;
+
+  /// Web Audio's fixed block size, in frames.
+  static const _renderQuantum = 128;
 
   int get _playedSinceStart => (_sink?.playedFrames ?? 0) - _playedAtStart;
-
-  /// Frames handed to the sink since the last start/seek.
-  int _framesWritten = 0;
 
   /// Start playing at [fromFrame]. Must be called from a user gesture — iOS
   /// Safari refuses to start an `AudioContext` outside one.
@@ -120,7 +128,6 @@ class WebPlayback {
       startFrame: BigInt.from(fromFrame),
     );
     _playedAtStart = sink.playedFrames;
-    _framesWritten = 0;
     _sink = sink;
     _timer = Timer.periodic(_tick, (_) => unawaited(_pump()));
   }
@@ -140,15 +147,12 @@ class WebPlayback {
         final bytes = await read(_feedAt, stop);
         _feedAt = stop;
         final mixed = await rust.webPlayerProcess(id: id, bytes: bytes);
-        if (_sink != null) {
-          _sink!.write(mixed);
-          _framesWritten += mixed.length ~/ 2;
-        }
+        _sink?.write(mixed);
       }
       onTick();
-    } catch (_) {
+    } catch (e) {
       await stop();
-      rethrow;
+      onError(e);
     } finally {
       _busy = false;
     }
@@ -175,7 +179,6 @@ class WebPlayback {
     sink.flush();
     await rust.webPlayerSeek(id: id, frame: BigInt.from(frame));
     _playedAtStart = sink.playedFrames;
-    _framesWritten = 0;
     _startFrame = frame;
     _feedAt = _dataStart + frame * _bytesPerFrame;
   }

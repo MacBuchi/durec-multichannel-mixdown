@@ -78,6 +78,13 @@ class PlaybackController {
           ? _owner.mastering.profile
           : null,
       onTick: _pollWeb,
+      onError: (e) {
+        _owner.error = e.toString();
+        _web = null;
+        playing = false;
+        _stopPolling();
+        _owner.notify();
+      },
     );
     try {
       await web.start((positionSeconds * _owner.sampleRate).round());
