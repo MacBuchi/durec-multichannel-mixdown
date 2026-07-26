@@ -57,10 +57,13 @@ picker instead of the in-app browser.
 13. **About** — installed version, update status, project links and
     feedback ([section 10](#10-feedback--updates)).
 
-Fresh sessions automatically exclude obvious monitor feeds (In Ear, Phones,
-IEM, Talkback, Line Out, Monitor) from the mix — DUREC also records those
-buses, and a unity mix including them would clip far above full scale.
-`…_Out` stems stay in: engineers often mix from them.
+A fresh session starts with **every** recorded track in the mix. Note that
+DUREC also records the monitor and cue buses it was configured to record (in
+ear, headphone and line-out feeds): those carry the same signal as the
+sources, so leaving them in doubles instruments and pushes a unity mix far
+above full scale. Take them out with the **mix** chip on their strip — which
+channels those are depends on your interface configuration, so only you know
+their names. The choice is saved per take.
 
 ## 3. Track strips & EQ
 
