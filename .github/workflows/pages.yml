@@ -1,13 +1,12 @@
 name: Pages
 
-# Publishes the web build (docs/PLAN-PWA.md S5). Both branches are listed on
-# purpose during the `dev/pwa` → main merge: main becomes the source once the
-# web target lives there, and until `dev/pwa` is deleted a push to it must
-# still deploy — the page the user tests on may never silently fall behind.
-# Drop `dev/pwa` from this list when the branch goes away.
+# Publishes the web build (docs/PLAN-PWA.md S5) from main — the PWA merged in
+# v0.13.0 and `dev/pwa` is gone. Keep this list at exactly one branch: a second
+# one can silently overwrite the deployed page with an older build, whichever
+# pushed last.
 on:
   push:
-    branches: [main, dev/pwa]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
