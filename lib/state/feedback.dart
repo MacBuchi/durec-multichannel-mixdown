@@ -68,7 +68,11 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
   final version = (await PackageInfo.fromPlatform()).version;
   final platform = currentPlatform();
 
-  if (_token.isEmpty) {
+  // No network in the web build, so a build token is unusable there: posting
+  // would throw `UnsupportedError` and the dialog blamed the connection
+  // ("Sending failed. Are you online?"). The pre-filled browser form is the
+  // route that actually works, and in a browser it costs the user nothing.
+  if (_token.isEmpty || !hasNetwork) {
     final ok = await launchUrl(
       issueFormUrl(
         type,

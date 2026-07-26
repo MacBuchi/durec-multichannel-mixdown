@@ -118,7 +118,14 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
         style: const TextStyle(fontSize: 16),
       ),
       actions: [
-        if (widget.exportConfig != null && b.entries.isNotEmpty)
+        // The multi-take export renders into a `Mixdown/` folder next to the
+        // takes and needs paths throughout (`rust.renderMix`), so it cannot
+        // run on a picked `Blob`. Offering it anyway let the user tick
+        // takes, edit names, press Export — and nothing happened at all,
+        // because `_exportSelected` returns on `folder == null`.
+        if (canPickFolders &&
+            widget.exportConfig != null &&
+            b.entries.isNotEmpty)
           IconButton(
             tooltip: 'Export multiple takes…',
             onPressed: b.enterSelectionMode,
@@ -133,19 +140,35 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           ),
         ),
         IconButton(
-          tooltip: 'Choose a different folder',
+          // Same button, different job per platform — `_changeFolder` picks
+          // files where there is no folder picker, so the label has to say
+          // that too (it is the only way to add takes to this list on web).
+          tooltip: canPickFolders
+              ? 'Choose a different folder'
+              : 'Choose different files',
           onPressed: _changeFolder,
-          icon: const Icon(Icons.drive_folder_upload, size: 20),
+          icon: Icon(
+            canPickFolders
+                ? Icons.drive_folder_upload
+                : Icons.audio_file_outlined,
+            size: 20,
+          ),
         ),
-        PopupMenuButton<String>(
-          onSelected: (v) => Navigator.of(context).pop(v),
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: useSystemPicker,
-              child: Text('Use system picker…'),
-            ),
-          ],
-        ),
+        // In the browser this list already comes from the system picker, and
+        // taking that route again would open a file the range reader knows
+        // nothing about: `sourceReader` is only ever set by `pickRecordings`
+        // and never cleared, so the mixer would keep reading the PREVIOUS
+        // take under the new take's name — silently.
+        if (canPickFolders)
+          PopupMenuButton<String>(
+            onSelected: (v) => Navigator.of(context).pop(v),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: useSystemPicker,
+                child: Text('Use system picker…'),
+              ),
+            ],
+          ),
       ],
     );
   }

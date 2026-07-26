@@ -116,6 +116,13 @@ const canExportAudio = true;
 /// LAME is compiled in on every native target (Cargo feature `mp3`).
 const canEncodeMp3 = true;
 
+/// The reference track is read from a path (or a SAF fd), which every native
+/// target provides.
+const canMasterToReference = true;
+
+/// Native builds reach the GitHub releases API over HTTP.
+const hasNetwork = true;
+
 /// Native builds render straight to the chosen file, so the streamed
 /// download path is never taken here.
 RenderOutput createDownloadOutput(String filename) =>

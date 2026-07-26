@@ -171,6 +171,22 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
+  /// Reference mastering, or an honest sentence where it cannot work.
+  ///
+  /// The engine analyses the reference through its filesystem API, which has
+  /// no byte-range twin yet — in the browser the analysis would always fail
+  /// with a raw exception in the dialog. Say so instead.
+  Future<void> _mastering() async {
+    if (!canMasterToReference) {
+      _snack(
+        'Reference mastering is not available in the web version yet — '
+        'the reference track has to be read from a file.',
+      );
+      return;
+    }
+    await showMasteringDialog(context, state);
+  }
+
   Future<void> _export() async {
     if (state.recording == null) return;
     if (!canExportAudio) {
@@ -314,7 +330,7 @@ class _MixerScreenState extends State<MixerScreen> {
                                   '${state.mastering.referenceName}'
                             : 'Reference mastering — match the export to a '
                                   'reference track',
-                        onPressed: () => showMasteringDialog(context, state),
+                        onPressed: _mastering,
                         icon: Icon(
                           Icons.auto_fix_high,
                           size: 20,
@@ -485,7 +501,7 @@ class _MixerScreenState extends State<MixerScreen> {
           onSelected: (v) async {
             switch (v) {
               case 'mastering':
-                await showMasteringDialog(context, state);
+                await _mastering();
               case 'loudness':
                 await pickLoudnessDialog(context, state);
               case 'format':

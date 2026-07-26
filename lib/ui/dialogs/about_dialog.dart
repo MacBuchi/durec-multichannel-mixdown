@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../io/platform_shim.dart';
 import '../../state/app_info.dart';
 import '../../state/update_check.dart';
 import '../app_banners.dart';
@@ -31,18 +32,27 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
             const SizedBox(height: 4),
             // Best-effort, never blocks: shows the update status once the
             // release check returns (silent on failure / when offline).
-            FutureBuilder<UpdateInfo?>(
-              future: UpdateCheck.check(),
-              builder: (context, snap) {
-                final text = snap.connectionState != ConnectionState.done
-                    ? 'Checking for updates…'
-                    : snap.data != null
-                    ? 'Update available: v${snap.data!.latestVersion} '
-                          '— see the banner on the mixer.'
-                    : "You're up to date.";
-                return Text(text, style: Theme.of(context).textTheme.bodySmall);
-              },
-            ),
+            //
+            // Where there is no network at all (web build), the check throws
+            // and the error is swallowed — which looked exactly like "no
+            // update found". Saying "You're up to date" there is a claim the
+            // app never verified, so it says nothing instead.
+            if (hasNetwork)
+              FutureBuilder<UpdateInfo?>(
+                future: UpdateCheck.check(),
+                builder: (context, snap) {
+                  final text = snap.connectionState != ConnectionState.done
+                      ? 'Checking for updates…'
+                      : snap.data != null
+                      ? 'Update available: v${snap.data!.latestVersion} '
+                            '— see the banner on the mixer.'
+                      : "You're up to date.";
+                  return Text(
+                    text,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  );
+                },
+              ),
             const SizedBox(height: 8),
             ListTile(
               contentPadding: EdgeInsets.zero,
