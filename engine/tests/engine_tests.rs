@@ -2889,3 +2889,108 @@ fn preview_never_leaves_the_limiter_ceiling_however_hot_the_mix() {
         "preview peaked at {worst}, ceiling is {ceiling} — the limiter is not holding"
     );
 }
+
+/// With the export's gain, the preview IS the export — also when the export
+/// normalises.
+///
+/// [`web_player_matches_the_rendered_output`] proves the two chains agree at
+/// `LoudnessMode::None`, where the gain is 1.0. That is the easy half. The
+/// half that matters for monitoring is the normalising one: there the render
+/// lowers the level *before* the limiter, and a preview without that gain
+/// hands the limiter a mix that is tens of dB hotter. Same chain, different
+/// sound — the mixer would lie about its own output.
+#[test]
+fn preview_matches_a_normalised_render_once_it_gets_the_gain() {
+    let frames = 80_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 190.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                ((t * 460.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 80.0 * std::f64::consts::TAU).sin() * 0.9 * 32767.0) as i16,
+                ((t * 2500.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    // Four tracks at unity sum well past full scale — the DUREC case, and
+    // exactly where a missing gain is audible.
+    let tracks = vec![
+        track(1, 6.0, -0.8),
+        track(2, 6.0, 0.8),
+        track(3, 6.0, 0.0),
+        track(4, 6.0, 0.0),
+    ];
+
+    for loudness in [
+        LoudnessMode::PeakDbfs(-1.0),
+        LoudnessMode::LufsIntegrated(-14.0),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.wav");
+        let wav = wav16(4, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let settings = RenderSettings {
+            loudness,
+            format: OutputFormat::Wav32Float,
+            limiter_enabled: true,
+            ..RenderSettings::default()
+        };
+        let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let rendered: Vec<f32> = hound::WavReader::open(&out_path)
+            .unwrap()
+            .samples::<f32>()
+            .map(|s| s.unwrap())
+            .collect();
+
+        // The render tells us what it applied; that is exactly what the
+        // preview has to be given.
+        let gain = 10f64.powf(report.gain_applied_db / 20.0);
+        assert!(
+            gain < 0.5,
+            "{loudness:?}: this mix should need a big cut ({gain}), otherwise the test proves nothing"
+        );
+
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let payload = &wav[data.offset as usize..][..data.size as usize];
+
+        let mut player = WebPlayer::new(
+            spec,
+            &tracks,
+            durecmix_engine::chain::MasterParams {
+                limiter_enabled: true,
+                ..Default::default()
+            },
+            None,
+            0,
+        );
+        player.set_norm_gain(gain);
+        let mut played: Vec<f32> = Vec::new();
+        for block in payload.chunks(9_733) {
+            played.extend_from_slice(player.process(block).unwrap());
+        }
+
+        // As in the existing test, the render carries the limiter's flushed
+        // tail that a never-ending preview has no reason to produce.
+        assert!(
+            rendered.len() > played.len(),
+            "{loudness:?}: no limiter tail"
+        );
+        let worst = played
+            .iter()
+            .zip(&rendered)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert_eq!(
+            worst, 0.0,
+            "{loudness:?}: preview and render differ by {worst}"
+        );
+    }
+}
