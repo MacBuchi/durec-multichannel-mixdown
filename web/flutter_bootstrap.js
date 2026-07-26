@@ -8,8 +8,9 @@
 // ping-pong where the page is isolated on every other load, so the engine
 // starts only half the time (docs/PLAN-PWA.md S5).
 //
-// Offline caching therefore stays unimplemented for now; when it is added,
-// it has to live INSIDE coi-sw.js rather than as a second worker.
+// Offline caching therefore lives INSIDE coi-sw.js rather than in a second
+// worker. Do not re-enable Flutter's — `_flutter.loader.load()` without
+// `serviceWorkerSettings` is the whole point of this file.
 
 {{flutter_js}}
 {{flutter_build_config}}
