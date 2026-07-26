@@ -28,6 +28,18 @@ releases and ships the artifacts. The app bundles this file and shows it under
   silently.
 - On slower tablets, dragging a fader during playback can click.
 
+## [0.12.16] – 2026-07-27
+
+### Changed
+
+- **Every track of a new recording now starts in the mix.** Until now the app
+  quietly left out channels whose names looked like monitor feeds — In Ear,
+  Phones, Talkback, Line Out, Monitor — and never said so, which made faders
+  look broken for no visible reason. Track names are yours to choose, they
+  come from your interface configuration, so no name decides anything any
+  more. Monitor and cue buses still don't belong in a mixdown: take them out
+  with the **mix** chip, and the choice is remembered per take.
+
 ## [0.12.15] – 2026-07-25
 
 ### Added
@@ -299,6 +311,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
   waveforms and the full mixer UI.
 
 [0.13.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.0
+[0.12.16]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.16
 [0.12.15]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.15
 [0.12.14]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.14
 [0.12.13]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.13
