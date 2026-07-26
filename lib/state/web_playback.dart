@@ -43,6 +43,27 @@ class WebPlayback {
 
   static const _tick = Duration(milliseconds: 40);
 
+  /// How much of the ring survives a parameter change. Three pump ticks:
+  /// enough that the device keeps playing while the replacement is mixed,
+  /// short enough that the change is heard right away instead of after the
+  /// ring's full second.
+  static const _paramTailSeconds = 0.12;
+
+  /// Floor on how often the ring is re-mixed. A fader drag pushes on every
+  /// pointer move; re-mixing the ring at that rate would cost several times
+  /// what playback does, and on a phone the pump would fall behind.
+  static const _rewindEvery = Duration(milliseconds: 300);
+
+  /// Ceiling on how much audio one pump tick produces.
+  ///
+  /// Without it the first tick after a re-mix refills the whole ring in one
+  /// call — a single long mix on the main thread, which is itself a stutter
+  /// risk. Five times realtime per tick refills a drained ring in about a
+  /// quarter second while no single call blocks for long.
+  static const _fillAheadSeconds = 0.2;
+
+  DateTime? _lastRewind;
+
   PreviewSink? _sink;
   int? _id;
   Timer? _timer;
@@ -140,7 +161,8 @@ class WebPlayback {
     if (_busy || sink == null || id == null) return;
     _busy = true;
     try {
-      final freeFrames = sink.freeSamples ~/ 2;
+      final capFrames = (_sampleRate * _fillAheadSeconds).round();
+      final freeFrames = (sink.freeSamples ~/ 2).clamp(0, capFrames);
       if (freeFrames > 0 && _feedAt < _dataEnd) {
         final wantBytes = freeFrames * _bytesPerFrame;
         final stop = (_feedAt + wantBytes).clamp(_feedAt, _dataEnd);
@@ -158,8 +180,17 @@ class WebPlayback {
     }
   }
 
-  /// Push changed mix parameters. They become audible once the ring drains,
-  /// which is why it is kept short.
+  /// Push changed mix parameters and make them audible now.
+  ///
+  /// The parameters alone would only apply to audio mixed *after* this call,
+  /// and the ring runs about a second ahead — so a fader move used to take
+  /// that long to be heard. The buffered audio past [_paramTailSeconds] is
+  /// therefore dropped and produced again with the new settings. The kept
+  /// tail is what the device plays while that happens.
+  ///
+  /// The chain is **not** reset ([rust.webPlayerRewind], not `webPlayerSeek`):
+  /// resetting the biquads and the limiter is the click that live parameter
+  /// updates exist to avoid.
   Future<void> pushParams() async {
     final id = _id;
     if (id == null) return;
@@ -170,6 +201,26 @@ class WebPlayback {
       masteringStats: mastering(),
       reference: reference(),
     );
+    final sink = _sink;
+    if (sink == null || _busy) return;
+    // A fader drag pushes on every pointer move. Re-mixing the ring that
+    // often would cost more than playback itself, so the rewind is rate
+    // limited — the parameters above are already in, only the catch-up
+    // waits.
+    final now = DateTime.now();
+    final last = _lastRewind;
+    if (last != null && now.difference(last) < _rewindEvery) return;
+    _lastRewind = now;
+
+    final keep = (_sampleRate * _paramTailSeconds).round() * 2;
+    if (sink.trimTo(keep) == 0) return;
+    // Where the kept audio ends, in file frames. Read as a sum on purpose:
+    // as the worklet plays, `playedFrames` rises and `bufferedSamples` falls
+    // by the same amount, so this total does not race with it.
+    final frontier =
+        _startFrame + _playedSinceStart + (sink.bufferedSamples ~/ 2);
+    await rust.webPlayerRewind(id: id, frame: BigInt.from(frontier));
+    _feedAt = _dataStart + frontier * _bytesPerFrame;
   }
 
   Future<void> seek(int frame) async {

@@ -311,6 +311,13 @@ Future<void> webPlayerUpdateParams({
   reference: reference,
 );
 
+/// Produce again from `frame` without resetting the chain — for re-mixing
+/// the browser's ring buffer after a parameter change, so a fader move is
+/// heard now instead of when the ring drains. Use [`web_player_seek`] for a
+/// real jump.
+Future<void> webPlayerRewind({required int id, required BigInt frame}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerRewind(id: id, frame: frame);
+
 /// Jump to `frame`. Dart resumes pushing source bytes from there.
 Future<void> webPlayerSeek({required int id, required BigInt frame}) =>
     RustLib.instance.api.crateApiMixerWebPlayerSeek(id: id, frame: frame);

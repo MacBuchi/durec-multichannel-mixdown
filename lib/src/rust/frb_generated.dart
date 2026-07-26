@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1955343861;
+  int get rustContentHash => -1010100557;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -234,6 +234,11 @@ abstract class RustLibApi extends BaseApi {
   Future<Float32List> crateApiMixerWebPlayerProcess({
     required int id,
     required List<int> bytes,
+  });
+
+  Future<void> crateApiMixerWebPlayerRewind({
+    required int id,
+    required BigInt frame,
   });
 
   Future<void> crateApiMixerWebPlayerSeek({
@@ -1474,7 +1479,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<void> crateApiMixerWebPlayerSeek({
+  Future<void> crateApiMixerWebPlayerRewind({
     required int id,
     required BigInt frame,
   }) {
@@ -1488,6 +1493,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 35,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMixerWebPlayerRewindConstMeta,
+        argValues: [id, frame],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMixerWebPlayerRewindConstMeta =>
+      const TaskConstMeta(
+        debugName: "web_player_rewind",
+        argNames: ["id", "frame"],
+      );
+
+  @override
+  Future<void> crateApiMixerWebPlayerSeek({
+    required int id,
+    required BigInt frame,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(id, serializer);
+          sse_encode_u_64(frame, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1514,7 +1554,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_u_32(id, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 36)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 37)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_opt_box_autoadd_api_preview_state,
@@ -1553,7 +1593,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },
