@@ -106,6 +106,19 @@ impl Session {
         Ok(serde_json::from_str(&data)?)
     }
 
+    /// Parse a stored session the caller already holds. Platforms without a
+    /// filesystem keep the JSON themselves (the web build in browser
+    /// storage); `None` on malformed input means "start from a fresh mix",
+    /// matching [`Session::load_or_migrate`].
+    pub fn from_json(data: &str) -> Option<Session> {
+        serde_json::from_str(data).ok()
+    }
+
+    /// Serialise for callers that persist the JSON themselves (web).
+    pub fn to_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
+    }
+
     /// Load `session_path`; if it is absent or unreadable, fall back once to
     /// the legacy sibling file next to the WAV. Returns `None` when neither
     /// exists (fresh recording).

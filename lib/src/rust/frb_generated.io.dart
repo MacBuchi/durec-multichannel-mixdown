@@ -47,6 +47,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiChannelWaveform dco_decode_api_channel_waveform(dynamic raw);
 
   @protected
+  ApiChunk dco_decode_api_chunk(dynamic raw);
+
+  @protected
+  ApiChunkScan dco_decode_api_chunk_scan(dynamic raw);
+
+  @protected
   ApiEqBand dco_decode_api_eq_band(dynamic raw);
 
   @protected
@@ -74,6 +80,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiPlayerState dco_decode_api_player_state(dynamic raw);
 
   @protected
+  ApiPreviewState dco_decode_api_preview_state(dynamic raw);
+
+  @protected
   ApiProbe dco_decode_api_probe(dynamic raw);
 
   @protected
@@ -81,6 +90,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiRenderReport dco_decode_api_render_report(dynamic raw);
+
+  @protected
+  ApiRenderTail dco_decode_api_render_tail(dynamic raw);
 
   @protected
   ApiTrack dco_decode_api_track(dynamic raw);
@@ -96,6 +108,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMixStats dco_decode_box_autoadd_api_mix_stats(dynamic raw);
+
+  @protected
+  ApiPreviewState dco_decode_box_autoadd_api_preview_state(dynamic raw);
 
   @protected
   ApiReferenceProfile dco_decode_box_autoadd_api_reference_profile(dynamic raw);
@@ -122,7 +137,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_i_32(dynamic raw);
 
   @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
   List<ApiChannelWaveform> dco_decode_list_api_channel_waveform(dynamic raw);
+
+  @protected
+  List<ApiChunk> dco_decode_list_api_chunk(dynamic raw);
 
   @protected
   List<ApiMasteringReference> dco_decode_list_api_mastering_reference(
@@ -142,13 +163,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Float64List dco_decode_list_prim_f_64_strict(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
   MixStatsEvent dco_decode_mix_stats_event(dynamic raw);
 
   @protected
+  String? dco_decode_opt_String(dynamic raw);
+
+  @protected
   ApiMixStats? dco_decode_opt_box_autoadd_api_mix_stats(dynamic raw);
+
+  @protected
+  ApiPreviewState? dco_decode_opt_box_autoadd_api_preview_state(dynamic raw);
 
   @protected
   ApiReferenceProfile? dco_decode_opt_box_autoadd_api_reference_profile(
@@ -166,6 +196,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
 
   @protected
   RecordingInfo dco_decode_recording_info(dynamic raw);
@@ -224,6 +257,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ApiChunk sse_decode_api_chunk(SseDeserializer deserializer);
+
+  @protected
+  ApiChunkScan sse_decode_api_chunk_scan(SseDeserializer deserializer);
+
+  @protected
   ApiEqBand sse_decode_api_eq_band(SseDeserializer deserializer);
 
   @protected
@@ -253,6 +292,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiPlayerState sse_decode_api_player_state(SseDeserializer deserializer);
 
   @protected
+  ApiPreviewState sse_decode_api_preview_state(SseDeserializer deserializer);
+
+  @protected
   ApiProbe sse_decode_api_probe(SseDeserializer deserializer);
 
   @protected
@@ -262,6 +304,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiRenderReport sse_decode_api_render_report(SseDeserializer deserializer);
+
+  @protected
+  ApiRenderTail sse_decode_api_render_tail(SseDeserializer deserializer);
 
   @protected
   ApiTrack sse_decode_api_track(SseDeserializer deserializer);
@@ -277,6 +322,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMixStats sse_decode_box_autoadd_api_mix_stats(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ApiPreviewState sse_decode_box_autoadd_api_preview_state(
     SseDeserializer deserializer,
   );
 
@@ -309,9 +359,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
   List<ApiChannelWaveform> sse_decode_list_api_channel_waveform(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<ApiChunk> sse_decode_list_api_chunk(SseDeserializer deserializer);
 
   @protected
   List<ApiMasteringReference> sse_decode_list_api_mastering_reference(
@@ -333,13 +389,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Float64List sse_decode_list_prim_f_64_strict(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
   MixStatsEvent sse_decode_mix_stats_event(SseDeserializer deserializer);
 
   @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
   ApiMixStats? sse_decode_opt_box_autoadd_api_mix_stats(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ApiPreviewState? sse_decode_opt_box_autoadd_api_preview_state(
     SseDeserializer deserializer,
   );
 
@@ -361,6 +428,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
   RecordingInfo sse_decode_recording_info(SseDeserializer deserializer);
@@ -426,6 +496,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_api_chunk(ApiChunk self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_api_chunk_scan(ApiChunkScan self, SseSerializer serializer);
+
+  @protected
   void sse_encode_api_eq_band(ApiEqBand self, SseSerializer serializer);
 
   @protected
@@ -462,6 +538,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_api_preview_state(
+    ApiPreviewState self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_api_probe(ApiProbe self, SseSerializer serializer);
 
   @protected
@@ -475,6 +557,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ApiRenderReport self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_api_render_tail(ApiRenderTail self, SseSerializer serializer);
 
   @protected
   void sse_encode_api_track(ApiTrack self, SseSerializer serializer);
@@ -494,6 +579,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_api_mix_stats(
     ApiMixStats self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_api_preview_state(
+    ApiPreviewState self,
     SseSerializer serializer,
   );
 
@@ -528,10 +619,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_api_channel_waveform(
     List<ApiChannelWaveform> self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_list_api_chunk(List<ApiChunk> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_api_mastering_reference(
@@ -561,6 +658,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -570,8 +670,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_mix_stats_event(MixStatsEvent self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_api_mix_stats(
     ApiMixStats? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_api_preview_state(
+    ApiPreviewState? self,
     SseSerializer serializer,
   );
 
@@ -595,6 +704,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_recording_info(RecordingInfo self, SseSerializer serializer);

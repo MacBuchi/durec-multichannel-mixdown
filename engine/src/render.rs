@@ -238,45 +238,333 @@ pub fn analyze_mix_mastering(
 ) -> Result<crate::mastering::MasteringStats> {
     let mut reader = input.open()?;
     let spec = reader.spec();
-    let cfg = ChainConfig {
-        sample_rate: spec.sample_rate,
-    };
     let num_frames = reader.num_frames();
     let start = settings.trim_start_frame.min(num_frames);
     let end = settings
         .trim_end_frame
         .unwrap_or(num_frames)
         .clamp(start, num_frames);
-    let range_frames = (end - start).max(1) as f64;
-    let fade = FadeEnvelope::new(
-        spec.sample_rate,
-        end - start,
-        settings.fade_in_ms,
-        settings.fade_out_ms,
-    );
-    let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
-    let mut analyzer = MasteringAnalyzer::new(spec.sample_rate);
+    let range = end - start;
+    let scale = range.max(1) as f64;
+
+    // Exactly render pass 1, minus the peak/loudness read-out — sharing the
+    // stage is what keeps the preview's FIRs identical to the export's.
+    let mut p1 = RenderPass1::new(
+        &RenderSource {
+            channels: spec.channels as usize,
+            sample_rate: spec.sample_rate,
+            tracks,
+            range_frames: range,
+        },
+        settings,
+        true,
+    )?;
     reader.seek_to_frame(start)?;
-    let mut input_buf = Vec::new();
-    let mut stereo = Vec::new();
-    let mut done: u64 = 0;
+    let mut buf = Vec::new();
     loop {
-        let want = BLOCK_FRAMES.min((end - start - done) as usize);
+        let want = BLOCK_FRAMES.min((range - p1.frames_done()) as usize);
         if want == 0 {
             break;
         }
-        let n = reader.read_frames(&mut input_buf, want)?;
-        if n == 0 {
+        if reader.read_frames(&mut buf, want)? == 0 {
             break;
         }
-        chain.process(&input_buf, &mut stereo);
-        fade.apply(&mut stereo, done);
-        analyzer.push(&stereo);
-        done += n as u64;
-        progress((done as f64 / range_frames) as f32);
+        p1.push_frames(&buf);
+        progress((p1.frames_done() as f64 / scale) as f32);
     }
     progress(1.0);
-    Ok(analyzer.finish())
+    p1.finish()
+        .stats
+        .ok_or_else(|| EngineError::Encode("mastering analyzer missing".into()))
+}
+
+/// The two render passes as pushable stages, so the same DSP serves both
+/// drivers.
+///
+/// Natively the driver is [`render_io`], which owns a seekable file and runs
+/// both loops itself. In the browser there is no synchronous seek on a
+/// `Blob`, so Dart pushes the source blocks instead (mirroring
+/// [`analysis::StreamAnalyzer`](crate::analysis::StreamAnalyzer)). Both go
+/// through the code below — a second implementation would drift, and the
+/// output has to stay bit-identical.
+pub struct RenderSource<'a> {
+    /// Channel count of the source WAV.
+    pub channels: usize,
+    pub sample_rate: u32,
+    pub tracks: &'a [TrackParams],
+    /// Length of the trimmed range — the fade envelope is relative to it.
+    pub range_frames: u64,
+}
+
+pub struct RenderPass1 {
+    chain: MixChain,
+    fade: FadeEnvelope,
+    ebu_src: ebur128::EbuR128,
+    analyzer: Option<MasteringAnalyzer>,
+    stereo: Vec<f64>,
+    peak: f64,
+    done: u64,
+}
+
+/// What pass 1 measured; decides the gain and the mastering FIRs.
+pub struct Pass1 {
+    pub peak: f64,
+    pub source_lufs: f64,
+    pub stats: Option<crate::mastering::MasteringStats>,
+    pub frames: u64,
+}
+
+impl RenderPass1 {
+    pub fn new(
+        src: &RenderSource,
+        settings: &RenderSettings,
+        with_mastering: bool,
+    ) -> Result<RenderPass1> {
+        let sample_rate = src.sample_rate;
+        Ok(RenderPass1 {
+            chain: MixChain::new(src.tracks, src.channels, &ChainConfig { sample_rate }),
+            fade: FadeEnvelope::new(
+                sample_rate,
+                src.range_frames,
+                settings.fade_in_ms,
+                settings.fade_out_ms,
+            ),
+            ebu_src: ebur128::EbuR128::new(2, sample_rate, ebur128::Mode::I)
+                .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?,
+            analyzer: with_mastering.then(|| MasteringAnalyzer::new(sample_rate)),
+            stereo: Vec::new(),
+            peak: 0.0,
+            done: 0,
+        })
+    }
+
+    /// Push interleaved source frames (`channels` samples per frame).
+    pub fn push_frames(&mut self, input: &[f64]) {
+        self.chain.process(input, &mut self.stereo);
+        self.fade.apply(&mut self.stereo, self.done);
+        for &s in &self.stereo {
+            self.peak = self.peak.max(s.abs());
+        }
+        let _ = self.ebu_src.add_frames_f64(&self.stereo);
+        if let Some(an) = &mut self.analyzer {
+            an.push(&self.stereo);
+        }
+        self.done += (self.stereo.len() / 2) as u64;
+    }
+
+    pub fn frames_done(&self) -> u64 {
+        self.done
+    }
+
+    pub fn finish(self) -> Pass1 {
+        Pass1 {
+            peak: self.peak,
+            source_lufs: self.ebu_src.loudness_global().unwrap_or(f64::NEG_INFINITY),
+            stats: self.analyzer.map(|a| a.finish()),
+            frames: self.done,
+        }
+    }
+}
+
+/// What is decided between the passes: the mastering FIRs (if any) and the
+/// normalisation gain.
+pub struct RenderPlan {
+    pub norm_gain: f64,
+    pub mastering: Option<crate::mastering::MasteringPlan>,
+}
+
+/// Turn pass 1's measurements into the gain and FIRs pass 2 applies.
+///
+/// Reference mastering owns the output level — the matching FIRs carry the
+/// full gain, so the normalisation stage is bypassed.
+pub fn plan_from_pass1(
+    settings: &RenderSettings,
+    pass1: &Pass1,
+    reference: Option<&ReferenceProfile>,
+) -> Result<RenderPlan> {
+    let mastering = match (&pass1.stats, reference) {
+        (Some(stats), Some(profile)) => Some(design_mastering(stats, profile)?),
+        _ => None,
+    };
+    let norm_gain = if mastering.is_some() {
+        1.0
+    } else {
+        match settings.loudness {
+            LoudnessMode::PeakDbfs(target_db) => {
+                if pass1.peak > 0.0 {
+                    10f64.powf(target_db / 20.0) / pass1.peak
+                } else {
+                    1.0
+                }
+            }
+            LoudnessMode::LufsIntegrated(target_lufs) => {
+                if pass1.source_lufs.is_finite() {
+                    10f64.powf((target_lufs - pass1.source_lufs) / 20.0)
+                } else {
+                    1.0
+                }
+            }
+            LoudnessMode::None => {
+                // Clip protection is the limiter's job when it is enabled.
+                if !settings.limiter_enabled && pass1.peak > 1.0 {
+                    1.0 / pass1.peak
+                } else {
+                    1.0
+                }
+            }
+        }
+    };
+    Ok(RenderPlan {
+        norm_gain,
+        mastering,
+    })
+}
+
+/// Pass 2: mix → normalisation gain → mastering FIR → limiter → measure →
+/// encode.
+pub struct RenderPass2<W: std::io::Write + Seek> {
+    chain: MixChain,
+    fade: FadeEnvelope,
+    limiter: Option<TruePeakLimiter>,
+    ebu_out: ebur128::EbuR128,
+    dither: Option<TpdfDither>,
+    fir: Option<MsFirStage>,
+    sink: StereoSink<W>,
+    stereo: Vec<f64>,
+    mastered: Vec<f64>,
+    limited: Vec<f64>,
+    plan: RenderPlan,
+    peak_before: f64,
+    source_lufs: f64,
+    sample_rate: u32,
+    done: u64,
+}
+
+impl<W: std::io::Write + Seek> RenderPass2<W> {
+    pub fn new(
+        src: &RenderSource,
+        settings: &RenderSettings,
+        pass1: &Pass1,
+        plan: RenderPlan,
+        sink: StereoSink<W>,
+    ) -> Result<RenderPass2<W>> {
+        let sample_rate = src.sample_rate;
+        Ok(RenderPass2 {
+            chain: MixChain::new(src.tracks, src.channels, &ChainConfig { sample_rate }),
+            fade: FadeEnvelope::new(
+                sample_rate,
+                src.range_frames,
+                settings.fade_in_ms,
+                settings.fade_out_ms,
+            ),
+            limiter: settings.limiter_enabled.then(|| {
+                TruePeakLimiter::new(
+                    LimiterParams {
+                        ceiling_dbtp: settings.ceiling_dbtp,
+                        ..LimiterParams::default()
+                    },
+                    sample_rate,
+                )
+            }),
+            ebu_out: ebur128::EbuR128::new(
+                2,
+                sample_rate,
+                ebur128::Mode::I | ebur128::Mode::LRA | ebur128::Mode::TRUE_PEAK,
+            )
+            .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?,
+            dither: (settings.dither && settings.format.is_16_bit_int()).then(TpdfDither::default),
+            fir: plan
+                .mastering
+                .as_ref()
+                .map(|p| MsFirStage::new(&p.fir_mid, &p.fir_side)),
+            sink,
+            stereo: Vec::new(),
+            mastered: Vec::new(),
+            limited: Vec::new(),
+            plan,
+            peak_before: pass1.peak,
+            source_lufs: pass1.source_lufs,
+            sample_rate,
+            done: 0,
+        })
+    }
+
+    /// Push interleaved source frames (`channels` samples per frame).
+    pub fn push_frames(&mut self, input: &[f64]) -> Result<()> {
+        self.chain.process(input, &mut self.stereo);
+        self.fade.apply(&mut self.stereo, self.done);
+        for s in &mut self.stereo {
+            *s *= self.plan.norm_gain;
+        }
+        self.done += (self.stereo.len() / 2) as u64;
+        let block: &[f64] = match &mut self.fir {
+            Some(f) => {
+                self.mastered.clear();
+                f.process(&self.stereo, &mut self.mastered);
+                &self.mastered
+            }
+            None => &self.stereo,
+        };
+        let block: &[f64] = match &mut self.limiter {
+            Some(lim) => {
+                self.limited.clear();
+                lim.process(block, &mut self.limited);
+                &self.limited
+            }
+            None => block,
+        };
+        let _ = self.ebu_out.add_frames_f64(block);
+        self.sink.write_block(block, self.dither.as_mut())
+    }
+
+    pub fn frames_done(&self) -> u64 {
+        self.done
+    }
+
+    /// Drain the filter tails, close the encoder and report.
+    pub fn finish(mut self) -> Result<RenderReport> {
+        // Flush order mirrors the chain: the FIR tail still passes through
+        // the limiter, then the limiter drains its own delay line.
+        if let Some(f) = &mut self.fir {
+            self.mastered.clear();
+            f.flush(&mut self.mastered);
+            let block: &[f64] = match &mut self.limiter {
+                Some(lim) => {
+                    self.limited.clear();
+                    lim.process(&self.mastered, &mut self.limited);
+                    &self.limited
+                }
+                None => &self.mastered,
+            };
+            let _ = self.ebu_out.add_frames_f64(block);
+            self.sink.write_block(block, self.dither.as_mut())?;
+        }
+        if let Some(lim) = &mut self.limiter {
+            self.limited.clear();
+            lim.flush(&mut self.limited);
+            let _ = self.ebu_out.add_frames_f64(&self.limited);
+            self.sink.write_block(&self.limited, self.dither.as_mut())?;
+        }
+        self.sink.finalize()?;
+
+        let true_peak = self
+            .ebu_out
+            .true_peak(0)
+            .and_then(|l| self.ebu_out.true_peak(1).map(|r| l.max(r)))
+            .unwrap_or(0.0);
+        Ok(RenderReport {
+            peak_dbfs_before: linear_to_db(self.peak_before),
+            gain_applied_db: linear_to_db(self.plan.norm_gain),
+            duration_seconds: self.done as f64 / self.sample_rate as f64,
+            sample_rate: self.sample_rate,
+            integrated_lufs: self.ebu_out.loudness_global().unwrap_or(f64::NEG_INFINITY),
+            true_peak_dbtp: linear_to_db(true_peak),
+            lra_lu: self.ebu_out.loudness_range().unwrap_or(0.0),
+            source_integrated_lufs: self.source_lufs,
+            mastering_applied: self.plan.mastering.is_some(),
+            mastering_gain_db: self.plan.mastering.as_ref().map_or(0.0, |p| p.gain_db),
+        })
+    }
 }
 
 /// Measure the sample peak of the mixed output without writing anything.
@@ -335,194 +623,202 @@ pub fn render_io(
 ) -> Result<RenderReport> {
     let mut reader = input.open()?;
     let spec = reader.spec();
-    let cfg = ChainConfig {
-        sample_rate: spec.sample_rate,
-    };
+    let channels = spec.channels as usize;
     let num_frames = reader.num_frames();
     let start = settings.trim_start_frame.min(num_frames);
     let end = settings
         .trim_end_frame
         .unwrap_or(num_frames)
         .clamp(start, num_frames);
-    let range_frames = (end - start).max(1) as f64;
-    let fade = FadeEnvelope::new(
-        spec.sample_rate,
-        end - start,
-        settings.fade_in_ms,
-        settings.fade_out_ms,
-    );
+    let range = end - start;
+    let scale = range.max(1) as f64;
+    let mut buf = Vec::new();
 
     // Pass 1: measure raw mix peak and integrated loudness (with fades, so
-    // the measurement describes the delivered signal). Fresh chain — filter
-    // state must not leak into pass 2.
-    let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
-    let mut ebu_src = ebur128::EbuR128::new(2, spec.sample_rate, ebur128::Mode::I)
-        .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
-    reader.seek_to_frame(start)?;
-    let mut input = Vec::new();
-    let mut stereo = Vec::new();
-    let mut peak = 0.0f64;
-    let mut done: u64 = 0;
-    let mut analyzer = reference.map(|_| MasteringAnalyzer::new(spec.sample_rate));
-    loop {
-        let want = BLOCK_FRAMES.min((end - start - done) as usize);
-        if want == 0 {
-            break;
-        }
-        let n = reader.read_frames(&mut input, want)?;
-        if n == 0 {
-            break;
-        }
-        chain.process(&input, &mut stereo);
-        fade.apply(&mut stereo, done);
-        for &s in &stereo {
-            peak = peak.max(s.abs());
-        }
-        let _ = ebu_src.add_frames_f64(&stereo);
-        if let Some(an) = &mut analyzer {
-            an.push(&stereo);
-        }
-        done += n as u64;
-        progress((done as f64 / range_frames * 0.5) as f32);
-    }
-    let source_lufs = ebu_src.loudness_global().unwrap_or(f64::NEG_INFINITY);
-
-    // Reference mastering owns the output level: the matching FIRs carry the
-    // full gain, so the normalisation stage is bypassed.
-    let mastering_plan = match (analyzer, reference) {
-        (Some(an), Some(profile)) => Some(design_mastering(&an.finish(), profile)?),
-        _ => None,
-    };
-
-    let norm_gain = if mastering_plan.is_some() {
-        1.0
-    } else {
-        match settings.loudness {
-            LoudnessMode::PeakDbfs(target_db) => {
-                if peak > 0.0 {
-                    10f64.powf(target_db / 20.0) / peak
-                } else {
-                    1.0
-                }
-            }
-            LoudnessMode::LufsIntegrated(target_lufs) => {
-                if source_lufs.is_finite() {
-                    10f64.powf((target_lufs - source_lufs) / 20.0)
-                } else {
-                    1.0
-                }
-            }
-            LoudnessMode::None => {
-                // Clip protection is the limiter's job when it is enabled.
-                if !settings.limiter_enabled && peak > 1.0 {
-                    1.0 / peak
-                } else {
-                    1.0
-                }
-            }
-        }
-    };
-
-    // Pass 2: mix → normalisation gain → limiter → measure → encode.
-    let mut sink = StereoSink::create(output, settings.format, spec.sample_rate)?;
-    let mut chain = MixChain::new(tracks, spec.channels as usize, &cfg);
-    let mut limiter = settings.limiter_enabled.then(|| {
-        TruePeakLimiter::new(
-            LimiterParams {
-                ceiling_dbtp: settings.ceiling_dbtp,
-                ..LimiterParams::default()
-            },
-            spec.sample_rate,
-        )
-    });
-    let mut ebu_out = ebur128::EbuR128::new(
-        2,
-        spec.sample_rate,
-        ebur128::Mode::I | ebur128::Mode::LRA | ebur128::Mode::TRUE_PEAK,
-    )
-    .map_err(|e| EngineError::Encode(format!("ebur128: {e}")))?;
-    let mut dither = (settings.dither && settings.format.is_16_bit_int()).then(TpdfDither::default);
-    let mut fir = mastering_plan
-        .as_ref()
-        .map(|p| MsFirStage::new(&p.fir_mid, &p.fir_side));
-    let mut mastered = Vec::new();
-    let mut limited = Vec::new();
-    reader.seek_to_frame(start)?;
-    let mut done: u64 = 0;
-    loop {
-        let want = BLOCK_FRAMES.min((end - start - done) as usize);
-        if want == 0 {
-            break;
-        }
-        let n = reader.read_frames(&mut input, want)?;
-        if n == 0 {
-            break;
-        }
-        chain.process(&input, &mut stereo);
-        fade.apply(&mut stereo, done);
-        for s in &mut stereo {
-            *s *= norm_gain;
-        }
-        let block: &[f64] = match &mut fir {
-            Some(f) => {
-                mastered.clear();
-                f.process(&stereo, &mut mastered);
-                &mastered
-            }
-            None => &stereo,
-        };
-        let block: &[f64] = match &mut limiter {
-            Some(lim) => {
-                limited.clear();
-                lim.process(block, &mut limited);
-                &limited
-            }
-            None => block,
-        };
-        let _ = ebu_out.add_frames_f64(block);
-        sink.write_block(block, dither.as_mut())?;
-        done += n as u64;
-        progress((0.5 + done as f64 / range_frames * 0.5) as f32);
-    }
-    // Flush order mirrors the chain: the FIR tail still passes through the
-    // limiter, then the limiter drains its own delay line.
-    if let Some(f) = &mut fir {
-        mastered.clear();
-        f.flush(&mut mastered);
-        let block: &[f64] = match &mut limiter {
-            Some(lim) => {
-                limited.clear();
-                lim.process(&mastered, &mut limited);
-                &limited
-            }
-            None => &mastered,
-        };
-        let _ = ebu_out.add_frames_f64(block);
-        sink.write_block(block, dither.as_mut())?;
-    }
-    if let Some(lim) = &mut limiter {
-        limited.clear();
-        lim.flush(&mut limited);
-        let _ = ebu_out.add_frames_f64(&limited);
-        sink.write_block(&limited, dither.as_mut())?;
-    }
-    sink.finalize()?;
-    progress(1.0);
-
-    let true_peak = ebu_out
-        .true_peak(0)
-        .and_then(|l| ebu_out.true_peak(1).map(|r| l.max(r)))
-        .unwrap_or(0.0);
-    Ok(RenderReport {
-        peak_dbfs_before: linear_to_db(peak),
-        gain_applied_db: linear_to_db(norm_gain),
-        duration_seconds: (end - start) as f64 / spec.sample_rate as f64,
+    // the measurement describes the delivered signal).
+    let src = RenderSource {
+        channels,
         sample_rate: spec.sample_rate,
-        integrated_lufs: ebu_out.loudness_global().unwrap_or(f64::NEG_INFINITY),
-        true_peak_dbtp: linear_to_db(true_peak),
-        lra_lu: ebu_out.loudness_range().unwrap_or(0.0),
-        source_integrated_lufs: source_lufs,
-        mastering_applied: mastering_plan.is_some(),
-        mastering_gain_db: mastering_plan.as_ref().map_or(0.0, |p| p.gain_db),
-    })
+        tracks,
+        range_frames: range,
+    };
+    let mut p1 = RenderPass1::new(&src, settings, reference.is_some())?;
+    reader.seek_to_frame(start)?;
+    loop {
+        let want = BLOCK_FRAMES.min((range - p1.frames_done()) as usize);
+        if want == 0 {
+            break;
+        }
+        if reader.read_frames(&mut buf, want)? == 0 {
+            break;
+        }
+        p1.push_frames(&buf);
+        progress((p1.frames_done() as f64 / scale * 0.5) as f32);
+    }
+    let pass1 = p1.finish();
+
+    // With a `reference` profile, reference mastering replaces the loudness
+    // normalisation: the FIRs are designed from pass 1's stats, which costs
+    // no extra pass over the (multi-GB) source.
+    let plan = plan_from_pass1(settings, &pass1, reference)?;
+
+    // Pass 2: mix → gain → mastering → limiter → measure → encode. A fresh
+    // chain — filter state must not leak from pass 1.
+    let sink = StereoSink::create(output, settings.format, spec.sample_rate)?;
+    let mut p2 = RenderPass2::new(&src, settings, &pass1, plan, sink)?;
+    reader.seek_to_frame(start)?;
+    loop {
+        let want = BLOCK_FRAMES.min((range - p2.frames_done()) as usize);
+        if want == 0 {
+            break;
+        }
+        if reader.read_frames(&mut buf, want)? == 0 {
+            break;
+        }
+        p2.push_frames(&buf)?;
+        progress((0.5 + p2.frames_done() as f64 / scale * 0.5) as f32);
+    }
+    let report = p2.finish()?;
+    progress(1.0);
+    Ok(report)
+}
+
+/// The whole render driven from outside, byte block by byte block.
+///
+/// This is what the browser runs: Dart slices the `data` chunk off the
+/// `Blob` and pushes it — twice, once per pass, because there is no
+/// synchronous seek to rewind with. Everything below is the same
+/// [`RenderPass1`]/[`RenderPass2`] the native file loop uses; only the
+/// source of the bytes differs.
+///
+/// The encoded output is not kept: [`push_pass2`](Self::push_pass2) returns
+/// each block as it is produced, and the patched header follows from
+/// [`finish`](Self::finish). The caller writes `head ++ blocks…`.
+pub struct StreamRender {
+    channels: usize,
+    sample_rate: u32,
+    tracks: Vec<TrackParams>,
+    settings: RenderSettings,
+    reference: Option<ReferenceProfile>,
+    range_frames: u64,
+    decoder: crate::wav::FrameDecoder,
+    spec: crate::wav::WavSpec,
+    scratch: Vec<f64>,
+    sink: crate::sink::ChunkSink,
+    stage: Stage,
+}
+
+enum Stage {
+    Pass1(Box<RenderPass1>),
+    Pass2(Box<RenderPass2<crate::sink::ChunkSink>>),
+    Spent,
+}
+
+/// The finished render: `head ++ every block returned by `push_pass2` ++
+/// `tail` is the complete file.
+pub struct StreamRenderOutput {
+    pub head: Vec<u8>,
+    pub tail: Vec<u8>,
+    pub report: RenderReport,
+}
+
+impl StreamRender {
+    pub fn new(
+        spec: crate::wav::WavSpec,
+        range_frames: u64,
+        tracks: Vec<TrackParams>,
+        settings: RenderSettings,
+        reference: Option<ReferenceProfile>,
+    ) -> Result<StreamRender> {
+        let channels = spec.channels as usize;
+        let sample_rate = spec.sample_rate;
+        let pass1 = RenderPass1::new(
+            &RenderSource {
+                channels,
+                sample_rate,
+                tracks: &tracks,
+                range_frames,
+            },
+            &settings,
+            reference.is_some(),
+        )?;
+        Ok(StreamRender {
+            channels,
+            sample_rate,
+            tracks,
+            settings,
+            reference,
+            range_frames,
+            decoder: crate::wav::FrameDecoder::new(spec),
+            spec,
+            scratch: Vec::new(),
+            sink: crate::sink::ChunkSink::new(),
+            stage: Stage::Pass1(Box::new(pass1)),
+        })
+    }
+
+    /// Feed the next slice of the `data` chunk to pass 1, in file order.
+    pub fn push_pass1(&mut self, bytes: &[u8]) -> Result<()> {
+        let Stage::Pass1(pass) = &mut self.stage else {
+            return Err(EngineError::Encode("push_pass1 after pass 1 ended".into()));
+        };
+        self.decoder.push(bytes, &mut self.scratch)?;
+        pass.push_frames(&self.scratch);
+        Ok(())
+    }
+
+    /// Close pass 1, design the mastering FIRs and gain, open the encoder.
+    /// The caller then replays the same byte range through
+    /// [`push_pass2`](Self::push_pass2).
+    pub fn start_pass2(&mut self) -> Result<()> {
+        let stage = std::mem::replace(&mut self.stage, Stage::Spent);
+        let Stage::Pass1(pass) = stage else {
+            return Err(EngineError::Encode("start_pass2 out of order".into()));
+        };
+        let measured = pass.finish();
+        let plan = plan_from_pass1(&self.settings, &measured, self.reference.as_ref())?;
+        let sink = StereoSink::new(self.sink.clone(), self.settings.format, self.sample_rate)?;
+        let pass2 = RenderPass2::new(
+            &RenderSource {
+                channels: self.channels,
+                sample_rate: self.sample_rate,
+                tracks: &self.tracks,
+                range_frames: self.range_frames,
+            },
+            &self.settings,
+            &measured,
+            plan,
+            sink,
+        )?;
+        // The byte stream restarts, so the mid-frame remainder must not.
+        self.decoder = crate::wav::FrameDecoder::new(self.spec);
+        self.stage = Stage::Pass2(Box::new(pass2));
+        Ok(())
+    }
+
+    /// Feed the next slice to pass 2 and take whatever the encoder produced.
+    pub fn push_pass2(&mut self, bytes: &[u8]) -> Result<Vec<u8>> {
+        let Stage::Pass2(pass) = &mut self.stage else {
+            return Err(EngineError::Encode("push_pass2 out of order".into()));
+        };
+        self.decoder.push(bytes, &mut self.scratch)?;
+        pass.push_frames(&self.scratch)?;
+        Ok(self.sink.take_tail())
+    }
+
+    pub fn finish(mut self) -> Result<StreamRenderOutput> {
+        let stage = std::mem::replace(&mut self.stage, Stage::Spent);
+        let Stage::Pass2(pass) = stage else {
+            return Err(EngineError::Encode("finish before pass 2".into()));
+        };
+        let report = pass.finish()?;
+        // finalize() flushed the encoder and patched the header, so both are
+        // final only now.
+        let tail = self.sink.take_tail();
+        Ok(StreamRenderOutput {
+            head: self.sink.head(),
+            tail,
+            report,
+        })
+    }
 }

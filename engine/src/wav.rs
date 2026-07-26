@@ -244,43 +244,94 @@ impl<R: Read + Seek> WavReader<R> {
 
         let n_samples = frames * self.spec.channels as usize;
         out.reserve(n_samples);
-
-        match (self.spec.sample_format, self.spec.bits_per_sample) {
-            (SampleFormat::Int, 16) => {
-                for c in raw.chunks_exact(2) {
-                    let v = i16::from_le_bytes([c[0], c[1]]);
-                    out.push(v as f64 / 32768.0);
-                }
-            }
-            (SampleFormat::Int, 24) => {
-                for c in raw.chunks_exact(3) {
-                    let v = i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8;
-                    out.push(v as f64 / 8_388_608.0);
-                }
-            }
-            (SampleFormat::Int, 32) => {
-                for c in raw.chunks_exact(4) {
-                    let v = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    out.push(v as f64 / 2_147_483_648.0);
-                }
-            }
-            (SampleFormat::Float, 32) => {
-                for c in raw.chunks_exact(4) {
-                    out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64);
-                }
-            }
-            (SampleFormat::Float, 64) => {
-                for c in raw.chunks_exact(8) {
-                    out.push(f64::from_le_bytes(c.try_into().unwrap()));
-                }
-            }
-            (f, b) => {
-                return Err(EngineError::UnsupportedFormat(format!("{f:?} {b}-bit")));
-            }
-        }
+        decode_samples(&self.spec, &raw, out)?;
         debug_assert_eq!(out.len(), n_samples);
         Ok(frames)
     }
+}
+
+/// Decode raw interleaved PCM into normalised `f64` samples, appending to
+/// `out`. `raw` must hold whole samples; callers streaming from a byte
+/// source (the web build pushes `Blob` slices) keep the remainder.
+/// Turns a byte stream of the `data` chunk into whole frames.
+///
+/// Slices handed in by the platform (a 4 MB `Blob` range in the browser) end
+/// wherever they end — mid-frame more often than not. This carries the
+/// remainder over to the next call, so no sample is lost or split.
+pub struct FrameDecoder {
+    spec: WavSpec,
+    tail: Vec<u8>,
+}
+
+impl FrameDecoder {
+    pub fn new(spec: WavSpec) -> FrameDecoder {
+        FrameDecoder {
+            spec,
+            tail: Vec::new(),
+        }
+    }
+
+    /// Decode every whole frame in `bytes` (plus any carried remainder) into
+    /// `out`, which is cleared first.
+    pub fn push(&mut self, bytes: &[u8], out: &mut Vec<f64>) -> Result<()> {
+        let bpf = self.spec.bytes_per_frame();
+        // Rejoin whatever was left dangling mid-frame last time.
+        let joined;
+        let bytes = if self.tail.is_empty() {
+            bytes
+        } else {
+            self.tail.extend_from_slice(bytes);
+            joined = std::mem::take(&mut self.tail);
+            &joined[..]
+        };
+        let whole = bytes.len() - bytes.len() % bpf;
+        out.clear();
+        decode_samples(&self.spec, &bytes[..whole], out)?;
+        self.tail = bytes[whole..].to_vec();
+        Ok(())
+    }
+}
+
+pub fn decode_samples(spec: &WavSpec, raw: &[u8], out: &mut Vec<f64>) -> Result<()> {
+    match (spec.sample_format, spec.bits_per_sample) {
+        (SampleFormat::Int, 16) => {
+            for c in raw.chunks_exact(2) {
+                let v = i16::from_le_bytes([c[0], c[1]]);
+                out.push(v as f64 / 32768.0);
+            }
+        }
+        (SampleFormat::Int, 24) => {
+            for c in raw.chunks_exact(3) {
+                let v = i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8;
+                out.push(v as f64 / 8_388_608.0);
+            }
+        }
+        (SampleFormat::Int, 32) => {
+            for c in raw.chunks_exact(4) {
+                let v = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                out.push(v as f64 / 2_147_483_648.0);
+            }
+        }
+        (SampleFormat::Float, 32) => {
+            for c in raw.chunks_exact(4) {
+                out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64);
+            }
+        }
+        (SampleFormat::Float, 64) => {
+            for c in raw.chunks_exact(8) {
+                out.push(f64::from_le_bytes(c.try_into().unwrap()));
+            }
+        }
+        (f, b) => {
+            return Err(EngineError::UnsupportedFormat(format!("{f:?} {b}-bit")));
+        }
+    }
+    Ok(())
+}
+
+/// Parse a `fmt ` chunk payload the caller fetched itself (web build).
+pub fn spec_from_fmt_chunk(buf: &[u8]) -> Result<WavSpec> {
+    parse_fmt_chunk(buf)
 }
 
 fn parse_fmt_chunk(buf: &[u8]) -> Result<WavSpec> {
@@ -335,6 +386,131 @@ pub struct ProbeInfo {
     pub duration_seconds: f64,
     /// Number of iXML track entries; 0 when the file carries no iXML.
     pub ixml_track_count: u32,
+}
+
+/// One RIFF chunk found by [`scan_chunks`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChunkEntry {
+    /// Four-character chunk id, e.g. `fmt `, `data`, `iXML`.
+    pub id: String,
+    /// Byte offset of the chunk's PAYLOAD (the header sits 8 bytes before).
+    pub offset: u64,
+    /// Payload length in bytes; for an RF64 `data` chunk this is already
+    /// the 64-bit size taken from `ds64`.
+    pub size: u64,
+}
+
+/// Result of a header-only chunk scan over one buffer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChunkScan {
+    pub chunks: Vec<ChunkEntry>,
+    /// Where scanning must resume because the buffer ran out; `None` when
+    /// the end of the file was reached.
+    pub next_offset: Option<u64>,
+}
+
+/// Locate RIFF chunks by reading headers only, from a buffer the caller
+/// fetched — the counterpart of [`WavReader::new`] for platforms without a
+/// filesystem (the web build reads ranges out of a `Blob`; see
+/// `docs/PLAN-PWA.md`). All parsing stays here so the browser never has to
+/// understand RIFF.
+///
+/// `buf` covers file bytes `[buf_offset, buf_offset + buf.len())`. Scanning
+/// starts at the RIFF header when `buf_offset` is 0, otherwise at
+/// `buf_offset`, which must be a chunk-header boundary returned as
+/// [`ChunkScan::next_offset`] by a previous call.
+///
+/// Chunks are NOT assumed to be in any order: real DUREC takes put `iXML`
+/// (the track names) AFTER the multi-GB `data` payload, which is exactly
+/// why the caller has to be able to seek instead of reading a prefix.
+pub fn scan_chunks(buf: &[u8], buf_offset: u64, file_size: u64) -> Result<ChunkScan> {
+    let mut pos = if buf_offset == 0 {
+        if buf.len() < 12 {
+            return Err(EngineError::NotWav);
+        }
+        match &buf[0..4] {
+            b"RIFF" | b"RF64" | b"BW64" => {}
+            _ => return Err(EngineError::NotWav),
+        }
+        if &buf[8..12] != b"WAVE" {
+            return Err(EngineError::NotWav);
+        }
+        12
+    } else {
+        buf_offset
+    };
+
+    let mut chunks = Vec::new();
+    let mut ds64_data_size: Option<u64> = None;
+
+    while pos + 8 <= file_size {
+        let local = (pos - buf_offset) as usize;
+        if local + 8 > buf.len() {
+            return Ok(ChunkScan {
+                chunks,
+                next_offset: Some(pos),
+            });
+        }
+        let id = String::from_utf8_lossy(&buf[local..local + 4]).into_owned();
+        let size32 = u32::from_le_bytes(buf[local + 4..local + 8].try_into().unwrap());
+        let payload = pos + 8;
+
+        // ds64 precedes data in RF64 files, so its payload is in this same
+        // buffer whenever a 64-bit data size is needed below.
+        if id == "ds64" && local + 8 + 16 <= buf.len() {
+            ds64_data_size = Some(u64::from_le_bytes(
+                buf[local + 16..local + 24].try_into().unwrap(),
+            ));
+        }
+
+        let size = if id == "data" && size32 == u32::MAX {
+            ds64_data_size.ok_or(EngineError::MissingDs64)?
+        } else {
+            size32 as u64
+        };
+
+        chunks.push(ChunkEntry {
+            id,
+            offset: payload,
+            size,
+        });
+        pos = payload + size + (size & 1);
+    }
+
+    Ok(ChunkScan {
+        chunks,
+        next_offset: None,
+    })
+}
+
+/// Assemble [`ProbeInfo`] from chunk payloads the caller fetched after a
+/// [`scan_chunks`] pass — the filesystem-free counterpart of [`probe`].
+pub fn probe_from_parts(
+    fmt_chunk: &[u8],
+    ixml_chunk: Option<&[u8]>,
+    data_bytes: u64,
+) -> Result<ProbeInfo> {
+    let spec = parse_fmt_chunk(fmt_chunk)?;
+    let num_frames = data_bytes / spec.bytes_per_frame() as u64;
+    Ok(ProbeInfo {
+        channels: spec.channels,
+        sample_rate: spec.sample_rate,
+        bits_per_sample: spec.bits_per_sample,
+        num_frames,
+        duration_seconds: num_frames as f64 / spec.sample_rate as f64,
+        ixml_track_count: ixml_chunk.map_or(0, |x| {
+            crate::ixml::parse_tracks(&String::from_utf8_lossy(x)).len() as u32
+        }),
+    })
+}
+
+/// Track names from an iXML payload, for callers that fetched the chunk
+/// themselves (web build). Empty when the payload carries no track list.
+pub fn track_names_from_ixml(ixml_chunk: &[u8]) -> Vec<String> {
+    crate::ixml::parse_tracks(&String::from_utf8_lossy(ixml_chunk))
+        .into_iter()
+        .map(|t| t.name)
+        .collect()
 }
 
 /// Probe a recording without touching audio data: [`WavReader::new`] parses

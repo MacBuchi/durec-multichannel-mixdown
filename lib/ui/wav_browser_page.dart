@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../state/batch_export.dart';
 import '../state/mixer_state.dart';
@@ -71,11 +72,22 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
   }
 
   Future<void> _changeFolder() async {
+    if (!canPickFolders) {
+      // Web: no folder picker exists, the recordings are picked directly.
+      await widget.browser.pickAndOpenFiles();
+      return;
+    }
     final picked = await widget.browser.pickFolder();
     if (picked != null) {
       await widget.browser.openFolder(picked);
     }
   }
+
+  Widget _pickButton() => FilledButton.icon(
+    onPressed: _changeFolder,
+    icon: Icon(canPickFolders ? Icons.folder_open : Icons.audio_file_outlined),
+    label: Text(canPickFolders ? 'Choose folder' : 'Choose files'),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -106,7 +118,14 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
         style: const TextStyle(fontSize: 16),
       ),
       actions: [
-        if (widget.exportConfig != null && b.entries.isNotEmpty)
+        // The multi-take export renders into a `Mixdown/` folder next to the
+        // takes and needs paths throughout (`rust.renderMix`), so it cannot
+        // run on a picked `Blob`. Offering it anyway let the user tick
+        // takes, edit names, press Export — and nothing happened at all,
+        // because `_exportSelected` returns on `folder == null`.
+        if (canPickFolders &&
+            widget.exportConfig != null &&
+            b.entries.isNotEmpty)
           IconButton(
             tooltip: 'Export multiple takes…',
             onPressed: b.enterSelectionMode,
@@ -121,19 +140,35 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           ),
         ),
         IconButton(
-          tooltip: 'Choose a different folder',
+          // Same button, different job per platform — `_changeFolder` picks
+          // files where there is no folder picker, so the label has to say
+          // that too (it is the only way to add takes to this list on web).
+          tooltip: canPickFolders
+              ? 'Choose a different folder'
+              : 'Choose different files',
           onPressed: _changeFolder,
-          icon: const Icon(Icons.drive_folder_upload, size: 20),
+          icon: Icon(
+            canPickFolders
+                ? Icons.drive_folder_upload
+                : Icons.audio_file_outlined,
+            size: 20,
+          ),
         ),
-        PopupMenuButton<String>(
-          onSelected: (v) => Navigator.of(context).pop(v),
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: useSystemPicker,
-              child: Text('Use system picker…'),
-            ),
-          ],
-        ),
+        // In the browser this list already comes from the system picker, and
+        // taking that route again would open a file the range reader knows
+        // nothing about: `sourceReader` is only ever set by `pickRecordings`
+        // and never cleared, so the mixer would keep reading the PREVIOUS
+        // take under the new take's name — silently.
+        if (canPickFolders)
+          PopupMenuButton<String>(
+            onSelected: (v) => Navigator.of(context).pop(v),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: useSystemPicker,
+                child: Text('Use system picker…'),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -185,23 +220,15 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
               style: TextStyle(color: AppColors.of(context).error),
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _changeFolder,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Choose folder'),
-            ),
+            _pickButton(),
           ],
         ),
       );
     }
-    if (b.folder == null) {
-      return Center(
-        child: FilledButton.icon(
-          onPressed: _changeFolder,
-          icon: const Icon(Icons.folder_open),
-          label: const Text('Choose folder'),
-        ),
-      );
+    // Picked-file listings (web) have no folder, so an empty list — not a
+    // null folder — is what means "nothing chosen yet".
+    if (b.folder == null && b.entries.isEmpty) {
+      return Center(child: _pickButton());
     }
     if (b.loading) {
       return const Center(child: CircularProgressIndicator());

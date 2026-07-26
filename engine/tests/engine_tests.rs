@@ -9,8 +9,13 @@ use durecmix_engine::ixml::{
     clean_xml, default_pan_for_name, parse_tracks, stereo_pair_base, TrackInfo,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
-use durecmix_engine::render::{render_to_file, LoudnessMode, OutputFormat, RenderSettings};
+use durecmix_engine::preview::WebPlayer;
+use durecmix_engine::render::{
+    plan_from_pass1, render_to_file, LoudnessMode, OutputFormat, RenderPass1, RenderPass2,
+    RenderSettings, RenderSource, StreamRender,
+};
 use durecmix_engine::session::Session;
+use durecmix_engine::sink::{ChunkSink, StereoSink};
 use durecmix_engine::wav::{self, InputHandle, SampleFormat, WavReader};
 use durecmix_engine::EngineError;
 
@@ -1717,7 +1722,7 @@ fn reference_profile_serde_and_validation() {
 // ── mastering: reference decoding ───────────────────────────────────────────
 
 use durecmix_engine::reference::analyze_reference;
-use durecmix_engine::sink::{OutputHandle, StereoSink};
+use durecmix_engine::sink::OutputHandle;
 
 fn write_ref_fixture(path: &std::path::Path, format: OutputFormat, stereo: &[f64], sr: u32) {
     let mut sink = StereoSink::create(
@@ -2126,4 +2131,886 @@ fn merge_profiles_mixed_sample_rates_uses_highest_grid() {
     let target = analyze(&ms_noise(16 * 44_100, 0.25, 0.03, 104), 44_100);
     let plan = design_mastering(&target, &merged).expect("design from merged profile");
     assert!(plan.fir_mid.iter().all(|t| t.is_finite()));
+}
+
+// ── range-based probing (web build, docs/PLAN-PWA.md S2) ────────────────────
+
+/// Drives `scan_chunks` the way the browser does: hand it small windows out
+/// of the file and follow `next_offset` until the scan is exhausted. The
+/// window is deliberately tiny so the multi-pass path is exercised.
+fn scan_all(file: &[u8], window: usize) -> Vec<wav::ChunkEntry> {
+    let mut chunks = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let start = offset as usize;
+        let end = (start + window).min(file.len());
+        let scan =
+            wav::scan_chunks(&file[start..end], offset, file.len() as u64).expect("scan window");
+        chunks.extend(scan.chunks);
+        match scan.next_offset {
+            Some(next) => offset = next,
+            None => return chunks,
+        }
+    }
+}
+
+#[test]
+fn scan_chunks_finds_ixml_behind_the_audio_payload() {
+    // The layout of a real DUREC take: iXML sits AFTER multi-MB of audio,
+    // so a prefix-only reader would never see the track names (#93).
+    let samples: Vec<i16> = vec![7; 34 * 44100];
+    let file = wav16(34, 44100, &samples, Some(DUREC_IXML));
+    let chunks = scan_all(&file, 4096);
+
+    let ids: Vec<&str> = chunks.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, vec!["fmt ", "data", "iXML"]);
+    let data = &chunks[1];
+    let ixml = &chunks[2];
+    assert_eq!(data.size, samples.len() as u64 * 2);
+    assert!(
+        ixml.offset > data.offset + data.size,
+        "iXML must be located behind the audio, got {} vs data end {}",
+        ixml.offset,
+        data.offset + data.size
+    );
+    assert_eq!(
+        &file[ixml.offset as usize..(ixml.offset + ixml.size) as usize],
+        DUREC_IXML.as_bytes()
+    );
+}
+
+#[test]
+fn scan_chunks_window_size_does_not_change_the_result() {
+    let file = wav16(3, 44100, &vec![0i16; 3 * 4410], Some(DUREC_IXML));
+    let reference = scan_all(&file, file.len());
+    for window in [16, 21, 64, 1024] {
+        assert_eq!(
+            scan_all(&file, window),
+            reference,
+            "window {window} disagreed with a single-shot scan"
+        );
+    }
+}
+
+#[test]
+fn probe_from_parts_matches_the_filesystem_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("take.wav");
+    let samples: Vec<i16> = vec![0; 3 * 44100];
+    let file = wav16(3, 44100, &samples, Some(DUREC_IXML));
+    std::fs::write(&path, &file).unwrap();
+    let expected = wav::probe(&InputHandle::Path(path.to_str().unwrap().into())).unwrap();
+
+    // Same steps the web build takes: locate chunks, fetch only those two
+    // payloads, assemble the probe.
+    let chunks = scan_all(&file, 512);
+    let part = |id: &str| {
+        chunks
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| &file[c.offset as usize..(c.offset + c.size) as usize])
+    };
+    let info = wav::probe_from_parts(
+        part("fmt ").unwrap(),
+        part("iXML"),
+        chunks.iter().find(|c| c.id == "data").unwrap().size,
+    )
+    .unwrap();
+
+    assert_eq!(info, expected);
+    assert_eq!(
+        wav::track_names_from_ixml(part("iXML").unwrap()),
+        vec!["Vocals", "Drums OH L", "Drums OH R"]
+    );
+}
+
+#[test]
+fn probe_from_parts_without_ixml_reports_zero_tracks() {
+    let file = wav16(2, 48000, &[0i16; 96000], None);
+    let chunks = scan_all(&file, 256);
+    assert!(chunks.iter().all(|c| c.id != "iXML"));
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let info = wav::probe_from_parts(
+        &file[fmt.offset as usize..(fmt.offset + fmt.size) as usize],
+        None,
+        chunks.iter().find(|c| c.id == "data").unwrap().size,
+    )
+    .unwrap();
+    assert_eq!(info.channels, 2);
+    assert_eq!(info.sample_rate, 48000);
+    assert_eq!(info.num_frames, 48000);
+    assert_eq!(info.ixml_track_count, 0);
+}
+
+#[test]
+fn scan_chunks_rejects_non_wav() {
+    let junk = b"NOTAWAVEFILE................";
+    assert!(wav::scan_chunks(junk, 0, junk.len() as u64).is_err());
+}
+
+// ── streamed analysis without a filesystem (web build, PLAN-PWA S2b) ────────
+
+/// Runs the push-based analyzer over the `data` payload in slices of
+/// `block` bytes — the web build's path, where a slice may end anywhere,
+/// including in the middle of a frame.
+fn analyze_pushed(
+    file: &[u8],
+    block: usize,
+    buckets: usize,
+) -> durecmix_engine::analysis::Analysis {
+    let chunks = scan_all(file, 4096);
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec =
+        wav::spec_from_fmt_chunk(&file[fmt.offset as usize..(fmt.offset + fmt.size) as usize])
+            .unwrap();
+    let num_frames = data.size / spec.bytes_per_frame() as u64;
+
+    let mut analyzer = durecmix_engine::analysis::StreamAnalyzer::new(spec, num_frames, buckets);
+    let start = data.offset as usize;
+    let end = start + data.size as usize;
+    let mut at = start;
+    while at < end {
+        let stop = (at + block).min(end);
+        analyzer.push_bytes(&file[at..stop]).unwrap();
+        at = stop;
+    }
+    analyzer.finish()
+}
+
+#[test]
+fn pushed_analysis_matches_the_filesystem_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("take.wav");
+    // Something with structure, so waveform buckets and BPM are non-trivial.
+    let samples: Vec<i16> = (0..3 * 44100)
+        .map(|i| {
+            let t = (i / 3) as f64 / 44100.0;
+            let beat = if (t * 2.0).fract() < 0.05 { 1.0 } else { 0.25 };
+            ((t * 220.0 * std::f64::consts::TAU).sin() * beat * 20000.0) as i16
+        })
+        .collect();
+    let file = wav16(3, 44100, &samples, Some(DUREC_IXML));
+    std::fs::write(&path, &file).unwrap();
+
+    let expected = durecmix_engine::analysis::analyze(path.to_str().unwrap(), 64).unwrap();
+    let pushed = analyze_pushed(&file, 8192, 64);
+    assert_eq!(
+        pushed, expected,
+        "pushed analysis drifted from the file path"
+    );
+}
+
+#[test]
+fn pushed_analysis_is_independent_of_the_block_size() {
+    let samples: Vec<i16> = (0..4 * 12000)
+        .map(|i| ((i as f64 / 7.0).sin() * 12000.0) as i16)
+        .collect();
+    let file = wav16(4, 44100, &samples, None);
+    let reference = analyze_pushed(&file, 1 << 20, 32);
+
+    // 3, 7 and 999 are deliberately coprime with the 8-byte frame size, so
+    // every push ends mid-frame and the carry-over path is exercised.
+    for block in [3, 7, 999, 4096] {
+        assert_eq!(
+            analyze_pushed(&file, block, 32),
+            reference,
+            "block size {block} changed the result — frame carry-over is broken"
+        );
+    }
+}
+
+#[test]
+fn pushed_analysis_handles_24_bit_frames() {
+    let samples: Vec<i32> = (0..2 * 8000)
+        .map(|i| ((i as f64 / 5.0).sin() * 4_000_000.0) as i32)
+        .collect();
+    let file = wav24(2, 44100, &samples);
+    // 6 bytes per frame: a 5-byte block never aligns.
+    let a = analyze_pushed(&file, 5, 16);
+    let b = analyze_pushed(&file, 1 << 20, 16);
+    assert_eq!(a, b);
+    // 4_000_000 of 8_388_608 full scale = −6.43 dBFS; a wrong 24-bit shift
+    // would land octaves away from that.
+    assert!(
+        (a.waveforms[0].peak_dbfs - -6.43).abs() < 0.1,
+        "24-bit scaling is off: {} dBFS",
+        a.waveforms[0].peak_dbfs
+    );
+}
+
+// ── streamed render (browser driver) ────────────────────────────────────────
+
+/// Drive both render passes from outside, the way the web build must.
+///
+/// The browser has no synchronous seek on a `Blob`, so Dart pushes the source
+/// blocks instead of the engine pulling them. Block sizes therefore no longer
+/// line up with `BLOCK_FRAMES` — this pushes a deliberately awkward prime so a
+/// block-size dependency anywhere in the chain would show up.
+fn render_streamed(
+    in_path: &std::path::Path,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    push_frames: usize,
+) -> (Vec<u8>, durecmix_engine::render::RenderReport) {
+    let input = InputHandle::Path(in_path.to_string_lossy().into_owned());
+    let spec = input.open().unwrap().spec();
+    let channels = spec.channels as usize;
+    let total = input.open().unwrap().num_frames();
+
+    let src = RenderSource {
+        channels,
+        sample_rate: spec.sample_rate,
+        tracks,
+        range_frames: total,
+    };
+    let mut pass1 = RenderPass1::new(&src, settings, false).unwrap();
+    let mut reader = input.open().unwrap();
+    let mut buf = Vec::new();
+    while reader.read_frames(&mut buf, push_frames).unwrap() > 0 {
+        pass1.push_frames(&buf);
+    }
+    let measured = pass1.finish();
+    let plan = plan_from_pass1(settings, &measured, None).unwrap();
+
+    // The sink hands out the finished bytes block by block; the caller
+    // concatenates head ++ tails, exactly like the Dart side.
+    let sink = ChunkSink::new();
+    let mut pass2 = RenderPass2::new(
+        &src,
+        settings,
+        &measured,
+        plan,
+        StereoSink::new(sink.clone(), settings.format, spec.sample_rate).unwrap(),
+    )
+    .unwrap();
+    let mut reader = input.open().unwrap();
+    let mut tails: Vec<u8> = Vec::new();
+    while reader.read_frames(&mut buf, push_frames).unwrap() > 0 {
+        pass2.push_frames(&buf).unwrap();
+        tails.extend_from_slice(&sink.take_tail());
+    }
+    let report = pass2.finish().unwrap();
+    tails.extend_from_slice(&sink.take_tail());
+
+    let mut bytes = sink.head();
+    bytes.extend_from_slice(&tails);
+    (bytes, report)
+}
+
+#[test]
+fn streamed_render_matches_the_file_render_byte_for_byte() {
+    // ~4 s of 4-channel material, so the output comfortably outgrows the
+    // sink's 64 KB header window and actually exercises the tail path.
+    let frames = 200_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 220.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+                ((t * 330.0 * std::f64::consts::TAU).sin() * 0.4 * 32767.0) as i16,
+                ((t * 55.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                0,
+            ]
+        })
+        .collect();
+
+    for format in [
+        OutputFormat::Wav24,
+        OutputFormat::Wav16,
+        OutputFormat::Flac24,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        std::fs::write(&in_path, wav16(4, 48_000, &samples, None)).unwrap();
+
+        let tracks = vec![
+            track(1, -3.0, -0.5),
+            track(2, 0.0, 0.5),
+            track(3, -6.0, 0.0),
+        ];
+        let settings = RenderSettings {
+            loudness: LoudnessMode::LufsIntegrated(-14.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_in_ms: 120.0,
+            fade_out_ms: 250.0,
+            ..RenderSettings::default()
+        };
+
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        // 7919 is prime and shares no factor with BLOCK_FRAMES (65536) or the
+        // FLAC block size (4096).
+        let (streamed, streamed_report) = render_streamed(&in_path, &tracks, &settings, 7919);
+
+        assert_eq!(
+            streamed.len(),
+            native.len(),
+            "{format:?}: streamed render is {} bytes, file render {}",
+            streamed.len(),
+            native.len()
+        );
+        let first_diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(first_diff, "identical", "{format:?}");
+        assert_eq!(streamed_report, native_report, "{format:?}: report differs");
+    }
+}
+
+/// The full browser path: push raw `data`-chunk bytes twice, once per pass.
+///
+/// This is what the web build actually runs, so it has to match the file
+/// render byte for byte too — including block boundaries that fall
+/// mid-frame, which is the normal case when Dart slices a `Blob`.
+#[test]
+fn byte_driven_render_matches_the_file_render() {
+    let frames = 120_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 180.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 90.0 * std::f64::consts::TAU).sin() * 0.5 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    for format in [OutputFormat::Wav24, OutputFormat::Flac16] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        let wav = wav16(2, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let tracks = vec![track(1, -2.0, -1.0), track(2, -4.0, 1.0)];
+        let settings = RenderSettings {
+            loudness: LoudnessMode::PeakDbfs(-1.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_out_ms: 400.0,
+            ..RenderSettings::default()
+        };
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        // Locate the payload the way the web build does, then push it in
+        // blocks whose size is deliberately not a multiple of the 4-byte
+        // frame — every block ends mid-frame.
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let payload = &wav[data.offset as usize..][..data.size as usize];
+        let total_frames = data.size / spec.bytes_per_frame() as u64;
+
+        let mut render =
+            StreamRender::new(spec, total_frames, tracks.clone(), settings.clone(), None).unwrap();
+        const BLOCK: usize = 65_537; // odd, so no block ends on a frame edge
+        for block in payload.chunks(BLOCK) {
+            render.push_pass1(block).unwrap();
+        }
+        render.start_pass2().unwrap();
+        let mut body = Vec::new();
+        for block in payload.chunks(BLOCK) {
+            body.extend_from_slice(&render.push_pass2(block).unwrap());
+        }
+        let out = render.finish().unwrap();
+
+        let mut streamed = out.head;
+        streamed.extend_from_slice(&body);
+        streamed.extend_from_slice(&out.tail);
+
+        assert_eq!(streamed.len(), native.len(), "{format:?}: length differs");
+        let diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(diff, "identical", "{format:?}");
+        assert_eq!(out.report, native_report, "{format:?}: report differs");
+    }
+}
+
+// ── preview (browser player) ────────────────────────────────────────────────
+
+/// What the preview plays must be what the export writes.
+///
+/// The preview chain is render pass 2 without the normalisation gain, so a
+/// render at `LoudnessMode::None` (gain = 1.0) into 32-bit float has to come
+/// out sample-for-sample identical to what `WebPlayer` hands the browser's
+/// audio thread. If these ever drift, the mixer lies to the user — the worst
+/// bug this app could have.
+#[test]
+fn web_player_matches_the_rendered_output() {
+    let frames = 60_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 210.0 * std::f64::consts::TAU).sin() * 0.75 * 32767.0) as i16,
+                ((t * 70.0 * std::f64::consts::TAU).sin() * 0.55 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+    let wav = wav16(2, 48_000, &samples, None);
+    std::fs::write(&in_path, &wav).unwrap();
+
+    let tracks = vec![track(1, -2.0, -0.7), track(2, -5.0, 0.4)];
+    let settings = RenderSettings {
+        // No normalisation: the preview applies none either, so gain is 1.0
+        // and the two chains have to agree exactly.
+        loudness: LoudnessMode::None,
+        format: OutputFormat::Wav32Float,
+        limiter_enabled: true,
+        ..RenderSettings::default()
+    };
+    render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+    let rendered: Vec<f32> = hound::WavReader::open(&out_path)
+        .unwrap()
+        .samples::<f32>()
+        .map(|s| s.unwrap())
+        .collect();
+
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+
+    let mut player = WebPlayer::new(
+        spec,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: true,
+            ..Default::default()
+        },
+        None,
+        0,
+    );
+    // Odd block size: at 4 bytes per frame every push ends mid-frame, which
+    // is what slicing a Blob actually does.
+    let mut played: Vec<f32> = Vec::new();
+    for block in payload.chunks(12_289) {
+        played.extend_from_slice(player.process(block).unwrap());
+    }
+
+    // The render is longer by exactly the limiter's lookahead: pass 2 drains
+    // the delay line at the end, and a live preview has no end to drain. Both
+    // streams are delayed by the same lookahead, so they line up from sample
+    // zero — only the flushed tail is extra.
+    assert!(
+        rendered.len() > played.len(),
+        "render should carry the limiter flush"
+    );
+    let tail_frames = (rendered.len() - played.len()) / 2;
+    assert!(
+        (1..=1000).contains(&tail_frames),
+        "unexpected tail of {tail_frames} frames — is that really the limiter lookahead?"
+    );
+    let worst = played
+        .iter()
+        .zip(&rendered)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    assert_eq!(worst, 0.0, "preview and render differ by up to {worst}");
+    assert_eq!(player.position_frames(), frames as u64);
+}
+
+/// A parameter change must reach the ear without resetting the chain.
+///
+/// The browser mixes ahead into a ring buffer, so a fader move is only heard
+/// once that buffer drains — about a second. The fix drops the stale part
+/// and produces it again from slightly earlier, which is what
+/// [`WebPlayer::rewind_to`] is for. It must NOT behave like `seek`: seek
+/// resets the biquads and the limiter, and that reset is audible.
+///
+/// The two are told apart by their output: after a reset the chain answers
+/// exactly as a freshly built one does, and with the state kept it does not.
+#[test]
+fn rewind_to_keeps_the_filter_state_that_seek_throws_away() {
+    let frames = 20_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 90.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                ((t * 3000.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+    let wav = wav16(2, 48_000, &samples, None);
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+
+    // A high-pass gives the chain a memory to carry; without one there would
+    // be nothing for the two paths to disagree about.
+    let mut tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    for t in &mut tracks {
+        t.eq.hpf_enabled = true;
+        t.eq.hpf_freq = 400.0;
+    }
+    let master = durecmix_engine::chain::MasterParams {
+        limiter_enabled: true,
+        ..Default::default()
+    };
+    let new_player = || WebPlayer::new(spec, &tracks, master, None, 0);
+
+    // Half the material, then the same bytes again three ways.
+    let half = payload.len() / 2 / 4 * 4;
+    let second = &payload[half..];
+
+    let mut fresh = new_player();
+    let from_scratch = fresh.process(second).unwrap().to_vec();
+
+    let mut seeking = new_player();
+    seeking.process(&payload[..half]).unwrap();
+    seeking.seek(0);
+    let after_seek = seeking.process(second).unwrap().to_vec();
+
+    let mut rewinding = new_player();
+    rewinding.process(&payload[..half]).unwrap();
+    rewinding.rewind_to(0);
+    let after_rewind = rewinding.process(second).unwrap().to_vec();
+
+    assert_eq!(
+        after_seek, from_scratch,
+        "seek is documented to reset the chain"
+    );
+    assert_ne!(
+        after_rewind, from_scratch,
+        "rewind_to must keep the filter state — otherwise it is just seek and clicks"
+    );
+    // The difference has to be transient. At the very start it is large on
+    // purpose: the limiter's lookahead line still holds the audio that was
+    // dropped, so the stream continues instead of restarting from silence —
+    // which is the whole reason this does not click. Once past the lookahead
+    // and the filters' memory, both paths carry the same signal.
+    let settled = 20_000; // samples ≈ 208 ms at 48 kHz
+    let worst_settled = after_rewind
+        .iter()
+        .zip(&from_scratch)
+        .skip(settled)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    assert!(
+        worst_settled < 0.01,
+        "the two paths must converge once the chain has settled (worst {worst_settled})"
+    );
+    assert_eq!(rewinding.position_frames(), (second.len() / 4) as u64);
+}
+
+/// The browser render must match the native one **with the filters on** too.
+///
+/// [`byte_driven_render_matches_the_file_render`] proves the byte path for
+/// gain, pan, loudness, limiter, dither and fades — but with a flat chain.
+/// EQ and the high-pass are the interesting case for a *streamed* render:
+/// biquads carry state across block boundaries, so a chain that were rebuilt
+/// or reset per block would still sound plausible and quietly differ from
+/// the file render. Nothing else in this suite would notice.
+///
+/// Trim rides along because the web build applies it by choosing which bytes
+/// to read at all, not by telling the engine.
+#[test]
+fn byte_driven_render_matches_the_file_render_with_eq_and_trim() {
+    let frames = 150_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                // Wide-band content so every band has something to act on.
+                ((t * 55.0 * std::f64::consts::TAU).sin() * 0.5
+                    + (t * 900.0 * std::f64::consts::TAU).sin() * 0.3
+                    + (t * 9000.0 * std::f64::consts::TAU).sin() * 0.2)
+                    .clamp(-1.0, 1.0) as f32,
+                ((t * 110.0 * std::f64::consts::TAU).sin() * 0.6
+                    + (t * 3000.0 * std::f64::consts::TAU).sin() * 0.3)
+                    .clamp(-1.0, 1.0) as f32,
+            ]
+        })
+        .map(|v: f32| (v * 32767.0) as i16)
+        .collect();
+
+    let trim_start = 12_345u64;
+    let trim_end = 130_000u64;
+
+    for format in [OutputFormat::Wav24, OutputFormat::Flac24] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        let wav = wav16(2, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let mut tracks = vec![track(1, -2.0, -0.6), track(2, -4.0, 0.6)];
+        // Every filter slot busy, and different per track so a mix-up shows.
+        tracks[0].eq.hpf_enabled = true;
+        tracks[0].eq.hpf_freq = 90.0;
+        tracks[0].eq.low = durecmix_engine::mix::EqBand {
+            enabled: true,
+            freq: 140.0,
+            gain_db: 4.5,
+            q: 0.9,
+        };
+        tracks[0].eq.mid = durecmix_engine::mix::EqBand {
+            enabled: true,
+            freq: 1200.0,
+            gain_db: -3.5,
+            q: 1.4,
+        };
+        tracks[1].eq.hpf_enabled = true;
+        tracks[1].eq.hpf_freq = 200.0;
+        tracks[1].eq.hpf_slope = durecmix_engine::mix::HpfSlope::Db24;
+        tracks[1].eq.high = durecmix_engine::mix::EqBand {
+            enabled: true,
+            freq: 7000.0,
+            gain_db: 5.0,
+            q: 0.7,
+        };
+
+        let settings = RenderSettings {
+            loudness: LoudnessMode::LufsIntegrated(-16.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_in_ms: 80.0,
+            fade_out_ms: 300.0,
+            trim_start_frame: trim_start,
+            trim_end_frame: Some(trim_end),
+            ..RenderSettings::default()
+        };
+
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let bpf = spec.bytes_per_frame() as u64;
+        // Exactly what platform_shim_web/range_render does: trim by slicing
+        // the source, and hand the engine only the kept range.
+        let payload = &wav
+            [(data.offset + trim_start * bpf) as usize..(data.offset + trim_end * bpf) as usize];
+
+        let mut streamed_settings = settings.clone();
+        streamed_settings.trim_start_frame = 0;
+        streamed_settings.trim_end_frame = None;
+        let mut render = StreamRender::new(
+            spec,
+            trim_end - trim_start,
+            tracks.clone(),
+            streamed_settings,
+            None,
+        )
+        .unwrap();
+        const BLOCK: usize = 65_537; // odd: every block ends mid-frame
+        for block in payload.chunks(BLOCK) {
+            render.push_pass1(block).unwrap();
+        }
+        render.start_pass2().unwrap();
+        let mut body = Vec::new();
+        for block in payload.chunks(BLOCK) {
+            body.extend_from_slice(&render.push_pass2(block).unwrap());
+        }
+        let out = render.finish().unwrap();
+        let mut streamed = out.head;
+        streamed.extend_from_slice(&body);
+        streamed.extend_from_slice(&out.tail);
+
+        assert_eq!(streamed.len(), native.len(), "{format:?}: length differs");
+        let diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(diff, "identical", "{format:?} with EQ + trim");
+        assert_eq!(out.report, native_report, "{format:?}: report differs");
+    }
+}
+
+/// Live playback must not clip, whatever the mix does.
+///
+/// The preview deliberately skips the render's normalisation gain — the
+/// meters are supposed to show what the mix really is. That makes the
+/// true-peak limiter the *only* thing between a hot mix and the speakers,
+/// and a DUREC take is exactly the hot case: a unity mix of all its tracks
+/// peaks far above 0 dBFS because the recorder also captured monitor buses.
+/// Web Audio hard-clips anything past ±1.0, so an unguarded overshoot is
+/// audible distortion, not a number in a meter.
+#[test]
+fn preview_never_leaves_the_limiter_ceiling_however_hot_the_mix() {
+    let sample_rate = 48_000;
+    let channels = 16;
+    // Sixteen tracks, all at unity, all in phase: the sum is ~16x a single
+    // track — around +24 dB over a full-scale source.
+    let tracks: Vec<TrackParams> = (1..=channels).map(|i| track(i as u32, 0.0, 0.0)).collect();
+    let master = durecmix_engine::chain::MasterParams {
+        limiter_enabled: true,
+        ceiling_dbtp: -1.0,
+    };
+    let mut stage =
+        durecmix_engine::preview::PreviewStage::new(channels, sample_rate, &tracks, master, None);
+
+    // Full-scale content with a transient edge, so the limiter has to catch
+    // both a sustained level and a sudden one.
+    let mut input: Vec<f64> = Vec::new();
+    for i in 0..sample_rate {
+        let t = i as f64 / sample_rate as f64;
+        let v = if i % 12_000 < 40 {
+            1.0 // click: worst case for a lookahead limiter
+        } else {
+            (t * 220.0 * std::f64::consts::TAU).sin()
+        };
+        for _ in 0..channels {
+            input.push(v);
+        }
+    }
+
+    let ceiling = 10f32.powf(-1.0 / 20.0); // -1 dBTP as a linear sample value
+    let mut worst = 0.0f32;
+    // Blocks of an odd length, as a Blob slice would deliver them.
+    for block in input.chunks(channels * 977) {
+        for &s in stage.process(block) {
+            worst = worst.max(s.abs());
+        }
+    }
+
+    assert!(
+        worst <= 1.0,
+        "preview output hit {worst} — anything past 1.0 is hard-clipped by the audio device"
+    );
+    // The ceiling is a true-peak limit, so inter-sample content may sit a
+    // hair above it in the sample domain; what must not happen is running
+    // free towards the +24 dB the raw sum would have.
+    assert!(
+        worst <= ceiling * 1.05,
+        "preview peaked at {worst}, ceiling is {ceiling} — the limiter is not holding"
+    );
+}
+
+/// With the export's gain, the preview IS the export — also when the export
+/// normalises.
+///
+/// [`web_player_matches_the_rendered_output`] proves the two chains agree at
+/// `LoudnessMode::None`, where the gain is 1.0. That is the easy half. The
+/// half that matters for monitoring is the normalising one: there the render
+/// lowers the level *before* the limiter, and a preview without that gain
+/// hands the limiter a mix that is tens of dB hotter. Same chain, different
+/// sound — the mixer would lie about its own output.
+#[test]
+fn preview_matches_a_normalised_render_once_it_gets_the_gain() {
+    let frames = 80_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 190.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                ((t * 460.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 80.0 * std::f64::consts::TAU).sin() * 0.9 * 32767.0) as i16,
+                ((t * 2500.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    // Four tracks at unity sum well past full scale — the DUREC case, and
+    // exactly where a missing gain is audible.
+    let tracks = vec![
+        track(1, 6.0, -0.8),
+        track(2, 6.0, 0.8),
+        track(3, 6.0, 0.0),
+        track(4, 6.0, 0.0),
+    ];
+
+    for loudness in [
+        LoudnessMode::PeakDbfs(-1.0),
+        LoudnessMode::LufsIntegrated(-14.0),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.wav");
+        let wav = wav16(4, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let settings = RenderSettings {
+            loudness,
+            format: OutputFormat::Wav32Float,
+            limiter_enabled: true,
+            ..RenderSettings::default()
+        };
+        let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let rendered: Vec<f32> = hound::WavReader::open(&out_path)
+            .unwrap()
+            .samples::<f32>()
+            .map(|s| s.unwrap())
+            .collect();
+
+        // The render tells us what it applied; that is exactly what the
+        // preview has to be given.
+        let gain = 10f64.powf(report.gain_applied_db / 20.0);
+        assert!(
+            gain < 0.5,
+            "{loudness:?}: this mix should need a big cut ({gain}), otherwise the test proves nothing"
+        );
+
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let payload = &wav[data.offset as usize..][..data.size as usize];
+
+        let mut player = WebPlayer::new(
+            spec,
+            &tracks,
+            durecmix_engine::chain::MasterParams {
+                limiter_enabled: true,
+                ..Default::default()
+            },
+            None,
+            0,
+        );
+        player.set_norm_gain(gain);
+        let mut played: Vec<f32> = Vec::new();
+        for block in payload.chunks(9_733) {
+            played.extend_from_slice(player.process(block).unwrap());
+        }
+
+        // As in the existing test, the render carries the limiter's flushed
+        // tail that a never-ending preview has no reason to produce.
+        assert!(
+            rendered.len() > played.len(),
+            "{loudness:?}: no limiter tail"
+        );
+        let worst = played
+            .iter()
+            .zip(&rendered)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert_eq!(
+            worst, 0.0,
+            "{loudness:?}: preview and render differ by {worst}"
+        );
+    }
 }

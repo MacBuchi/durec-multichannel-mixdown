@@ -1,0 +1,88 @@
+name: Pages
+
+# Publishes the web build (docs/PLAN-PWA.md S5). Both branches are listed on
+# purpose during the `dev/pwa` → main merge: main becomes the source once the
+# web target lives there, and until `dev/pwa` is deleted a push to it must
+# still deploy — the page the user tests on may never silently fall behind.
+# Drop `dev/pwa` from this list when the branch goes away.
+on:
+  push:
+    branches: [main, dev/pwa]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel a running one half-way.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned deliberately — see ci.yml.
+  FLUTTER_VERSION: "3.41.2"
+
+jobs:
+  build:
+    name: Build web bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # The engine builds as threaded wasm, which needs a nightly toolchain
+      # (-Z build-std) plus rust-src; tool/build_web_engine.sh pins the
+      # required link args.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get
+
+      - name: Build the Rust engine as wasm
+        run: ./tool/build_web_engine.sh
+
+      # Project pages live under /<repo>/, so the base href has to match or
+      # every asset 404s.
+      - name: Build the Flutter web app
+        run: flutter build web --base-href "/${GITHUB_REPOSITORY#*/}/"
+
+      # `flutter build web` does not copy web/pkg (wasm-pack leaves a
+      # catch-all .gitignore there), so the engine has to be staged by hand
+      # — without this the page loads and then dies with a missing wasm.
+      - name: Stage the wasm engine into the bundle
+        run: |
+          mkdir -p build/web/pkg
+          cp web/pkg/rust_lib_durecmix.js \
+             web/pkg/rust_lib_durecmix_bg.wasm \
+             web/pkg/package.json build/web/pkg/
+          test -s build/web/pkg/rust_lib_durecmix_bg.wasm
+          ls -la build/web/pkg build/web/coi-sw.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

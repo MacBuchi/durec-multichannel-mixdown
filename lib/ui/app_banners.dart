@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:ota_update/ota_update.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../io/platform_shim.dart';
 import '../state/feedback.dart';
 import '../state/update_check.dart';
 import 'app_colors.dart';
@@ -140,9 +139,9 @@ enum _UpdatePhase { idle, downloading, installing, error }
 class _UpdateDialogState extends State<_UpdateDialog> {
   _UpdatePhase _phase = _UpdatePhase.idle;
   double _progress = 0;
-  StreamSubscription<OtaEvent>? _subscription;
+  StreamSubscription<ApkInstallEvent>? _subscription;
 
-  bool get _inAppInstall => Platform.isAndroid && widget.info.apkUrl != null;
+  bool get _inAppInstall => isAndroidPlatform && widget.info.apkUrl != null;
 
   @override
   void dispose() {
@@ -153,23 +152,19 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   void _startAndroidInstall() {
     setState(() => _phase = _UpdatePhase.downloading);
     try {
-      _subscription = OtaUpdate()
-          .execute(
-            widget.info.apkUrl!,
-            destinationFilename: 'durecmix-update.apk',
-          )
+      _subscription = installApk(widget.info.apkUrl!, 'durecmix-update.apk')
           .listen(
             (event) {
               if (!mounted) return;
-              switch (event.status) {
-                case OtaStatus.DOWNLOADING:
+              switch (event.phase) {
+                case ApkInstallPhase.downloading:
                   setState(() {
                     _phase = _UpdatePhase.downloading;
-                    _progress = (double.tryParse(event.value ?? '') ?? 0) / 100;
+                    _progress = event.progress;
                   });
-                case OtaStatus.INSTALLING:
+                case ApkInstallPhase.installing:
                   setState(() => _phase = _UpdatePhase.installing);
-                default:
+                case ApkInstallPhase.error:
                   setState(() => _phase = _UpdatePhase.error);
               }
             },

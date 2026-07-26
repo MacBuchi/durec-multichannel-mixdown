@@ -1,11 +1,11 @@
-import 'dart:io';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'app_settings.dart';
+import 'range_probe.dart';
 
 /// One .wav file in the browsed folder.
 class WavEntry {
@@ -25,6 +25,13 @@ class WavEntry {
   /// Filled in lazily by the probe queue.
   rust.ApiProbe? probe;
   String? probeError;
+
+  /// Lazy byte access for sources that have no path (web `Blob`s). When
+  /// set, probing goes through ranges instead of the filesystem.
+  RangeReader? read;
+
+  /// Track names from iXML, filled by the range probe (web).
+  List<String> trackNames = const [];
 
   /// Ticked for the multi-file export. Defaults to true for multichannel
   /// takes once the probe lands; stereo files start unticked.
@@ -61,7 +68,28 @@ class WavBrowser extends ChangeNotifier {
 
   /// Platform folder picker: SAF tree on Android, path elsewhere.
   Future<String?> pickFolder() async =>
-      Platform.isAndroid ? Saf.pickDirectory() : getDirectoryPath();
+      isAndroidPlatform ? Saf.pickDirectory() : getDirectoryPath();
+
+  /// File picker for platforms without folder access (web): the picked
+  /// recordings become the listing, probed through byte ranges.
+  Future<void> pickAndOpenFiles() async {
+    final picked = await pickRecordings();
+    if (picked.isEmpty) return;
+    final generation = ++_generation;
+    folder = null;
+    folderName = picked.length == 1 ? picked.first.name : 'Picked files';
+    error = null;
+    loading = false;
+    entries
+      ..clear()
+      ..addAll([
+        for (final p in picked)
+          WavEntry(source: p.source, name: p.name, sizeBytes: p.sizeBytes)
+            ..read = p.read,
+      ]);
+    notifyListeners();
+    _probeAll(generation);
+  }
 
   /// List `target`'s .wav files and start probing them.
   Future<void> openFolder(String target) async {
@@ -163,20 +191,15 @@ class WavBrowser extends ChangeNotifier {
   }
 
   Future<List<WavEntry>> _listPath(String dirPath) async {
-    final listed = <WavEntry>[];
-    await for (final f in Directory(dirPath).list()) {
-      if (f is! File || !f.path.toLowerCase().endsWith('.wav')) continue;
-      final stat = await f.stat();
-      listed.add(
+    return [
+      for (final f in await listWavFiles(dirPath))
         WavEntry(
           source: f.path,
-          name: f.path.split(Platform.pathSeparator).last,
-          sizeBytes: stat.size,
-          modified: stat.modified,
+          name: f.path.split(pathSeparator).last,
+          sizeBytes: f.sizeBytes,
+          modified: f.modified,
         ),
-      );
-    }
-    return listed;
+    ];
   }
 
   Future<void> _probeAll(int generation) async {
@@ -192,10 +215,20 @@ class WavBrowser extends ChangeNotifier {
         continue;
       }
       try {
-        final fd = Saf.isContentUri(e.source)
-            ? await Saf.openFd(e.source)
-            : null;
-        final probe = await rust.probeRecording(path: e.source, fd: fd);
+        final rust.ApiProbe probe;
+        final reader = e.read;
+        if (reader != null) {
+          // No filesystem (web): Rust locates the chunks, we fetch only
+          // the ranges it asks for — see lib/state/range_probe.dart.
+          final ranged = await probeByRanges(reader, e.sizeBytes ?? 0);
+          probe = ranged.probe;
+          e.trackNames = ranged.trackNames;
+        } else {
+          final fd = Saf.isContentUri(e.source)
+              ? await Saf.openFd(e.source)
+              : null;
+          probe = await rust.probeRecording(path: e.source, fd: fd);
+        }
         if (generation != _generation) return;
         e.probe = probe;
         e.selected = probe.channels > 2;
@@ -210,7 +243,7 @@ class WavBrowser extends ChangeNotifier {
 
   static String _folderDisplayName(String target) {
     if (!Saf.isContentUri(target)) {
-      return target.split(Platform.pathSeparator).last;
+      return target.split(pathSeparator).last;
     }
     // Tree URIs end in an id like "primary:Music/DUREC" or "1234-5678:".
     final id = Uri.decodeComponent(target.split('/').last);

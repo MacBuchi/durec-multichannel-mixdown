@@ -1,8 +1,6 @@
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
-
+import '../io/platform_shim.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'session_paths.dart';
 
@@ -19,17 +17,15 @@ class AnalysisCache {
   static const _magic = 0x4458414E; // 'DXAN'
   static const _version = 1;
 
-  static Future<File> _fileFor(
+  static Future<String> _fileFor(
     String source,
     BigInt numFrames,
     int buckets,
   ) async {
-    final support = await getApplicationSupportDirectory();
-    final dir = Directory('${support.path}/analysis');
-    await dir.create(recursive: true);
-    return File(
-      '${dir.path}/${sourceHashFor(source)}_${numFrames}_$buckets.bin',
-    );
+    final support = await applicationSupportPath();
+    final dir = '$support/analysis';
+    await ensureDirectory(dir);
+    return '$dir/${sourceHashFor(source)}_${numFrames}_$buckets.bin';
   }
 
   static Future<rust.ApiAnalysis?> load(
@@ -39,8 +35,8 @@ class AnalysisCache {
   ) async {
     try {
       final file = await _fileFor(source, numFrames, buckets);
-      if (!file.existsSync()) return null;
-      final bytes = await file.readAsBytes();
+      if (!fileExistsSync(file)) return null;
+      final bytes = await readBinaryFile(file);
       final data = ByteData.sublistView(bytes);
       var o = 0;
       if (data.getUint32(o, Endian.little) != _magic) return null;
@@ -114,7 +110,7 @@ class AnalysisCache {
         }
       }
       final file = await _fileFor(source, numFrames, buckets);
-      await file.writeAsBytes(builder.toBytes());
+      await writeBinaryFile(file, builder.toBytes());
     } catch (_) {
       // Cache writes are best effort — never surface failures.
     }

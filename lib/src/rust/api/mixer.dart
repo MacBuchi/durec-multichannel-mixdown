@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `input_handle`, `player_slot`, `preview_plan`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`
+// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `web_players`, `with_renderer`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -16,6 +16,35 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<ApiProbe> probeRecording({required String path, int? fd}) =>
     RustLib.instance.api.crateApiMixerProbeRecording(path: path, fd: fd);
 
+/// Locate RIFF chunks in a buffer the caller fetched — the web build has no
+/// filesystem, so Dart reads ranges out of a `Blob` and the parsing stays
+/// here (docs/PLAN-PWA.md S2). `buf` covers `[buf_offset, +buf.len())`.
+ApiChunkScan scanWavChunks({
+  required List<int> buf,
+  required BigInt bufOffset,
+  required BigInt fileSize,
+}) => RustLib.instance.api.crateApiMixerScanWavChunks(
+  buf: buf,
+  bufOffset: bufOffset,
+  fileSize: fileSize,
+);
+
+/// Assemble a probe from the chunk payloads the caller fetched after
+/// [`scan_wav_chunks`] — the filesystem-free twin of [`probe_recording`].
+ApiProbe probeFromChunks({
+  required List<int> fmtChunk,
+  Uint8List? ixmlChunk,
+  required BigInt dataBytes,
+}) => RustLib.instance.api.crateApiMixerProbeFromChunks(
+  fmtChunk: fmtChunk,
+  ixmlChunk: ixmlChunk,
+  dataBytes: dataBytes,
+);
+
+/// Track names out of an iXML payload the caller fetched (web build).
+List<String> trackNamesFromIxml({required List<int> ixmlChunk}) =>
+    RustLib.instance.api.crateApiMixerTrackNamesFromIxml(ixmlChunk: ixmlChunk);
+
 Future<RecordingInfo> loadRecording({
   required String path,
   required String sessionPath,
@@ -24,6 +53,34 @@ Future<RecordingInfo> loadRecording({
   path: path,
   sessionPath: sessionPath,
   fd: fd,
+);
+
+/// Open a take from chunk payloads the caller fetched, for platforms
+/// without a filesystem (web). `session_json` restores a stored mix when
+/// the caller has one — the browser keeps sessions itself, since there is
+/// no app container to read (docs/PLAN-PWA.md S2b).
+Future<RecordingInfo> loadRecordingFromChunks({
+  required String source,
+  required List<int> fmtChunk,
+  Uint8List? ixmlChunk,
+  required BigInt dataBytes,
+  String? sessionJson,
+}) => RustLib.instance.api.crateApiMixerLoadRecordingFromChunks(
+  source: source,
+  fmtChunk: fmtChunk,
+  ixmlChunk: ixmlChunk,
+  dataBytes: dataBytes,
+  sessionJson: sessionJson,
+);
+
+/// Serialise the current mix, for platforms that store sessions themselves
+/// (web — there is no app container to write into).
+String sessionToJson({
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+}) => RustLib.instance.api.crateApiMixerSessionToJson(
+  tracks: tracks,
+  master: master,
 );
 
 /// Persist the current mix to `session_path` (an app-container location
@@ -102,6 +159,32 @@ Future<ApiAnalysis> analyzeRecording({
   fd: fd,
 );
 
+/// Start a streamed analysis. `fmt_chunk` and `data_bytes` come from
+/// [`scan_wav_chunks`]; the returned id addresses this analyzer until
+/// [`stream_analysis_finish`] or [`stream_analysis_cancel`].
+Future<int> streamAnalysisBegin({
+  required List<int> fmtChunk,
+  required BigInt dataBytes,
+  required BigInt buckets,
+}) => RustLib.instance.api.crateApiMixerStreamAnalysisBegin(
+  fmtChunk: fmtChunk,
+  dataBytes: dataBytes,
+  buckets: buckets,
+);
+
+/// Feed the next slice of the `data` payload, in file order. Slices may end
+/// mid-frame; the analyzer carries the remainder.
+Future<void> streamAnalysisPush({required int id, required List<int> bytes}) =>
+    RustLib.instance.api.crateApiMixerStreamAnalysisPush(id: id, bytes: bytes);
+
+/// Finish the analysis and drop the analyzer.
+Future<ApiAnalysis> streamAnalysisFinish({required int id}) =>
+    RustLib.instance.api.crateApiMixerStreamAnalysisFinish(id: id);
+
+/// Drop an analyzer without a result (user switched takes mid-scan).
+Future<void> streamAnalysisCancel({required int id}) =>
+    RustLib.instance.api.crateApiMixerStreamAnalysisCancel(id: id);
+
 /// Start (or restart) live playback of the mix at `start_frame`.
 Future<void> playerStart({
   required String path,
@@ -141,6 +224,109 @@ Future<void> playerUpdateParams({
 
 /// Poll playback position and meters (call at UI frame rate).
 ApiPlayerState playerState() => RustLib.instance.api.crateApiMixerPlayerState();
+
+/// Begin a streamed render. `fmt_chunk` comes from [`scan_wav_chunks`];
+/// `range_frames` is the length of the range Dart will push (trim applied on
+/// its side, since it decides which bytes to read).
+Future<int> renderStreamBegin({
+  required List<int> fmtChunk,
+  required BigInt rangeFrames,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  ApiReferenceProfile? reference,
+}) => RustLib.instance.api.crateApiMixerRenderStreamBegin(
+  fmtChunk: fmtChunk,
+  rangeFrames: rangeFrames,
+  tracks: tracks,
+  master: master,
+  reference: reference,
+);
+
+/// Feed the next slice of the `data` payload to pass 1 (measurement).
+Future<void> renderStreamPass1Push({
+  required int id,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiMixerRenderStreamPass1Push(
+  id: id,
+  bytes: bytes,
+);
+
+/// Close pass 1 and open the encoder. Dart then replays the same byte range.
+Future<void> renderStreamStartPass2({required int id}) =>
+    RustLib.instance.api.crateApiMixerRenderStreamStartPass2(id: id);
+
+/// Feed the next slice to pass 2 and take the encoded bytes it produced.
+Future<Uint8List> renderStreamPass2Push({
+  required int id,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiMixerRenderStreamPass2Push(
+  id: id,
+  bytes: bytes,
+);
+
+/// Finish the render and drop it.
+Future<ApiRenderTail> renderStreamFinish({required int id}) =>
+    RustLib.instance.api.crateApiMixerRenderStreamFinish(id: id);
+
+/// Drop a render that the user cancelled or that failed mid-way.
+Future<void> renderStreamCancel({required int id}) =>
+    RustLib.instance.api.crateApiMixerRenderStreamCancel(id: id);
+
+/// Open a browser player positioned at `start_frame`.
+Future<int> webPlayerBegin({
+  required List<int> fmtChunk,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  ApiMixStats? masteringStats,
+  ApiReferenceProfile? reference,
+  required BigInt startFrame,
+}) => RustLib.instance.api.crateApiMixerWebPlayerBegin(
+  fmtChunk: fmtChunk,
+  tracks: tracks,
+  master: master,
+  masteringStats: masteringStats,
+  reference: reference,
+  startFrame: startFrame,
+);
+
+/// Mix the next slice of the `data` chunk into interleaved stereo f32.
+Future<Float32List> webPlayerProcess({
+  required int id,
+  required List<int> bytes,
+}) => RustLib.instance.api.crateApiMixerWebPlayerProcess(id: id, bytes: bytes);
+
+/// Push new mix/master parameters; the chain adopts its old filter state, so
+/// a fader move does not click.
+Future<void> webPlayerUpdateParams({
+  required int id,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  ApiMixStats? masteringStats,
+  ApiReferenceProfile? reference,
+}) => RustLib.instance.api.crateApiMixerWebPlayerUpdateParams(
+  id: id,
+  tracks: tracks,
+  master: master,
+  masteringStats: masteringStats,
+  reference: reference,
+);
+
+/// Produce again from `frame` without resetting the chain — for re-mixing
+/// the browser's ring buffer after a parameter change, so a fader move is
+/// heard now instead of when the ring drains. Use [`web_player_seek`] for a
+/// real jump.
+Future<void> webPlayerRewind({required int id, required BigInt frame}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerRewind(id: id, frame: frame);
+
+/// Jump to `frame`. Dart resumes pushing source bytes from there.
+Future<void> webPlayerSeek({required int id, required BigInt frame}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerSeek(id: id, frame: frame);
+
+ApiPreviewState? webPlayerState({required int id}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerState(id: id);
+
+Future<void> webPlayerEnd({required int id}) =>
+    RustLib.instance.api.crateApiMixerWebPlayerEnd(id: id);
 
 class ApiAnalysis {
   final List<ApiChannelWaveform> waveforms;
@@ -184,6 +370,46 @@ class ApiChannelWaveform {
           min == other.min &&
           max == other.max &&
           peakDbfs == other.peakDbfs;
+}
+
+/// One RIFF chunk located by [`scan_wav_chunks`].
+class ApiChunk {
+  final String id;
+  final BigInt offset;
+  final BigInt size;
+
+  const ApiChunk({required this.id, required this.offset, required this.size});
+
+  @override
+  int get hashCode => id.hashCode ^ offset.hashCode ^ size.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiChunk &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          offset == other.offset &&
+          size == other.size;
+}
+
+/// Outcome of one scan window; `next_offset` is `None` when done.
+class ApiChunkScan {
+  final List<ApiChunk> chunks;
+  final BigInt? nextOffset;
+
+  const ApiChunkScan({required this.chunks, this.nextOffset});
+
+  @override
+  int get hashCode => chunks.hashCode ^ nextOffset.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiChunkScan &&
+          runtimeType == other.runtimeType &&
+          chunks == other.chunks &&
+          nextOffset == other.nextOffset;
 }
 
 class ApiEqBand {
@@ -437,6 +663,50 @@ class ApiPlayerState {
           correlation == other.correlation;
 }
 
+/// Meters plus the playhead, polled by the UI at frame rate.
+class ApiPreviewState {
+  final BigInt positionFrames;
+  final double peakL;
+  final double peakR;
+  final double lufsMomentary;
+  final double lufsIntegrated;
+  final double truePeak;
+  final double correlation;
+
+  const ApiPreviewState({
+    required this.positionFrames,
+    required this.peakL,
+    required this.peakR,
+    required this.lufsMomentary,
+    required this.lufsIntegrated,
+    required this.truePeak,
+    required this.correlation,
+  });
+
+  @override
+  int get hashCode =>
+      positionFrames.hashCode ^
+      peakL.hashCode ^
+      peakR.hashCode ^
+      lufsMomentary.hashCode ^
+      lufsIntegrated.hashCode ^
+      truePeak.hashCode ^
+      correlation.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiPreviewState &&
+          runtimeType == other.runtimeType &&
+          positionFrames == other.positionFrames &&
+          peakL == other.peakL &&
+          peakR == other.peakR &&
+          lufsMomentary == other.lufsMomentary &&
+          lufsIntegrated == other.lufsIntegrated &&
+          truePeak == other.truePeak &&
+          correlation == other.correlation;
+}
+
 /// Lightweight file metadata for the in-app WAV browser: header parse only
 /// (no audio scan, no session I/O) — cheap even on slow USB media.
 class ApiProbe {
@@ -586,6 +856,32 @@ class ApiRenderReport {
           sourceIntegratedLufs == other.sourceIntegratedLufs &&
           masteringApplied == other.masteringApplied &&
           masteringGainDb == other.masteringGainDb;
+}
+
+/// The finished render's fixed parts: `head ++ every block from
+/// [`render_stream_pass2_push`] ++ `tail` is the complete file.
+class ApiRenderTail {
+  final Uint8List head;
+  final Uint8List tail;
+  final ApiRenderReport report;
+
+  const ApiRenderTail({
+    required this.head,
+    required this.tail,
+    required this.report,
+  });
+
+  @override
+  int get hashCode => head.hashCode ^ tail.hashCode ^ report.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiRenderTail &&
+          runtimeType == other.runtimeType &&
+          head == other.head &&
+          tail == other.tail &&
+          report == other.report;
 }
 
 class ApiTrack {

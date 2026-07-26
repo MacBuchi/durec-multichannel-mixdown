@@ -1,13 +1,13 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart' show ThemeMode, ValueNotifier;
-import 'package:path_provider/path_provider.dart';
+
+import '../io/platform_shim.dart';
 
 /// Tiny persisted app settings at `<Application Support>/settings.json` —
 /// the same path_provider pattern as session files, no extra dependency.
 class AppSettings {
-  AppSettings._(this._file, Map<String, dynamic> data)
+  AppSettings._(this._path, Map<String, dynamic> data)
     : lastFolder = data['lastFolder'] as String?,
       sortByDate = data['sortByDate'] as bool? ?? false {
     themeMode.value = _parseThemeMode(data['themeMode'] as String?);
@@ -15,7 +15,7 @@ class AppSettings {
 
   static AppSettings? _instance;
 
-  final File _file;
+  final String _path;
 
   /// Last browsed folder: a filesystem path, or a SAF tree URI on Android.
   String? lastFolder;
@@ -49,20 +49,21 @@ class AppSettings {
 
   static Future<AppSettings> load() async {
     if (_instance != null) return _instance!;
-    final support = await getApplicationSupportDirectory();
-    final file = File('${support.path}/settings.json');
+    final support = await applicationSupportPath();
+    final path = '$support/settings.json';
     Map<String, dynamic> data = const {};
     try {
-      data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      data = jsonDecode(await readTextFile(path)) as Map<String, dynamic>;
     } catch (_) {
       // Missing or corrupt settings file: start fresh.
     }
-    return _instance = AppSettings._(file, data);
+    return _instance = AppSettings._(path, data);
   }
 
   Future<void> save() async {
     try {
-      await _file.writeAsString(
+      await writeTextFile(
+        _path,
         jsonEncode({
           'lastFolder': lastFolder,
           'sortByDate': sortByDate,

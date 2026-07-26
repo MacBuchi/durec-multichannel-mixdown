@@ -3,6 +3,7 @@
 //! Keep this file free of logic — it only converts between bridge types and
 //! engine types so the engine stays independently testable.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
@@ -15,7 +16,11 @@ use durecmix_engine::mastering::{
     PROFILE_VERSION,
 };
 use durecmix_engine::mix::{EqBand, HpfSlope, TrackEq, TrackParams};
+// Live playback is native-only until PLAN-PWA S4 (Web Audio); the API
+// surface below stays identical on wasm so the generated bindings match.
+#[cfg(not(target_family = "wasm"))]
 use durecmix_engine::playback::Player;
+use durecmix_engine::preview;
 use durecmix_engine::reference;
 use durecmix_engine::render::{
     self, LoudnessMode, MasteringReference, MasteringSettings, OutputFormat, RenderSettings,
@@ -35,8 +40,10 @@ fn input_handle(path: &str, fd: Option<i32>) -> InputHandle {
 
 use crate::frb_generated::StreamSink;
 
+#[cfg(not(target_family = "wasm"))]
 static PLAYER: OnceLock<Mutex<Option<Player>>> = OnceLock::new();
 
+#[cfg(not(target_family = "wasm"))]
 fn player_slot() -> &'static Mutex<Option<Player>> {
     PLAYER.get_or_init(|| Mutex::new(None))
 }
@@ -364,6 +371,70 @@ pub fn probe_recording(path: String, fd: Option<i32>) -> anyhow::Result<ApiProbe
     })
 }
 
+/// One RIFF chunk located by [`scan_wav_chunks`].
+pub struct ApiChunk {
+    pub id: String,
+    pub offset: u64,
+    pub size: u64,
+}
+
+/// Outcome of one scan window; `next_offset` is `None` when done.
+pub struct ApiChunkScan {
+    pub chunks: Vec<ApiChunk>,
+    pub next_offset: Option<u64>,
+}
+
+/// Locate RIFF chunks in a buffer the caller fetched — the web build has no
+/// filesystem, so Dart reads ranges out of a `Blob` and the parsing stays
+/// here (docs/PLAN-PWA.md S2). `buf` covers `[buf_offset, +buf.len())`.
+#[flutter_rust_bridge::frb(sync)]
+pub fn scan_wav_chunks(
+    buf: Vec<u8>,
+    buf_offset: u64,
+    file_size: u64,
+) -> anyhow::Result<ApiChunkScan> {
+    let scan = wav::scan_chunks(&buf, buf_offset, file_size)
+        .with_context(|| format!("scan chunks at {buf_offset}"))?;
+    Ok(ApiChunkScan {
+        chunks: scan
+            .chunks
+            .into_iter()
+            .map(|c| ApiChunk {
+                id: c.id,
+                offset: c.offset,
+                size: c.size,
+            })
+            .collect(),
+        next_offset: scan.next_offset,
+    })
+}
+
+/// Assemble a probe from the chunk payloads the caller fetched after
+/// [`scan_wav_chunks`] — the filesystem-free twin of [`probe_recording`].
+#[flutter_rust_bridge::frb(sync)]
+pub fn probe_from_chunks(
+    fmt_chunk: Vec<u8>,
+    ixml_chunk: Option<Vec<u8>>,
+    data_bytes: u64,
+) -> anyhow::Result<ApiProbe> {
+    let info = wav::probe_from_parts(&fmt_chunk, ixml_chunk.as_deref(), data_bytes)
+        .context("probe from chunks")?;
+    Ok(ApiProbe {
+        channels: info.channels,
+        sample_rate: info.sample_rate,
+        bits_per_sample: info.bits_per_sample,
+        num_frames: info.num_frames,
+        duration_seconds: info.duration_seconds,
+        ixml_track_count: info.ixml_track_count,
+    })
+}
+
+/// Track names out of an iXML payload the caller fetched (web build).
+#[flutter_rust_bridge::frb(sync)]
+pub fn track_names_from_ixml(ixml_chunk: Vec<u8>) -> Vec<String> {
+    wav::track_names_from_ixml(&ixml_chunk)
+}
+
 pub fn load_recording(
     path: String,
     session_path: String,
@@ -402,6 +473,64 @@ pub fn load_recording(
         tracks: session.tracks.iter().map(from_engine_track).collect(),
         master: from_engine_settings(&session.settings),
     })
+}
+
+/// Open a take from chunk payloads the caller fetched, for platforms
+/// without a filesystem (web). `session_json` restores a stored mix when
+/// the caller has one — the browser keeps sessions itself, since there is
+/// no app container to read (docs/PLAN-PWA.md S2b).
+pub fn load_recording_from_chunks(
+    source: String,
+    fmt_chunk: Vec<u8>,
+    ixml_chunk: Option<Vec<u8>>,
+    data_bytes: u64,
+    session_json: Option<String>,
+) -> anyhow::Result<RecordingInfo> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let infos = ixml_chunk
+        .as_deref()
+        .map(|x| ixml::parse_tracks(&String::from_utf8_lossy(x)))
+        .unwrap_or_default();
+    // Files without iXML still get one generic track per channel.
+    let infos = if infos.is_empty() {
+        (1..=spec.channels as u32)
+            .map(|i| ixml::TrackInfo {
+                index: i,
+                name: format!("Channel {i}"),
+            })
+            .collect()
+    } else {
+        infos
+    };
+
+    let session = match session_json.as_deref().and_then(Session::from_json) {
+        Some(saved) => saved.merged_with(&infos),
+        None => Session::from_track_info(&infos),
+    };
+
+    let num_frames = data_bytes / spec.bytes_per_frame() as u64;
+    Ok(RecordingInfo {
+        path: source,
+        sample_rate: spec.sample_rate,
+        channels: spec.channels,
+        bits_per_sample: spec.bits_per_sample,
+        num_frames,
+        duration_seconds: num_frames as f64 / spec.sample_rate as f64,
+        tracks: session.tracks.iter().map(from_engine_track).collect(),
+        master: from_engine_settings(&session.settings),
+    })
+}
+
+/// Serialise the current mix, for platforms that store sessions themselves
+/// (web — there is no app container to write into).
+#[flutter_rust_bridge::frb(sync)]
+pub fn session_to_json(tracks: Vec<ApiTrack>, master: ApiMaster) -> anyhow::Result<String> {
+    let session = Session {
+        tracks: tracks.iter().map(to_engine_track).collect(),
+        settings: to_engine_settings(&master),
+        ..Session::default()
+    };
+    session.to_json().context("serialise session")
 }
 
 /// Persist the current mix to `session_path` (an app-container location
@@ -697,6 +826,83 @@ pub fn analyze_recording(
     })
 }
 
+fn to_api_analysis(a: analysis::Analysis) -> ApiAnalysis {
+    ApiAnalysis {
+        waveforms: a
+            .waveforms
+            .into_iter()
+            .map(|w| ApiChannelWaveform {
+                min: w.min,
+                max: w.max,
+                peak_dbfs: w.peak_dbfs,
+            })
+            .collect(),
+        bpm: a.bpm,
+    }
+}
+
+// ── streamed analysis for platforms without a filesystem (web) ──────────────
+//
+// The browser cannot hand Rust a file, only byte ranges, so the analyzer
+// lives across calls here and Dart pushes the `data` payload block by block
+// (docs/PLAN-PWA.md S2b). Keyed by id rather than an FRB opaque type to keep
+// the same shape as the player slot above.
+
+static ANALYZERS: OnceLock<Mutex<HashMap<u32, analysis::StreamAnalyzer>>> = OnceLock::new();
+static NEXT_ANALYZER_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn analyzers() -> &'static Mutex<HashMap<u32, analysis::StreamAnalyzer>> {
+    ANALYZERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Start a streamed analysis. `fmt_chunk` and `data_bytes` come from
+/// [`scan_wav_chunks`]; the returned id addresses this analyzer until
+/// [`stream_analysis_finish`] or [`stream_analysis_cancel`].
+pub fn stream_analysis_begin(
+    fmt_chunk: Vec<u8>,
+    data_bytes: u64,
+    buckets: usize,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let num_frames = data_bytes / spec.bytes_per_frame() as u64;
+    let mut counter = NEXT_ANALYZER_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    analyzers()
+        .lock()
+        .unwrap()
+        .insert(id, analysis::StreamAnalyzer::new(spec, num_frames, buckets));
+    Ok(id)
+}
+
+/// Feed the next slice of the `data` payload, in file order. Slices may end
+/// mid-frame; the analyzer carries the remainder.
+pub fn stream_analysis_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<()> {
+    let mut map = analyzers().lock().unwrap();
+    let analyzer = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed analysis with id {id}"))?;
+    analyzer.push_bytes(&bytes).context("push audio block")
+}
+
+/// Finish the analysis and drop the analyzer.
+pub fn stream_analysis_finish(id: u32) -> anyhow::Result<ApiAnalysis> {
+    let analyzer = analyzers()
+        .lock()
+        .unwrap()
+        .remove(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed analysis with id {id}"))?;
+    Ok(to_api_analysis(analyzer.finish()))
+}
+
+/// Drop an analyzer without a result (user switched takes mid-scan).
+pub fn stream_analysis_cancel(id: u32) {
+    analyzers().lock().unwrap().remove(&id);
+}
+
 // ── live preview playback ───────────────────────────────────────────────────
 
 pub struct ApiPlayerState {
@@ -722,32 +928,53 @@ pub fn player_start(
     mastering_stats: Option<ApiMixStats>,
     reference: Option<ApiReferenceProfile>,
 ) -> anyhow::Result<()> {
-    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
-    let plan = preview_plan(&master, mastering_stats, reference)?;
-    let new_player = Player::start_input(
-        &input_handle(&path, fd),
-        engine_tracks,
-        to_master_params(&master),
-        plan,
-        start_frame,
-    )
-    .with_context(|| format!("start playback of {path}"))?;
-    let mut slot = player_slot().lock().unwrap();
-    if let Some(old) = slot.take() {
-        old.stop();
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (
+            path,
+            tracks,
+            master,
+            start_frame,
+            fd,
+            mastering_stats,
+            reference,
+        );
+        anyhow::bail!("live playback is not available in the web build yet (PLAN-PWA S4)");
     }
-    *slot = Some(new_player);
-    Ok(())
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+        let plan = preview_plan(&master, mastering_stats, reference)?;
+        let new_player = Player::start_input(
+            &input_handle(&path, fd),
+            engine_tracks,
+            to_master_params(&master),
+            plan,
+            start_frame,
+        )
+        .with_context(|| format!("start playback of {path}"))?;
+        let mut slot = player_slot().lock().unwrap();
+        if let Some(old) = slot.take() {
+            old.stop();
+        }
+        *slot = Some(new_player);
+        Ok(())
+    }
 }
 
 pub fn player_stop() {
-    let mut slot = player_slot().lock().unwrap();
-    if let Some(p) = slot.take() {
-        p.stop();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let mut slot = player_slot().lock().unwrap();
+        if let Some(p) = slot.take() {
+            p.stop();
+        }
     }
 }
 
 pub fn player_seek(frame: u64) {
+    let _ = frame;
+    #[cfg(not(target_family = "wasm"))]
     if let Some(p) = player_slot().lock().unwrap().as_ref() {
         p.seek(frame);
     }
@@ -761,6 +988,9 @@ pub fn player_update_params(
     reference: Option<ApiReferenceProfile>,
 ) -> anyhow::Result<()> {
     let plan = preview_plan(&master, mastering_stats, reference)?;
+    #[cfg(target_family = "wasm")]
+    let _ = (tracks, plan);
+    #[cfg(not(target_family = "wasm"))]
     if let Some(p) = player_slot().lock().unwrap().as_ref() {
         p.update_params(
             tracks.iter().map(to_engine_track).collect(),
@@ -774,30 +1004,277 @@ pub fn player_update_params(
 /// Poll playback position and meters (call at UI frame rate).
 #[flutter_rust_bridge::frb(sync)]
 pub fn player_state() -> ApiPlayerState {
-    let slot = player_slot().lock().unwrap();
-    match slot.as_ref() {
-        Some(p) => {
-            let s = p.snapshot();
-            ApiPlayerState {
-                playing: s.playing,
-                position_frames: s.position_frames,
-                peak_l: s.peak_l,
-                peak_r: s.peak_r,
-                lufs_momentary: s.lufs_momentary,
-                lufs_integrated: s.lufs_integrated,
-                true_peak: s.true_peak,
-                correlation: s.correlation,
-            }
-        }
-        None => ApiPlayerState {
-            playing: false,
-            position_frames: 0,
-            peak_l: 0.0,
-            peak_r: 0.0,
-            lufs_momentary: -70.0,
-            lufs_integrated: -70.0,
-            true_peak: 0.0,
-            correlation: 0.0,
-        },
+    #[cfg(target_family = "wasm")]
+    {
+        idle_player_state()
     }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let slot = player_slot().lock().unwrap();
+        match slot.as_ref() {
+            Some(p) => {
+                let s = p.snapshot();
+                ApiPlayerState {
+                    playing: s.playing,
+                    position_frames: s.position_frames,
+                    peak_l: s.peak_l,
+                    peak_r: s.peak_r,
+                    lufs_momentary: s.lufs_momentary,
+                    lufs_integrated: s.lufs_integrated,
+                    true_peak: s.true_peak,
+                    correlation: s.correlation,
+                }
+            }
+            None => idle_player_state(),
+        }
+    }
+}
+
+/// The "nothing is playing" snapshot — shared by the native idle case and
+/// the whole wasm build (no playback until PLAN-PWA S4).
+fn idle_player_state() -> ApiPlayerState {
+    ApiPlayerState {
+        playing: false,
+        position_frames: 0,
+        peak_l: 0.0,
+        peak_r: 0.0,
+        lufs_momentary: -70.0,
+        lufs_integrated: -70.0,
+        true_peak: 0.0,
+        correlation: 0.0,
+    }
+}
+
+// ── streamed render (no filesystem) ─────────────────────────────────────────
+//
+// The browser cannot hand the engine a seekable file, so Dart drives the two
+// render passes itself and collects the encoded output block by block
+// (docs/PLAN-PWA.md S3). Same registry shape as the analyzers above.
+
+static RENDERERS: OnceLock<Mutex<HashMap<u32, render::StreamRender>>> = OnceLock::new();
+static NEXT_RENDERER_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn renderers() -> &'static Mutex<HashMap<u32, render::StreamRender>> {
+    RENDERERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn with_renderer<T>(
+    id: u32,
+    f: impl FnOnce(&mut render::StreamRender) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let mut map = renderers().lock().unwrap();
+    let renderer = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed render with id {id}"))?;
+    f(renderer)
+}
+
+/// The finished render's fixed parts: `head ++ every block from
+/// [`render_stream_pass2_push`] ++ `tail` is the complete file.
+pub struct ApiRenderTail {
+    pub head: Vec<u8>,
+    pub tail: Vec<u8>,
+    pub report: ApiRenderReport,
+}
+
+/// Begin a streamed render. `fmt_chunk` comes from [`scan_wav_chunks`];
+/// `range_frames` is the length of the range Dart will push (trim applied on
+/// its side, since it decides which bytes to read).
+pub fn render_stream_begin(
+    fmt_chunk: Vec<u8>,
+    range_frames: u64,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    reference: Option<ApiReferenceProfile>,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let settings = to_engine_settings(&master);
+    let profile = match (&master.mastering_enabled, reference) {
+        (true, Some(p)) => Some(to_engine_profile(p)),
+        _ => None,
+    };
+    let renderer = render::StreamRender::new(spec, range_frames, engine_tracks, settings, profile)?;
+    let mut counter = NEXT_RENDERER_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    renderers().lock().unwrap().insert(id, renderer);
+    Ok(id)
+}
+
+/// Feed the next slice of the `data` payload to pass 1 (measurement).
+pub fn render_stream_pass1_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<()> {
+    with_renderer(id, |r| r.push_pass1(&bytes).context("render pass 1"))
+}
+
+/// Close pass 1 and open the encoder. Dart then replays the same byte range.
+pub fn render_stream_start_pass2(id: u32) -> anyhow::Result<()> {
+    with_renderer(id, |r| r.start_pass2().context("start render pass 2"))
+}
+
+/// Feed the next slice to pass 2 and take the encoded bytes it produced.
+pub fn render_stream_pass2_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+    with_renderer(id, |r| r.push_pass2(&bytes).context("render pass 2"))
+}
+
+/// Finish the render and drop it.
+pub fn render_stream_finish(id: u32) -> anyhow::Result<ApiRenderTail> {
+    let renderer = renderers()
+        .lock()
+        .unwrap()
+        .remove(&id)
+        .ok_or_else(|| anyhow::anyhow!("no streamed render with id {id}"))?;
+    let out = renderer.finish()?;
+    Ok(ApiRenderTail {
+        head: out.head,
+        tail: out.tail,
+        report: ApiRenderReport {
+            peak_dbfs_before: out.report.peak_dbfs_before,
+            gain_applied_db: out.report.gain_applied_db,
+            duration_seconds: out.report.duration_seconds,
+            sample_rate: out.report.sample_rate,
+            integrated_lufs: out.report.integrated_lufs,
+            true_peak_dbtp: out.report.true_peak_dbtp,
+            lra_lu: out.report.lra_lu,
+            source_integrated_lufs: out.report.source_integrated_lufs,
+            mastering_applied: out.report.mastering_applied,
+            mastering_gain_db: out.report.mastering_gain_db,
+        },
+    })
+}
+
+/// Drop a render that the user cancelled or that failed mid-way.
+pub fn render_stream_cancel(id: u32) {
+    renderers().lock().unwrap().remove(&id);
+}
+
+// ── browser playback ────────────────────────────────────────────────────────
+//
+// No cpal in wasm and no synchronous read on a Blob, so the arrangement is
+// inverted: Dart slices the source and pushes it, Rust hands back mixed
+// frames, and an AudioWorklet plays them (docs/PLAN-PWA.md S4). The DSP is
+// `preview::PreviewStage` — the same chain the native player runs.
+
+static WEB_PLAYERS: OnceLock<Mutex<HashMap<u32, preview::WebPlayer>>> = OnceLock::new();
+static NEXT_WEB_PLAYER_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn web_players() -> &'static Mutex<HashMap<u32, preview::WebPlayer>> {
+    WEB_PLAYERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Meters plus the playhead, polled by the UI at frame rate.
+pub struct ApiPreviewState {
+    pub position_frames: u64,
+    pub peak_l: f32,
+    pub peak_r: f32,
+    pub lufs_momentary: f32,
+    pub lufs_integrated: f32,
+    pub true_peak: f32,
+    pub correlation: f32,
+}
+
+/// Open a browser player positioned at `start_frame`.
+pub fn web_player_begin(
+    fmt_chunk: Vec<u8>,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    mastering_stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
+    start_frame: u64,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let plan = preview_plan(&master, mastering_stats, reference)?;
+    let player = preview::WebPlayer::new(
+        spec,
+        &engine_tracks,
+        to_master_params(&master),
+        plan,
+        start_frame,
+    );
+    let mut counter = NEXT_WEB_PLAYER_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    web_players().lock().unwrap().insert(id, player);
+    Ok(id)
+}
+
+/// Mix the next slice of the `data` chunk into interleaved stereo f32.
+pub fn web_player_process(id: u32, bytes: Vec<u8>) -> anyhow::Result<Vec<f32>> {
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    Ok(player
+        .process(&bytes)
+        .context("mix preview block")?
+        .to_vec())
+}
+
+/// Push new mix/master parameters; the chain adopts its old filter state, so
+/// a fader move does not click.
+pub fn web_player_update_params(
+    id: u32,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    mastering_stats: Option<ApiMixStats>,
+    reference: Option<ApiReferenceProfile>,
+) -> anyhow::Result<()> {
+    let plan = preview_plan(&master, mastering_stats, reference)?;
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    player.set_params(&engine_tracks, to_master_params(&master), plan);
+    Ok(())
+}
+
+/// Produce again from `frame` without resetting the chain — for re-mixing
+/// the browser's ring buffer after a parameter change, so a fader move is
+/// heard now instead of when the ring drains. Use [`web_player_seek`] for a
+/// real jump.
+pub fn web_player_rewind(id: u32, frame: u64) -> anyhow::Result<()> {
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    player.rewind_to(frame);
+    Ok(())
+}
+
+/// Jump to `frame`. Dart resumes pushing source bytes from there.
+pub fn web_player_seek(id: u32, frame: u64) -> anyhow::Result<()> {
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    player.seek(frame);
+    Ok(())
+}
+
+#[flutter_rust_bridge::frb(sync)]
+pub fn web_player_state(id: u32) -> Option<ApiPreviewState> {
+    let map = web_players().lock().unwrap();
+    let player = map.get(&id)?;
+    let m = player.meters();
+    Some(ApiPreviewState {
+        position_frames: player.position_frames(),
+        peak_l: m.peak_l,
+        peak_r: m.peak_r,
+        lufs_momentary: m.lufs_momentary,
+        lufs_integrated: m.lufs_integrated,
+        true_peak: m.true_peak,
+        correlation: m.correlation,
+    })
+}
+
+pub fn web_player_end(id: u32) {
+    web_players().lock().unwrap().remove(&id);
 }

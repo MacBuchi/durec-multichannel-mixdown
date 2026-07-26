@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import '../io/ios_files.dart';
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
+import 'range_render.dart';
 
 /// Single-file export and the batch queue (several loudness/format targets
 /// of the current mix into one folder). Owned and composed by [MixerState],
@@ -17,6 +19,32 @@ class ExportController {
   double renderProgress = 0;
   rust.ApiRenderReport? lastReport;
   String? lastOutputPath;
+
+  /// Set while a cancellable render is running — only the range renderer can
+  /// be stopped, so the UI must not offer it for the others (a cancel button
+  /// that does nothing is the dead end this app keeps running into).
+  bool _cancellable = false;
+  bool _cancelRequested = false;
+
+  /// True when the running export can be stopped.
+  bool get canCancel => rendering && _cancellable && !_cancelRequested;
+
+  /// True once cancelling was asked for and the render has not noticed yet —
+  /// it stops at the next block boundary, so the button must show that the
+  /// press arrived.
+  bool get cancelling => rendering && _cancelRequested;
+
+  /// Set when the last export ended because the user cancelled it. Lets the
+  /// caller skip the "Export finished" message without treating it as an
+  /// error.
+  bool lastCancelled = false;
+
+  /// Ask the running render to stop at the next block boundary.
+  void cancelExport() {
+    if (!canCancel) return;
+    _cancelRequested = true;
+    _owner.notify();
+  }
 
   /// One queued output: the current mix rendered at this loudness/format.
   /// Starts as a copy of the app-bar selection; editable in the batch dialog.
@@ -97,6 +125,61 @@ class ExportController {
       if (iosBgTask != null) unawaited(IosFiles.endBackgroundTask(iosBgTask));
     }
     rendering = false;
+    _owner.notify();
+  }
+
+  /// Render a take that has no path — the browser's `Blob` source — and hand
+  /// the result to the platform (a download).
+  ///
+  /// Same two-pass render as [export]; only the source and the destination
+  /// differ, and both live behind [renderByRanges] / [RenderOutput].
+  Future<void> exportByRanges(String filename) async {
+    final read = _owner.sourceReader;
+    if (read == null || rendering) return;
+    final size = _owner.sourceSize;
+    rendering = true;
+    _cancellable = true;
+    _cancelRequested = false;
+    lastCancelled = false;
+    renderProgress = 0;
+    lastReport = null;
+    _owner.error = null;
+    _owner.notify();
+    try {
+      rust.ApiReferenceProfile? reference;
+      if (_owner.master.masteringEnabled) {
+        reference = await _owner.mastering.ensureProfile();
+        if (reference == null) {
+          throw StateError('Mastering is on but no reference track is set');
+        }
+      }
+      lastReport = await renderByRanges(
+        read,
+        size,
+        tracks: _owner.tracks.map((t) => t.toApi()).toList(),
+        master: _owner.master,
+        reference: reference,
+        output: createDownloadOutput(filename),
+        onProgress: (p) {
+          renderProgress = p;
+          _owner.notify();
+        },
+        cancelled: () => _cancelRequested,
+      );
+      lastOutputPath = filename;
+      await _owner.saveSession();
+    } on RenderCancelled {
+      // A cancelled export is a finished job, not a failure: no error banner,
+      // and no half-written file either — the blob parts are simply dropped
+      // and `complete()` never runs, so no download is offered.
+      lastCancelled = true;
+    } catch (e) {
+      _owner.error = e.toString();
+    }
+    rendering = false;
+    _cancellable = false;
+    _cancelRequested = false;
+    renderProgress = 0;
     _owner.notify();
   }
 

@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../io/ios_files.dart';
+import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import '../state/app_settings.dart';
@@ -55,6 +55,19 @@ class _MixerScreenState extends State<MixerScreen> {
   Future<void> _openBrowser() async {
     final settings = await AppSettings.load();
     final browser = _browser ??= WavBrowser(settings);
+    if (!canPickFolders) {
+      // No folder to reopen in a browser (see platform_shim_web.dart): the
+      // listing IS the last pick, so show it and let the page's "Choose
+      // files" button pull in more. Falling through to pickFolder() here
+      // made the title tap a dead end — getDirectoryPath() returns null on
+      // the web, so nothing happened at all.
+      if (browser.entries.isEmpty) {
+        await browser.pickAndOpenFiles();
+        if (browser.entries.isEmpty) return;
+      }
+      await _showBrowser(browser);
+      return;
+    }
     if (browser.folder == null) {
       final last = settings.lastFolder;
       if (last != null) {
@@ -80,6 +93,14 @@ class _MixerScreenState extends State<MixerScreen> {
     }
     final settings = await AppSettings.load();
     final browser = _browser ??= WavBrowser(settings);
+    if (!canPickFolders) {
+      // Browsers have no folder picker (see platform_shim_web.dart), so the
+      // web build picks the recordings themselves.
+      await browser.pickAndOpenFiles();
+      if (browser.entries.isEmpty) return;
+      await _showBrowser(browser);
+      return;
+    }
     final picked = await browser.pickFolder();
     if (picked == null) return;
     unawaited(browser.openFolder(picked));
@@ -111,6 +132,10 @@ class _MixerScreenState extends State<MixerScreen> {
       ),
     );
     if (result is WavEntry) {
+      // Picked-file entries (web) carry their own reader; path-backed
+      // entries leave it null so the engine opens the file itself.
+      state.sourceReader = result.read;
+      state.sourceSize = result.sizeBytes ?? 0;
       await state.open(result.source, name: result.name);
     } else if (result == useSystemPicker) {
       await _openSystemPicker();
@@ -146,8 +171,38 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
+  /// Reference mastering, or an honest sentence where it cannot work.
+  ///
+  /// The engine analyses the reference through its filesystem API, which has
+  /// no byte-range twin yet — in the browser the analysis would always fail
+  /// with a raw exception in the dialog. Say so instead.
+  Future<void> _mastering() async {
+    if (!canMasterToReference) {
+      _snack(
+        'Reference mastering is not available in the web version yet — '
+        'the reference track has to be read from a file.',
+      );
+      return;
+    }
+    await showMasteringDialog(context, state);
+  }
+
   Future<void> _export() async {
     if (state.recording == null) return;
+    if (!canExportAudio) {
+      _snack('Export is not available in the web version yet.');
+      return;
+    }
+    // A take opened in the browser has no path — it is rendered through its
+    // byte ranges and delivered as a download.
+    if (state.sourceReader != null) {
+      await state.exporter.exportByRanges(state.exporter.suggestedName());
+      if (!mounted || state.error != null) return;
+      _snack(
+        state.exporter.lastCancelled ? 'Export cancelled' : 'Export finished',
+      );
+      return;
+    }
     if (Saf.isAvailable) {
       final mime = switch (state.format) {
         rust.ApiFormat.flac16 || rust.ApiFormat.flac24 => 'audio/flac',
@@ -178,14 +233,14 @@ class _MixerScreenState extends State<MixerScreen> {
       // iOS: render into tmp, then let the export picker move the finished
       // file wherever the user chooses (Files, iCloud, USB drive).
       final tempPath =
-          '${Directory.systemTemp.path}/${state.exporter.suggestedName()}';
+          '${await systemTempPath()}/${state.exporter.suggestedName()}';
       await state.exporter.export(tempPath);
       if (state.error == null) {
         final dest = await IosFiles.exportMove(tempPath);
         if (dest == null) {
           // Cancelled: don't leave a multi-GB orphan in tmp.
           try {
-            File(tempPath).deleteSync();
+            deleteFileSync(tempPath);
           } catch (_) {
             // Cleanup only — worst case the OS purges tmp itself.
           }
@@ -215,9 +270,12 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
-  /// Batch export needs a directory picker, which file_selector only
-  /// implements on desktop; phones export one file at a time.
-  bool get _batchAvailable => !Platform.isAndroid && !Platform.isIOS;
+  /// Batch export needs a directory to write several files into, so it hangs
+  /// on the folder picker rather than on export itself: file_selector only
+  /// implements it on desktop, and on web `getDirectoryPath()` returns null —
+  /// the dialog would open and then quietly do nothing.
+  bool get _batchAvailable =>
+      !isAndroidPlatform && !isIOSPlatform && canPickFolders;
 
   @override
   Widget build(BuildContext context) {
@@ -272,7 +330,7 @@ class _MixerScreenState extends State<MixerScreen> {
                                   '${state.mastering.referenceName}'
                             : 'Reference mastering — match the export to a '
                                   'reference track',
-                        onPressed: () => showMasteringDialog(context, state),
+                        onPressed: _mastering,
                         icon: Icon(
                           Icons.auto_fix_high,
                           size: 20,
@@ -299,6 +357,10 @@ class _MixerScreenState extends State<MixerScreen> {
                               : 'Export',
                         ),
                       ),
+                      if (state.exporter.rendering &&
+                          (state.exporter.canCancel ||
+                              state.exporter.cancelling))
+                        _cancelExportButton(),
                       if (_batchAvailable)
                         IconButton(
                           tooltip:
@@ -386,6 +448,25 @@ class _MixerScreenState extends State<MixerScreen> {
     );
   }
 
+  /// Stops a running render. Deliberately its own control rather than the
+  /// Export button doing double duty — that button is a tap target the user
+  /// aims at repeatedly, and turning it into "cancel" mid-render would throw
+  /// away a long export on a mistimed second tap.
+  Widget _cancelExportButton() {
+    final cancelling = state.exporter.cancelling;
+    return IconButton(
+      tooltip: cancelling ? 'Cancelling…' : 'Cancel this export',
+      // The render stops at the next block boundary, so the press needs to be
+      // visibly acknowledged even before the progress stops moving.
+      onPressed: cancelling ? null : state.exporter.cancelExport,
+      icon: Icon(
+        Icons.stop_circle_outlined,
+        size: 20,
+        color: cancelling ? AppColors.of(context).dim : null,
+      ),
+    );
+  }
+
   /// Phone app bar: Export + open stay visible, everything else moves into
   /// an overflow menu (the wide bar's selectors don't fit a phone width).
   List<Widget> _narrowActions(rust.RecordingInfo? rec) {
@@ -400,6 +481,9 @@ class _MixerScreenState extends State<MixerScreen> {
                 : 'Export',
           ),
         ),
+      if (state.exporter.rendering &&
+          (state.exporter.canCancel || state.exporter.cancelling))
+        _cancelExportButton(),
       IconButton(
         tooltip: 'Settings',
         onPressed: () => showSettingsDialog(context),
@@ -417,7 +501,7 @@ class _MixerScreenState extends State<MixerScreen> {
           onSelected: (v) async {
             switch (v) {
               case 'mastering':
-                await showMasteringDialog(context, state);
+                await _mastering();
               case 'loudness':
                 await pickLoudnessDialog(context, state);
               case 'format':
@@ -532,7 +616,9 @@ class _MixerScreenState extends State<MixerScreen> {
             )
           else ...[
             Text(
-              'Choose a folder with DUREC recordings',
+              canPickFolders
+                  ? 'Choose a folder with DUREC recordings'
+                  : 'Choose DUREC recordings',
               style: TextStyle(color: AppColors.of(context).dim),
             ),
             const SizedBox(height: 16),
@@ -542,8 +628,10 @@ class _MixerScreenState extends State<MixerScreen> {
             // update — which looked like a button that does nothing (#74).
             FilledButton.icon(
               onPressed: _changeFolder,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Choose folder'),
+              icon: Icon(
+                canPickFolders ? Icons.folder_open : Icons.audio_file_outlined,
+              ),
+              label: Text(canPickFolders ? 'Choose folder' : 'Choose files'),
             ),
           ],
           if (state.error != null) ...[
@@ -747,7 +835,11 @@ class _MixerScreenState extends State<MixerScreen> {
   List<Widget> _transportControls(rust.RecordingInfo rec) {
     return [
       IconButton.filled(
-        onPressed: state.playback.togglePlay,
+        // Kept tappable without playback so the answer is a sentence rather
+        // than a dead button the user keeps prodding.
+        onPressed: canPlayAudio
+            ? state.playback.togglePlay
+            : () => _snack('Playback is not available in the web version yet.'),
         icon: Icon(state.playback.playing ? Icons.stop : Icons.play_arrow),
       ),
       const SizedBox(width: 6),
@@ -864,7 +956,7 @@ class _MixerScreenState extends State<MixerScreen> {
     return DropdownButton<rust.ApiFormat>(
       value: state.format,
       underline: const SizedBox.shrink(),
-      items: rust.ApiFormat.values
+      items: availableFormats
           .map((f) => DropdownMenuItem(value: f, child: Text(formatLabels[f]!)))
           .toList(),
       onChanged: (f) => f != null ? state.setFormat(f) : null,

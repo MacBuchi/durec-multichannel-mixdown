@@ -30,10 +30,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # PWA track (docs/PLAN-PWA.md): the engine core must keep compiling
+      # for wasm32 with the native-only features (cpal, LAME) gated off —
+      # without this check the next engine change silently kills the port.
+      - name: Engine compiles for wasm32 (PWA, no playback/mp3)
+        run: cargo check -p durecmix-engine --no-default-features --target wasm32-unknown-unknown
+
+      # The bridge too, not just the engine: a helper gated behind
+      # `cfg(not(wasm))` compiles fine natively and only fails when the Pages
+      # workflow builds the wasm bundle — long after the PR went green.
+      - name: Bridge compiles for wasm32
+        run: cargo check -p rust_lib_durecmix --target wasm32-unknown-unknown
       # A dependency change that forgets to regenerate the bundled crate
       # notices ships stale attribution. Only the recorded Cargo.lock hash is
       # compared: neither the licence texts nor `cargo tree` are reproducible
@@ -84,6 +96,14 @@ jobs:
           - name: iOS
             os: macos-14
             build: flutter build ios --debug --no-codesign
+          # The web bundle broke in a way nothing here could see: `flutter
+          # analyze` passes on a `dart:io` import that a web-reachable file
+          # must not have, and the Pages workflow only builds AFTER a merge.
+          # This is the Dart half only — the wasm engine is covered by the
+          # wasm32 steps in the rust job and staged separately for deploys.
+          - name: Web
+            os: ubuntu-latest
+            build: flutter build web
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:

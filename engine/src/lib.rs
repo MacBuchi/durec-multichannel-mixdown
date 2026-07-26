@@ -11,7 +11,9 @@ pub mod error;
 pub mod ixml;
 pub mod mastering;
 pub mod mix;
+#[cfg(feature = "playback")]
 pub mod playback;
+pub mod preview;
 pub mod reference;
 pub mod render;
 pub mod session;
