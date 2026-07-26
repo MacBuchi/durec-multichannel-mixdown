@@ -218,10 +218,27 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   Import (auch >1 GB), Wiedergabe und Export (Nutzertests 2026-07-25 und
   2026-07-26). Damit ist Issue #93 geschlossen.
 
-  Offen, jetzt in Issue #105: Offline-Start (Caching in `coi-sw.js` — **nicht**
-  als zweiter Worker, siehe die Scope-Falle oben), Abbrechen während des
-  Renders, und die ~1 s Latenz bei Fader-Änderungen (die Ringtiefe,
-  `_ringSeconds`).
+  **Offline-Start (nachgereicht 2026-07-26, Issue #105).** Der Cache liegt
+  *in* `coi-sw.js`, aus genau dem Grund, der oben steht: ein zweiter Worker
+  würde diesen verdrängen. Strategie ist **Netz zuerst, Cache als
+  Rückfall** — die deployte App darf nie an einem alten Stand hängen bleiben,
+  nur weil jemand schon einmal da war. Verifiziert: online laden, Netz
+  komplett kappen, neu laden → isoliert, Engine bootet, und ein 394-MB-Take
+  lässt sich offline öffnen und analysieren (115 BPM, 34 Spuren). Auch in
+  einem frisch geöffneten Tab ohne Netz.
+
+  Dabei fiel eine Sache auf, die nichts mit dem Worker zu tun hat und
+  trotzdem in ihn gehört: der **HTTP-Cache** liefert nach einem Deploy noch
+  eine Weile die alte Datei (Pages sendet `max-age=600`). Gemessen, mit und
+  ohne Worker gleich — aber der Worker würde diese veralteten Bytes
+  *einlagern* und einen Offline-Nutzer daran festnageln. Deshalb geht der
+  Netzabruf über `cache: 'no-cache'`, also eine Revalidierung: nach dem
+  Deploy kommt sofort die neue Datei, und die Antwort ist im Normalfall ein
+  304 ohne Nutzdaten. `Range`-Anfragen bleiben unangetastet, sonst würde aus
+  einer 206 eine vollständige 200.
+
+  Offen, weiterhin in Issue #105: die ~1 s Latenz bei Fader-Änderungen (die
+  Ringtiefe, `_ringSeconds`).
 
 ## Der Web-Reader muss das echte `File` behalten
 
