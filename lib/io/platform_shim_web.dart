@@ -96,6 +96,18 @@ const canExportAudio = true;
 /// an encoder error instead of a file (docs/PLAN-PWA.md).
 const canEncodeMp3 = false;
 
+/// Reference mastering reads the reference track through the engine's
+/// filesystem API (`analyzeReference(path:)`), which has no byte-range twin
+/// yet — a picked reference is a `Blob` and the analysis always fails.
+const canMasterToReference = false;
+
+/// [httpGetText] and [httpPostJson] throw here, so anything that talks to a
+/// server must not be offered — and must not pretend it happened. The update
+/// check would otherwise report "You're up to date" after silently
+/// swallowing an `UnsupportedError`, and feedback would blame the user's
+/// connection for a route that does not exist.
+const hasNetwork = false;
+
 /// The browser's export destination: a download.
 RenderOutput createDownloadOutput(String filename) =>
     BlobRenderOutput(filename);

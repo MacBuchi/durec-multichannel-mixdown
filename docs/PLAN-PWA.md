@@ -367,6 +367,16 @@ Stacktrace. Wo der Weg ohne die Stufe gar keinen Sinn ergibt (Batch-Export),
 verschwindet der Einstieg. Das ist dieselbe Lehre wie bei „Choose folder"
 weiter oben — sie gilt für jede folgende Stufe mit.
 
+**Ein Audit fand 2026-07-26 vier weitere Verstöße** — alle nach demselben
+Muster, alle behoben:
+
+| Einstieg | Was im Web passierte | jetzt |
+| --- | --- | --- |
+| „Export multiple takes…" im Browser | Takes ankreuzen, Namen tippen, Export drücken — **nichts**. `_exportSelected` steigt bei `folder == null` wortlos aus, und `folder` ist im Web immer null | Einstieg weg (`canPickFolders`); der Runner ist durchgehend pfadbasiert und bräuchte einen eigenen Range-Umbau |
+| „Use system picker…" im Browser-Menü | öffnete eine Datei, für die es **keinen** Reader gibt: `sourceReader` wird nur von `pickRecordings` gesetzt und nie geleert, also las der Mixer still die **vorige** Aufnahme unter dem neuen Namen | Einstieg weg — im Web *ist* die Liste schon das Ergebnis des System-Pickers |
+| Referenz-Mastering | Dialog offen wie überall, Referenzanalyse ist aber pfadbasiert → roher Ausnahmetext | `canMasterToReference`, Tap antwortet mit einem Satz |
+| „You're up to date." im Über-Dialog | im Web nie geprüft: `httpGetText` wirft, der Fehler wird geschluckt, und das sah aus wie „kein Update" | `hasNetwork`, die Zeile erscheint gar nicht erst. Dasselbe Flag schickt Feedback über das vorbefüllte Formular statt über die API, die vorher „Sending failed. Are you online?" meldete — eine Diagnose, die nichts mit dem Netz zu tun hatte |
+
 **Und sie gilt für *jeden* Einstieg, nicht nur den offensichtlichen.** Der
 Web-Zweig kam zunächst nur in `_changeFolder` an (Startbildschirm und
 Ordner-Symbol); der Tap auf den Dateinamen in der Kopfzeile — in der APK der
