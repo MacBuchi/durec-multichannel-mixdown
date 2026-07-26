@@ -2829,3 +2829,168 @@ fn byte_driven_render_matches_the_file_render_with_eq_and_trim() {
         assert_eq!(out.report, native_report, "{format:?}: report differs");
     }
 }
+
+/// Live playback must not clip, whatever the mix does.
+///
+/// The preview deliberately skips the render's normalisation gain — the
+/// meters are supposed to show what the mix really is. That makes the
+/// true-peak limiter the *only* thing between a hot mix and the speakers,
+/// and a DUREC take is exactly the hot case: a unity mix of all its tracks
+/// peaks far above 0 dBFS because the recorder also captured monitor buses.
+/// Web Audio hard-clips anything past ±1.0, so an unguarded overshoot is
+/// audible distortion, not a number in a meter.
+#[test]
+fn preview_never_leaves_the_limiter_ceiling_however_hot_the_mix() {
+    let sample_rate = 48_000;
+    let channels = 16;
+    // Sixteen tracks, all at unity, all in phase: the sum is ~16x a single
+    // track — around +24 dB over a full-scale source.
+    let tracks: Vec<TrackParams> = (1..=channels).map(|i| track(i as u32, 0.0, 0.0)).collect();
+    let master = durecmix_engine::chain::MasterParams {
+        limiter_enabled: true,
+        ceiling_dbtp: -1.0,
+    };
+    let mut stage =
+        durecmix_engine::preview::PreviewStage::new(channels, sample_rate, &tracks, master, None);
+
+    // Full-scale content with a transient edge, so the limiter has to catch
+    // both a sustained level and a sudden one.
+    let mut input: Vec<f64> = Vec::new();
+    for i in 0..sample_rate {
+        let t = i as f64 / sample_rate as f64;
+        let v = if i % 12_000 < 40 {
+            1.0 // click: worst case for a lookahead limiter
+        } else {
+            (t * 220.0 * std::f64::consts::TAU).sin()
+        };
+        for _ in 0..channels {
+            input.push(v);
+        }
+    }
+
+    let ceiling = 10f32.powf(-1.0 / 20.0); // -1 dBTP as a linear sample value
+    let mut worst = 0.0f32;
+    // Blocks of an odd length, as a Blob slice would deliver them.
+    for block in input.chunks(channels * 977) {
+        for &s in stage.process(block) {
+            worst = worst.max(s.abs());
+        }
+    }
+
+    assert!(
+        worst <= 1.0,
+        "preview output hit {worst} — anything past 1.0 is hard-clipped by the audio device"
+    );
+    // The ceiling is a true-peak limit, so inter-sample content may sit a
+    // hair above it in the sample domain; what must not happen is running
+    // free towards the +24 dB the raw sum would have.
+    assert!(
+        worst <= ceiling * 1.05,
+        "preview peaked at {worst}, ceiling is {ceiling} — the limiter is not holding"
+    );
+}
+
+/// With the export's gain, the preview IS the export — also when the export
+/// normalises.
+///
+/// [`web_player_matches_the_rendered_output`] proves the two chains agree at
+/// `LoudnessMode::None`, where the gain is 1.0. That is the easy half. The
+/// half that matters for monitoring is the normalising one: there the render
+/// lowers the level *before* the limiter, and a preview without that gain
+/// hands the limiter a mix that is tens of dB hotter. Same chain, different
+/// sound — the mixer would lie about its own output.
+#[test]
+fn preview_matches_a_normalised_render_once_it_gets_the_gain() {
+    let frames = 80_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 190.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                ((t * 460.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 80.0 * std::f64::consts::TAU).sin() * 0.9 * 32767.0) as i16,
+                ((t * 2500.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    // Four tracks at unity sum well past full scale — the DUREC case, and
+    // exactly where a missing gain is audible.
+    let tracks = vec![
+        track(1, 6.0, -0.8),
+        track(2, 6.0, 0.8),
+        track(3, 6.0, 0.0),
+        track(4, 6.0, 0.0),
+    ];
+
+    for loudness in [
+        LoudnessMode::PeakDbfs(-1.0),
+        LoudnessMode::LufsIntegrated(-14.0),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.wav");
+        let wav = wav16(4, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let settings = RenderSettings {
+            loudness,
+            format: OutputFormat::Wav32Float,
+            limiter_enabled: true,
+            ..RenderSettings::default()
+        };
+        let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let rendered: Vec<f32> = hound::WavReader::open(&out_path)
+            .unwrap()
+            .samples::<f32>()
+            .map(|s| s.unwrap())
+            .collect();
+
+        // The render tells us what it applied; that is exactly what the
+        // preview has to be given.
+        let gain = 10f64.powf(report.gain_applied_db / 20.0);
+        assert!(
+            gain < 0.5,
+            "{loudness:?}: this mix should need a big cut ({gain}), otherwise the test proves nothing"
+        );
+
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let payload = &wav[data.offset as usize..][..data.size as usize];
+
+        let mut player = WebPlayer::new(
+            spec,
+            &tracks,
+            durecmix_engine::chain::MasterParams {
+                limiter_enabled: true,
+                ..Default::default()
+            },
+            None,
+            0,
+        );
+        player.set_norm_gain(gain);
+        let mut played: Vec<f32> = Vec::new();
+        for block in payload.chunks(9_733) {
+            played.extend_from_slice(player.process(block).unwrap());
+        }
+
+        // As in the existing test, the render carries the limiter's flushed
+        // tail that a never-ending preview has no reason to produce.
+        assert!(
+            rendered.len() > played.len(),
+            "{loudness:?}: no limiter tail"
+        );
+        let worst = played
+            .iter()
+            .zip(&rendered)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert_eq!(
+            worst, 0.0,
+            "{loudness:?}: preview and render differ by {worst}"
+        );
+    }
+}

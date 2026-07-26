@@ -41,6 +41,15 @@ pub struct PreviewStage {
     chain: MixChain,
     master: MasterParams,
     mastering: Option<MasteringPlan>,
+    /// The export's normalisation gain, so what you hear is what you get.
+    ///
+    /// Without it the preview hands the limiter the raw mix. A DUREC take
+    /// sums to roughly +16 dBFS at unity (the recorder also captured monitor
+    /// buses), so the limiter would pull ~17 dB continuously while the export
+    /// — which lowers the level *before* the limiter — barely engages it.
+    /// Same chain, completely different sound. 1.0 until a caller measures
+    /// the mix; see [`set_norm_gain`](Self::set_norm_gain).
+    norm_gain: f64,
     limiter: Option<TruePeakLimiter>,
     fir: Option<MsFirStage>,
     ebu: Option<ebur128::EbuR128>,
@@ -97,6 +106,7 @@ impl PreviewStage {
             channels,
             master,
             mastering,
+            norm_gain: 1.0,
             stereo: Vec::new(),
             mastered: Vec::new(),
             limited: Vec::new(),
@@ -111,10 +121,43 @@ impl PreviewStage {
 
     /// Mix one block of interleaved source frames into interleaved stereo
     /// f32, updating the meters.
+    /// Set the normalisation gain the export would apply.
+    ///
+    /// Deliberately a linear factor and not a loudness target: computing it
+    /// needs a measurement over the whole file (render pass 1), which the
+    /// caller owns — the preview only ever sees one block at a time.
+    /// Mastering supersedes it exactly as in the render, where `norm_gain`
+    /// stays 1.0 whenever a mastering plan is active.
+    pub fn set_norm_gain(&mut self, gain: f64) {
+        self.norm_gain = gain;
+    }
+
+    /// What [`process`](Self::process) actually multiplies by.
+    ///
+    /// Mastering supersedes the normalisation exactly as in the render,
+    /// where `norm_gain` stays 1.0 whenever a plan is active. Derived rather
+    /// than stored, so switching mastering on and off again restores the
+    /// gain instead of losing it.
+    pub fn effective_norm_gain(&self) -> f64 {
+        if self.mastering.is_some() {
+            1.0
+        } else {
+            self.norm_gain
+        }
+    }
+
     pub fn process(&mut self, input: &[f64]) -> &[f32] {
         self.chain.process(input, &mut self.stereo);
-        // Same ordering as render pass 2: mix → matching FIRs → true-peak
-        // limiter (which catches the mastering gain).
+        // Same ordering as render pass 2: mix → normalisation gain → matching
+        // FIRs → true-peak limiter (which catches the mastering gain). The
+        // render's fade sits between mix and gain; a live preview has no
+        // fades, so there is nothing to place there.
+        let gain = self.effective_norm_gain();
+        if gain != 1.0 {
+            for s in &mut self.stereo {
+                *s *= gain;
+            }
+        }
         let block: &[f64] = match &mut self.fir {
             Some(f) => {
                 self.mastered.clear();
@@ -280,6 +323,12 @@ impl WebPlayer {
         mastering: Option<MasteringPlan>,
     ) {
         self.stage.set_params(tracks, master, mastering);
+    }
+
+    /// See [`PreviewStage::set_norm_gain`] — the export's gain, so the
+    /// preview plays at the level the file will have.
+    pub fn set_norm_gain(&mut self, gain: f64) {
+        self.stage.set_norm_gain(gain);
     }
 
     /// Jump to `frame`: filter state and the mid-frame remainder both belong
