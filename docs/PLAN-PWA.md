@@ -201,9 +201,14 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     *Navigations*-Antwort. Die Bedingung ist `!crossOriginIsolated`,
     einmalig abgesichert über `sessionStorage`.
 
-  Offen: Offline-Start (Caching in `coi-sw.js`), Update-Hinweis. Der
-  **iOS-Safari-Nachweis ist erbracht**: Laden und Import laufen auf einem
-  iPad Air (Nutzertest 2026-07-25).
+  Der **iOS-Safari-Nachweis ist erbracht**: auf einem iPad Air laufen Laden,
+  Import (auch >1 GB), Wiedergabe und Export (Nutzertests 2026-07-25 und
+  2026-07-26). Damit ist Issue #93 geschlossen.
+
+  Offen, jetzt in Issue #105: Offline-Start (Caching in `coi-sw.js` — **nicht**
+  als zweiter Worker, siehe die Scope-Falle oben), Abbrechen während des
+  Renders, und die ~1 s Latenz bei Fader-Änderungen (die Ringtiefe,
+  `_ringSeconds`).
 
 ## Der Web-Reader muss das echte `File` behalten
 
@@ -248,6 +253,33 @@ Größenbeschränkung weg und die Hydrierung gleich mit.
 
 **Nie wieder über `XFile` gehen** — weder `openRead` noch `fetch` auf
 `file.path`. Beide fangen bei derselben verlustbehafteten Hülle an.
+
+Die Kopie ist gemessen, nicht erschlossen. Beide Builds mit
+`UFX36_00.WAV` (1.348.476.898 Bytes, 34 ch, 4:59) in derselben
+WebKit-Engine (Playwright WebKit 26.5), Speicher der WebKit-Prozesse:
+
+| | Grundlast | Spitze | Zuwachs | +200 MB nach |
+| --- | --- | --- | --- | --- |
+| `fetch` auf die Objekt-URL | 869 MB | 2583 MB | **+1714 MB** | **303 ms** |
+| `File.slice()` (heute) | 750 MB | 1025 MB | **+275 MB** | 28.116 ms |
+
+Die letzte Spalte ist der eigentliche Beleg: der alte Weg lässt den Speicher
+**eine Drittelsekunde nach der Dateiübergabe** um Hunderte MB steigen — da
+ist noch keine Audioprobe gelesen, das ist reines Kopieren. Der heutige Weg
+rührt ihn bis Sekunde 28 nicht an, und dann nur um den Arbeitssatz der
+laufenden Analyse.
+
+**Zum Nachstellen braucht es WebKit.** In Chrome lief dieselbe Datei auch
+mit dem alten Code durch (1231 ms), weil Chrome die Blob-Kopie auf die
+Platte auslagert — der Fehler ist am Desktop grundsätzlich unsichtbar.
+Playwright-WebKit (`npx playwright install webkit`) zeigt ihn, iPad-Safari
+stirbt daran.
+
+Gegen die deployte Seite mit derselben Datei (Chrome 150, frisches Profil):
+Import **0,72 s** (34 ch, **34 iXML-Spuren**), Mixer offen nach 0,81 s,
+Wellenformen nach 27,6 s, **JS-Heap-Spitze 139 MB**. Kanalzahl identisch zur
+nativen Engine (`analyze_demo`: 34 Kanäle, 1,42 s). **Auf dem iPad Air
+bestätigt** (2026-07-26).
 
 **`+simd128` bringt nichts** (2631 ms → 2559 ms, 3 %, im Rauschen): die
 Decode- und Akkumulierschleifen vektorisieren nicht von selbst. Bewusst
