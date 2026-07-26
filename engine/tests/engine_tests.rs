@@ -2829,3 +2829,63 @@ fn byte_driven_render_matches_the_file_render_with_eq_and_trim() {
         assert_eq!(out.report, native_report, "{format:?}: report differs");
     }
 }
+
+/// Live playback must not clip, whatever the mix does.
+///
+/// The preview deliberately skips the render's normalisation gain — the
+/// meters are supposed to show what the mix really is. That makes the
+/// true-peak limiter the *only* thing between a hot mix and the speakers,
+/// and a DUREC take is exactly the hot case: a unity mix of all its tracks
+/// peaks far above 0 dBFS because the recorder also captured monitor buses.
+/// Web Audio hard-clips anything past ±1.0, so an unguarded overshoot is
+/// audible distortion, not a number in a meter.
+#[test]
+fn preview_never_leaves_the_limiter_ceiling_however_hot_the_mix() {
+    let sample_rate = 48_000;
+    let channels = 16;
+    // Sixteen tracks, all at unity, all in phase: the sum is ~16x a single
+    // track — around +24 dB over a full-scale source.
+    let tracks: Vec<TrackParams> = (1..=channels).map(|i| track(i as u32, 0.0, 0.0)).collect();
+    let master = durecmix_engine::chain::MasterParams {
+        limiter_enabled: true,
+        ceiling_dbtp: -1.0,
+    };
+    let mut stage =
+        durecmix_engine::preview::PreviewStage::new(channels, sample_rate, &tracks, master, None);
+
+    // Full-scale content with a transient edge, so the limiter has to catch
+    // both a sustained level and a sudden one.
+    let mut input: Vec<f64> = Vec::new();
+    for i in 0..sample_rate {
+        let t = i as f64 / sample_rate as f64;
+        let v = if i % 12_000 < 40 {
+            1.0 // click: worst case for a lookahead limiter
+        } else {
+            (t * 220.0 * std::f64::consts::TAU).sin()
+        };
+        for _ in 0..channels {
+            input.push(v);
+        }
+    }
+
+    let ceiling = 10f32.powf(-1.0 / 20.0); // -1 dBTP as a linear sample value
+    let mut worst = 0.0f32;
+    // Blocks of an odd length, as a Blob slice would deliver them.
+    for block in input.chunks(channels * 977) {
+        for &s in stage.process(block) {
+            worst = worst.max(s.abs());
+        }
+    }
+
+    assert!(
+        worst <= 1.0,
+        "preview output hit {worst} — anything past 1.0 is hard-clipped by the audio device"
+    );
+    // The ceiling is a true-peak limit, so inter-sample content may sit a
+    // hair above it in the sample domain; what must not happen is running
+    // free towards the +24 dB the raw sum would have.
+    assert!(
+        worst <= ceiling * 1.05,
+        "preview peaked at {worst}, ceiling is {ceiling} — the limiter is not holding"
+    );
+}
