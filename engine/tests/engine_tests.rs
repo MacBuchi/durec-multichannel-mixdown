@@ -2698,3 +2698,134 @@ fn rewind_to_keeps_the_filter_state_that_seek_throws_away() {
     );
     assert_eq!(rewinding.position_frames(), (second.len() / 4) as u64);
 }
+
+/// The browser render must match the native one **with the filters on** too.
+///
+/// [`byte_driven_render_matches_the_file_render`] proves the byte path for
+/// gain, pan, loudness, limiter, dither and fades — but with a flat chain.
+/// EQ and the high-pass are the interesting case for a *streamed* render:
+/// biquads carry state across block boundaries, so a chain that were rebuilt
+/// or reset per block would still sound plausible and quietly differ from
+/// the file render. Nothing else in this suite would notice.
+///
+/// Trim rides along because the web build applies it by choosing which bytes
+/// to read at all, not by telling the engine.
+#[test]
+fn byte_driven_render_matches_the_file_render_with_eq_and_trim() {
+    let frames = 150_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                // Wide-band content so every band has something to act on.
+                ((t * 55.0 * std::f64::consts::TAU).sin() * 0.5
+                    + (t * 900.0 * std::f64::consts::TAU).sin() * 0.3
+                    + (t * 9000.0 * std::f64::consts::TAU).sin() * 0.2)
+                    .clamp(-1.0, 1.0) as f32,
+                ((t * 110.0 * std::f64::consts::TAU).sin() * 0.6
+                    + (t * 3000.0 * std::f64::consts::TAU).sin() * 0.3)
+                    .clamp(-1.0, 1.0) as f32,
+            ]
+        })
+        .map(|v: f32| (v * 32767.0) as i16)
+        .collect();
+
+    let trim_start = 12_345u64;
+    let trim_end = 130_000u64;
+
+    for format in [OutputFormat::Wav24, OutputFormat::Flac24] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = dir.path().join("in.wav");
+        let out_path = dir.path().join("out.bin");
+        let wav = wav16(2, 48_000, &samples, None);
+        std::fs::write(&in_path, &wav).unwrap();
+
+        let mut tracks = vec![track(1, -2.0, -0.6), track(2, -4.0, 0.6)];
+        // Every filter slot busy, and different per track so a mix-up shows.
+        tracks[0].eq.hpf_enabled = true;
+        tracks[0].eq.hpf_freq = 90.0;
+        tracks[0].eq.low = durecmix_engine::mix::EqBand {
+            enabled: true,
+            freq: 140.0,
+            gain_db: 4.5,
+            q: 0.9,
+        };
+        tracks[0].eq.mid = durecmix_engine::mix::EqBand {
+            enabled: true,
+            freq: 1200.0,
+            gain_db: -3.5,
+            q: 1.4,
+        };
+        tracks[1].eq.hpf_enabled = true;
+        tracks[1].eq.hpf_freq = 200.0;
+        tracks[1].eq.hpf_slope = durecmix_engine::mix::HpfSlope::Db24;
+        tracks[1].eq.high = durecmix_engine::mix::EqBand {
+            enabled: true,
+            freq: 7000.0,
+            gain_db: 5.0,
+            q: 0.7,
+        };
+
+        let settings = RenderSettings {
+            loudness: LoudnessMode::LufsIntegrated(-16.0),
+            format,
+            limiter_enabled: true,
+            dither: true,
+            fade_in_ms: 80.0,
+            fade_out_ms: 300.0,
+            trim_start_frame: trim_start,
+            trim_end_frame: Some(trim_end),
+            ..RenderSettings::default()
+        };
+
+        let native_report =
+            render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+        let native = std::fs::read(&out_path).unwrap();
+
+        let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+        let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+        let data = chunks.iter().find(|c| c.id == "data").unwrap();
+        let spec =
+            wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+        let bpf = spec.bytes_per_frame() as u64;
+        // Exactly what platform_shim_web/range_render does: trim by slicing
+        // the source, and hand the engine only the kept range.
+        let payload = &wav
+            [(data.offset + trim_start * bpf) as usize..(data.offset + trim_end * bpf) as usize];
+
+        let mut streamed_settings = settings.clone();
+        streamed_settings.trim_start_frame = 0;
+        streamed_settings.trim_end_frame = None;
+        let mut render = StreamRender::new(
+            spec,
+            trim_end - trim_start,
+            tracks.clone(),
+            streamed_settings,
+            None,
+        )
+        .unwrap();
+        const BLOCK: usize = 65_537; // odd: every block ends mid-frame
+        for block in payload.chunks(BLOCK) {
+            render.push_pass1(block).unwrap();
+        }
+        render.start_pass2().unwrap();
+        let mut body = Vec::new();
+        for block in payload.chunks(BLOCK) {
+            body.extend_from_slice(&render.push_pass2(block).unwrap());
+        }
+        let out = render.finish().unwrap();
+        let mut streamed = out.head;
+        streamed.extend_from_slice(&body);
+        streamed.extend_from_slice(&out.tail);
+
+        assert_eq!(streamed.len(), native.len(), "{format:?}: length differs");
+        let diff = native
+            .iter()
+            .zip(&streamed)
+            .position(|(a, b)| a != b)
+            .map(|i| format!("first difference at byte {i}"))
+            .unwrap_or_else(|| "identical".into());
+        assert_eq!(diff, "identical", "{format:?} with EQ + trim");
+        assert_eq!(out.report, native_report, "{format:?}: report differs");
+    }
+}
