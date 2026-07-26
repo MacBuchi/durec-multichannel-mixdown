@@ -146,9 +146,22 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   - **Noch eine dart2js-Falle:** `x.clamp(1, 1 << 62)` wirft im Browser
     „Invalid argument: 1", weil `1 << 62` dort zu 0 wird. 64-Bit-Konstanten
     und -Shifts gibt es in dart2js nicht — vgl. den FNV-Hash in S1.
-  - Offen: Fortschrittsanzeige während des Renders ist da, aber ein
-    Abbrechen-Knopf fehlt; sehr große WAV-Ausgaben sind auf dem iPad
-    ungetestet (FLAC ist die sichere Wahl).
+  - **Abbrechen (nachgereicht 2026-07-26, Issue #105).** `renderByRanges`
+    fragt einmal pro Block ein `cancelled`-Callback und wirft
+    `RenderCancelled` — eigener Typ, damit „abgebrochen" nicht als Fehler
+    im Banner landet. Der Block ist die Granularität, die es gibt: der
+    Engine-Aufruf für einen Block lässt sich von außen nicht unterbrechen,
+    bei 4 MB kehrt er schnell genug zurück. Der bestehende `catch`-Zweig
+    gibt die Rust-Seite über `renderStreamCancel` frei; `complete()` läuft
+    nie, also wird auch kein halber Download angeboten.
+    **Nur der Range-Renderer kann das** — der native Pfad hängt an einem
+    FRB-Stream ohne Abbruchweg. `ExportController.canCancel` bildet genau
+    das ab, damit die UI keinen toten Knopf zeigt (dieselbe Lehre wie bei
+    „Choose folder"). Verifiziert im Browser gegen `UFX34_00.WAV`: Klick
+    bei 24 % → „Export cancelled", **kein Download**; derselbe Ablauf ohne
+    Klick liefert die Datei.
+  - Offen: sehr große WAV-Ausgaben sind auf dem iPad ungetestet (FLAC ist
+    die sichere Wahl).
 - **S4 — Playback (erledigt 2026-07-25).** AudioWorklet statt cpal-wasm.
   *Exit erfüllt:* Live-Vorhör mit Metern, Seek und Live-Parametern; im
   Browser gegen das 8-Kanal-Fixture verifiziert (Playhead läuft, −7,1

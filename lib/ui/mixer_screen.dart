@@ -181,7 +181,10 @@ class _MixerScreenState extends State<MixerScreen> {
     // byte ranges and delivered as a download.
     if (state.sourceReader != null) {
       await state.exporter.exportByRanges(state.exporter.suggestedName());
-      if (state.error == null && mounted) _snack('Export finished');
+      if (!mounted || state.error != null) return;
+      _snack(
+        state.exporter.lastCancelled ? 'Export cancelled' : 'Export finished',
+      );
       return;
     }
     if (Saf.isAvailable) {
@@ -338,6 +341,10 @@ class _MixerScreenState extends State<MixerScreen> {
                               : 'Export',
                         ),
                       ),
+                      if (state.exporter.rendering &&
+                          (state.exporter.canCancel ||
+                              state.exporter.cancelling))
+                        _cancelExportButton(),
                       if (_batchAvailable)
                         IconButton(
                           tooltip:
@@ -425,6 +432,25 @@ class _MixerScreenState extends State<MixerScreen> {
     );
   }
 
+  /// Stops a running render. Deliberately its own control rather than the
+  /// Export button doing double duty — that button is a tap target the user
+  /// aims at repeatedly, and turning it into "cancel" mid-render would throw
+  /// away a long export on a mistimed second tap.
+  Widget _cancelExportButton() {
+    final cancelling = state.exporter.cancelling;
+    return IconButton(
+      tooltip: cancelling ? 'Cancelling…' : 'Cancel this export',
+      // The render stops at the next block boundary, so the press needs to be
+      // visibly acknowledged even before the progress stops moving.
+      onPressed: cancelling ? null : state.exporter.cancelExport,
+      icon: Icon(
+        Icons.stop_circle_outlined,
+        size: 20,
+        color: cancelling ? AppColors.of(context).dim : null,
+      ),
+    );
+  }
+
   /// Phone app bar: Export + open stay visible, everything else moves into
   /// an overflow menu (the wide bar's selectors don't fit a phone width).
   List<Widget> _narrowActions(rust.RecordingInfo? rec) {
@@ -439,6 +465,9 @@ class _MixerScreenState extends State<MixerScreen> {
                 : 'Export',
           ),
         ),
+      if (state.exporter.rendering &&
+          (state.exporter.canCancel || state.exporter.cancelling))
+        _cancelExportButton(),
       IconButton(
         tooltip: 'Settings',
         onPressed: () => showSettingsDialog(context),

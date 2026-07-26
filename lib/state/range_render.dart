@@ -7,6 +7,20 @@ import 'range_probe.dart';
 /// invisible, small enough that the copy into wasm memory stays bounded.
 const _renderBlock = 4 * 1024 * 1024;
 
+/// Thrown by [renderByRanges] when [RenderByRangesCancel] asked it to stop.
+///
+/// Its own type so callers can tell "the user pressed cancel" apart from a
+/// failure — one is a finished job, the other is an error to show.
+class RenderCancelled implements Exception {
+  const RenderCancelled();
+
+  @override
+  String toString() => 'render cancelled';
+}
+
+/// Asked once per block; return true to abort the render.
+typedef RenderByRangesCancel = bool Function();
+
 /// Render the mix through [read] alone, without a filesystem.
 ///
 /// Two passes over the source — the first measures peak and loudness, the
@@ -14,6 +28,10 @@ const _renderBlock = 4 * 1024 * 1024;
 /// same byte range is simply read twice. Reading is cheap enough for that
 /// (see `platform_shim_web._lazyRecording`); the audio never lands in memory
 /// as a whole.
+///
+/// [cancelled] is polled once per block. A block is the granularity that
+/// exists: the engine call for one block cannot be interrupted from the
+/// outside, and at 4 MB it returns fast enough to feel immediate.
 Future<rust.ApiRenderReport> renderByRanges(
   RangeReader read,
   int fileSize, {
@@ -22,6 +40,7 @@ Future<rust.ApiRenderReport> renderByRanges(
   required RenderOutput output,
   rust.ApiReferenceProfile? reference,
   void Function(double progress)? onProgress,
+  RenderByRangesCancel? cancelled,
 }) async {
   final chunks = await scanChunksByRanges(read, fileSize);
   final fmt = chunks.where((c) => c.id == 'fmt ').firstOrNull;
@@ -63,12 +82,14 @@ Future<rust.ApiRenderReport> renderByRanges(
     // that upper bound collapses to 0 and clamp throws "Invalid argument: 1".
     final span = end - start > 0 ? end - start : 1;
     for (var at = start; at < end; at += _renderBlock) {
+      if (cancelled?.call() ?? false) throw const RenderCancelled();
       final stop = (at + _renderBlock).clamp(at, end);
       await rust.renderStreamPass1Push(id: id, bytes: await read(at, stop));
       onProgress?.call((stop - start) / span * 0.5);
     }
     await rust.renderStreamStartPass2(id: id);
     for (var at = start; at < end; at += _renderBlock) {
+      if (cancelled?.call() ?? false) throw const RenderCancelled();
       final stop = (at + _renderBlock).clamp(at, end);
       output.addBody(
         await rust.renderStreamPass2Push(id: id, bytes: await read(at, stop)),
