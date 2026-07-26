@@ -20,6 +20,32 @@ class ExportController {
   rust.ApiRenderReport? lastReport;
   String? lastOutputPath;
 
+  /// Set while a cancellable render is running — only the range renderer can
+  /// be stopped, so the UI must not offer it for the others (a cancel button
+  /// that does nothing is the dead end this app keeps running into).
+  bool _cancellable = false;
+  bool _cancelRequested = false;
+
+  /// True when the running export can be stopped.
+  bool get canCancel => rendering && _cancellable && !_cancelRequested;
+
+  /// True once cancelling was asked for and the render has not noticed yet —
+  /// it stops at the next block boundary, so the button must show that the
+  /// press arrived.
+  bool get cancelling => rendering && _cancelRequested;
+
+  /// Set when the last export ended because the user cancelled it. Lets the
+  /// caller skip the "Export finished" message without treating it as an
+  /// error.
+  bool lastCancelled = false;
+
+  /// Ask the running render to stop at the next block boundary.
+  void cancelExport() {
+    if (!canCancel) return;
+    _cancelRequested = true;
+    _owner.notify();
+  }
+
   /// One queued output: the current mix rendered at this loudness/format.
   /// Starts as a copy of the app-bar selection; editable in the batch dialog.
   final List<BatchJob> batchQueue = [];
@@ -112,6 +138,9 @@ class ExportController {
     if (read == null || rendering) return;
     final size = _owner.sourceSize;
     rendering = true;
+    _cancellable = true;
+    _cancelRequested = false;
+    lastCancelled = false;
     renderProgress = 0;
     lastReport = null;
     _owner.error = null;
@@ -135,13 +164,22 @@ class ExportController {
           renderProgress = p;
           _owner.notify();
         },
+        cancelled: () => _cancelRequested,
       );
       lastOutputPath = filename;
       await _owner.saveSession();
+    } on RenderCancelled {
+      // A cancelled export is a finished job, not a failure: no error banner,
+      // and no half-written file either — the blob parts are simply dropped
+      // and `complete()` never runs, so no download is offered.
+      lastCancelled = true;
     } catch (e) {
       _owner.error = e.toString();
     }
     rendering = false;
+    _cancellable = false;
+    _cancelRequested = false;
+    renderProgress = 0;
     _owner.notify();
   }
 
