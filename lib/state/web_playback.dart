@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../io/platform_shim.dart';
 import '../src/rust/api/mixer.dart' as rust;
+import 'preview_pacing.dart';
 import 'range_probe.dart';
 
 /// Live preview in the browser.
@@ -43,15 +44,10 @@ class WebPlayback {
 
   static const _tick = Duration(milliseconds: 40);
 
-  /// How much of the ring survives a parameter change. Three pump ticks:
-  /// enough that the device keeps playing while the replacement is mixed,
-  /// short enough that the change is heard right away instead of after the
-  /// ring's full second.
-  static const _paramTailSeconds = 0.12;
-
   /// Floor on how often the ring is re-mixed. A fader drag pushes on every
   /// pointer move; re-mixing the ring at that rate would cost several times
-  /// what playback does, and on a phone the pump would fall behind.
+  /// what playback does, and on a phone the pump would fall behind. On a slow
+  /// device the measured mixing time raises this — see [previewRewindInterval].
   static const _rewindEvery = Duration(milliseconds: 300);
 
   /// Ceiling on how much audio one pump tick produces.
@@ -63,6 +59,21 @@ class WebPlayback {
   static const _fillAheadSeconds = 0.2;
 
   DateTime? _lastRewind;
+
+  /// Audio seconds this machine mixes per wall-clock second, measured on the
+  /// pump itself (see [_pump]). The start value is a fast desktop, so the
+  /// first re-mix behaves as before #114 until a measurement exists; a slower
+  /// device corrects it downwards within the first ticks.
+  double _mixRate = 8.0;
+
+  /// Audio seconds produced per pump call and the pump's period — the pacing
+  /// functions need both to turn [_mixRate] into a safe remainder.
+  double get _chunkSeconds => _fillAheadSeconds;
+  static const _tickSeconds = 0.04;
+
+  /// What the pacing currently costs, for the diagnostics line in Settings:
+  /// mixing speed and how much audio a parameter change keeps.
+  double get mixRate => _mixRate;
 
   PreviewSink? _sink;
   int? _id;
@@ -164,12 +175,27 @@ class WebPlayback {
       final capFrames = (_sampleRate * _fillAheadSeconds).round();
       final freeFrames = (sink.freeSamples ~/ 2).clamp(0, capFrames);
       if (freeFrames > 0 && _feedAt < _dataEnd) {
+        final startedAt = DateTime.now();
         final wantBytes = freeFrames * _bytesPerFrame;
         final stop = (_feedAt + wantBytes).clamp(_feedAt, _dataEnd);
         final bytes = await read(_feedAt, stop);
+        final producedFrames = (stop - _feedAt) ~/ _bytesPerFrame;
         _feedAt = stop;
         final mixed = await rust.webPlayerProcess(id: id, bytes: bytes);
         _sink?.write(mixed);
+        // Only full-sized rounds say anything about throughput: a nearly full
+        // ring asks for a few frames, and the fixed per-call overhead would
+        // then read as a slow machine. Reading the bytes counts — on a Blob
+        // that is part of what it costs to produce audio.
+        if (producedFrames >= capFrames ~/ 2) {
+          final elapsed = DateTime.now().difference(startedAt).inMicroseconds;
+          if (elapsed > 0) {
+            final sample =
+                (producedFrames / _sampleRate) /
+                (elapsed / Duration.microsecondsPerSecond);
+            _mixRate = blendMixRate(_mixRate, sample);
+          }
+        }
       }
       onTick();
     } catch (e) {
@@ -184,9 +210,10 @@ class WebPlayback {
   ///
   /// The parameters alone would only apply to audio mixed *after* this call,
   /// and the ring runs about a second ahead — so a fader move used to take
-  /// that long to be heard. The buffered audio past [_paramTailSeconds] is
-  /// therefore dropped and produced again with the new settings. The kept
-  /// tail is what the device plays while that happens.
+  /// that long to be heard. The buffered audio past a short tail is therefore
+  /// dropped and produced again with the new settings; the kept tail is what
+  /// the device plays while that happens, and [previewTailSeconds] sizes it
+  /// from the measured mixing speed.
   ///
   /// The chain is **not** reset ([rust.webPlayerRewind], not `webPlayerSeek`):
   /// resetting the biquads and the limiter is the click that live parameter
@@ -206,13 +233,31 @@ class WebPlayback {
     // A fader drag pushes on every pointer move. Re-mixing the ring that
     // often would cost more than playback itself, so the rewind is rate
     // limited — the parameters above are already in, only the catch-up
-    // waits.
+    // waits. On a device that mixes slowly the limit stretches, otherwise
+    // every round would be discarded by the next one before it finished.
     final now = DateTime.now();
     final last = _lastRewind;
-    if (last != null && now.difference(last) < _rewindEvery) return;
+    final minGap = previewRewindInterval(
+      _mixRate,
+      chunkSeconds: _chunkSeconds,
+      floor: _rewindEvery,
+    );
+    if (last != null && now.difference(last) < minGap) return;
     _lastRewind = now;
 
-    final keep = (_sampleRate * _paramTailSeconds).round() * 2;
+    // What the ring must keep so the device plays on until the replacement
+    // arrives — derived from this machine's measured mixing speed, because
+    // 120 ms was chosen on a fast one and is a dropout on the iPad (#114).
+    final tail = previewTailSeconds(
+      _mixRate,
+      chunkSeconds: _chunkSeconds,
+      tickSeconds: _tickSeconds,
+    );
+    final keep = (_sampleRate * tail).round() * 2;
+    // Nothing past the tail means nothing to redo — and on a slow device
+    // that is the good outcome, not a missed one: the ring holds less than
+    // this machine needs to refill it, so the change becomes audible when
+    // the buffer plays out instead of tearing a hole into it.
     if (sink.trimTo(keep) == 0) return;
     // Where the kept audio ends, in file frames. Read as a sum on purpose:
     // as the worklet plays, `playedFrames` rises and `bufferedSamples` falls
