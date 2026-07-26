@@ -387,8 +387,25 @@ suchen, nicht den erstbesten.
 
 **Merge `dev/pwa` → main** ist eine Nutzer-Entscheidung, frühestens nach
 S2 (ab da hat die Web-Version eigenständigen Nutzwert als Viewer/Checker).
-Beim Merge fällt Architektur-Regel 4 in AGENTS.md („bewusst kein
-Web-Target") — sie gilt bis dahin für `main` weiter.
+**Vorbereitet am 2026-07-27 als v0.13.0**: der Merge bringt S0 bis S5 samt
+Wiedergabe, Export, Abbruch und Offline-Start; die verbleibenden
+Paritätslücken (#111) und das Knacken auf dem iPad (#114) blockieren nichts
+davon.
+
+Dabei fällt die Architektur-Regel „bewusst kein Web-Target" und wird durch ihr
+Gegenteil ersetzt: es *gibt* ein Web-Target, und nichts Plattformspezifisches
+darf am Shim vorbei erreichbar sein. Drei Dinge, die zum Merge gehören und
+sich leicht übersehen lassen:
+
+- **`pages.yml` triggerte nur auf `dev/pwa`** — so wäre die deployte PWA nach
+  dem Merge eingefroren. Jetzt stehen `main` und `dev/pwa` beide drin;
+  `dev/pwa` fällt raus, sobald der Branch weg ist.
+- **`flutter build web` lief nirgends in der CI.** `flutter analyze` merkt
+  einen `dart:io`-Import in web-erreichbarem Code nicht, und `pages.yml` baut
+  erst *nach* dem Merge — ein Web-Job in der Build-Matrix schließt das.
+- **AGENTS.md wusste nichts von der PWA.** Die Web-Geschichte stand nur in
+  diesem Plan, obwohl AGENTS.md zuerst gelesen wird; sie hat dort jetzt einen
+  eigenen Abschnitt.
 
 ## Nicht-Ziele
 

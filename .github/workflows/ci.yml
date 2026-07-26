@@ -96,6 +96,14 @@ jobs:
           - name: iOS
             os: macos-14
             build: flutter build ios --debug --no-codesign
+          # The web bundle broke in a way nothing here could see: `flutter
+          # analyze` passes on a `dart:io` import that a web-reachable file
+          # must not have, and the Pages workflow only builds AFTER a merge.
+          # This is the Dart half only — the wasm engine is covered by the
+          # wasm32 steps in the rust job and staged separately for deploys.
+          - name: Web
+            os: ubuntu-latest
+            build: flutter build web
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:

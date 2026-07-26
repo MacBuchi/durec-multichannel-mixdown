@@ -5,6 +5,29 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.13.0] – 2026-07-27
+
+### Added
+
+- **DurecMix now runs in a browser.** Open a recording from the DUREC stick,
+  see all its tracks, mix, listen, and export a stereo file — no install, on
+  a tablet too. The same audio engine as the app does the work, and the
+  exported file is bit-for-bit what the installed app would have produced.
+  Tested with a 1.35 GB, 34-track take on an iPad.
+- **It works offline.** After the first visit the page starts without a
+  network, and your recordings never leave the device — there is no upload,
+  the file is read straight from your disk.
+- **Export can be cancelled** while it renders.
+
+### Known limits in the browser
+
+- Nothing survives a reload yet: mixes, settings and caches are kept in
+  memory only.
+- Multi-file export, reference mastering and MP3 are app-only for now. Where
+  a feature is missing, its button is gone or says so instead of failing
+  silently.
+- On slower tablets, dragging a fader during playback can click.
+
 ## [0.12.15] – 2026-07-25
 
 ### Added
@@ -275,6 +298,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.13.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.0
 [0.12.15]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.15
 [0.12.14]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.14
 [0.12.13]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.13
