@@ -1212,13 +1212,18 @@ fn session_roundtrip_and_merge() {
     assert_eq!(bass.gain_db, 0.0);
 }
 
+/// A fresh session guesses nothing from a track name — every recorded channel
+/// starts in the mix. These are exactly the names that used to be dropped
+/// (In Ear / Phones / Line Out / Talkback): names are free text from the
+/// recording interface's configuration, so matching them silently removed
+/// signal that another user meant to keep.
 #[test]
-fn fresh_session_excludes_monitor_feeds() {
+fn fresh_session_keeps_every_track_in_the_mix() {
     let info: Vec<TrackInfo> = [
         "Vocals",
         "In Ear 2 R",
         "Phones L",
-        "Bass_Out", // console stem — stays in
+        "Bass_Out",
         "Line Out 1",
         "Talkback",
         "Kick",
@@ -1231,8 +1236,23 @@ fn fresh_session_excludes_monitor_feeds() {
     })
     .collect();
     let session = Session::from_track_info(&info);
-    let in_mix: Vec<bool> = session.tracks.iter().map(|t| t.in_mix).collect();
-    assert_eq!(in_mix, vec![true, false, false, true, false, false, true]);
+    assert!(
+        session.tracks.iter().all(|t| t.in_mix),
+        "no name may keep a track out of a fresh mix: {:?}",
+        session
+            .tracks
+            .iter()
+            .filter(|t| !t.in_mix)
+            .map(|t| &t.name)
+            .collect::<Vec<_>>()
+    );
+
+    // The one sanctioned exception stays: the trailing L/R of a stereo pair
+    // still sets the default pan.
+    let pan_of = |name: &str| session.tracks.iter().find(|t| t.name == name).unwrap().pan;
+    assert_eq!(pan_of("Phones L"), -1.0);
+    assert_eq!(pan_of("In Ear 2 R"), 1.0);
+    assert_eq!(pan_of("Vocals"), 0.0);
 }
 
 #[test]

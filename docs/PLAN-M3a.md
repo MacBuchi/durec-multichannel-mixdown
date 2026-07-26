@@ -16,7 +16,7 @@ Decisions made with the user (2026-07-12):
 
 ## Workstream 2 — Integration-test infrastructure
 
-- `engine/examples/gen_fixture.rs`: writes `fixture_8ch.wav` — 8 ch, 24-bit, 44.1 kHz, ~5 s, deterministic per-channel content (distinct sine/noise per channel), iXML with DUREC-style names incl. a stereo pair (`Keys L`/`Keys R`) and monitor buses (`Phones L`, `Out L`) to exercise pan/exclude heuristics.
+- `engine/examples/gen_fixture.rs`: writes `fixture_8ch.wav` — 8 ch, 24-bit, 44.1 kHz, ~5 s, deterministic per-channel content (distinct sine/noise per channel), iXML with DUREC-style names incl. a stereo pair (`Keys L`/`Keys R`) and monitor buses (`Phones L`, `Out L`) to exercise the L/R pan heuristic.
 - Engine golden tests render the fixture and assert report values (peak, LUFS-I) exactly.
 - Flutter `integration_test/`: runs the **real app** on macOS/CI, injects the fixture path (bypassing the native picker by calling `MixerState.open()` / overriding the `file_selector` platform interface), drives real widgets with `WidgetTester` (tap mute, drag fader, export), asserts state + output file. This is the professional pattern (see also: XCUITest for pure-native apps; the picker itself stays a thin manual-test surface).
 - The ad-hoc VM-service driver used for the 2026-07-12 verification lives in the session scratchpad; `integration_test` replaces it for CI use.
