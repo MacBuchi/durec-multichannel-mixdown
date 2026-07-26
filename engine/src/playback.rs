@@ -75,6 +75,10 @@ pub struct LiveParams {
     /// Mastering-preview filters (designed from current mix stats + the
     /// reference profile); `None` plays the plain mix.
     pub mastering: Option<MasteringPlan>,
+    /// The export's normalisation gain, so the preview plays at the level
+    /// the file will have (#113). 1.0 until the mix has been measured;
+    /// mastering supersedes it inside the stage.
+    pub norm_gain: f64,
 }
 
 pub struct Player {
@@ -84,7 +88,8 @@ pub struct Player {
 }
 
 impl Player {
-    /// Open `path` and start playing at `start_frame` with the given mix.
+    /// Open `path` and start playing at `start_frame` with the given mix,
+    /// unnormalised (`norm_gain` 1.0).
     pub fn start(
         path: &str,
         tracks: Vec<TrackParams>,
@@ -97,16 +102,22 @@ impl Player {
             master,
             None,
             start_frame,
+            1.0,
         )
     }
 
     /// [`Player::start`] over a platform handle — path or raw fd (Android SAF).
+    /// `norm_gain` is the export's normalisation gain for this mix (#113):
+    /// it belongs to the start call rather than a setter, because the first
+    /// decoded block is already audible — adopting the gain afterwards would
+    /// play the raw, far louder mix for that block.
     pub fn start_input(
         input: &crate::wav::InputHandle,
         tracks: Vec<TrackParams>,
         master: MasterParams,
         mastering: Option<MasteringPlan>,
         start_frame: u64,
+        norm_gain: f64,
     ) -> Result<Player> {
         let mut reader = input.open()?;
         let spec = reader.spec();
@@ -125,6 +136,7 @@ impl Player {
             tracks,
             master,
             mastering,
+            norm_gain,
         }));
 
         let (producer, consumer) = rtrb::RingBuffer::<f32>::new(RING_FRAMES * 2);
@@ -194,11 +206,13 @@ impl Player {
         tracks: Vec<TrackParams>,
         master: MasterParams,
         mastering: Option<MasteringPlan>,
+        norm_gain: f64,
     ) {
         *self.params.lock().unwrap() = LiveParams {
             tracks,
             master,
             mastering,
+            norm_gain,
         };
         self.shared.params_epoch.fetch_add(1, Ordering::AcqRel);
     }
@@ -241,13 +255,15 @@ fn spawn_decode_thread(
         .spawn(move || {
             let mut stage = {
                 let p = params.lock().unwrap();
-                PreviewStage::new(
+                let mut s = PreviewStage::new(
                     channels,
                     sample_rate,
                     &p.tracks,
                     p.master,
                     p.mastering.clone(),
-                )
+                );
+                s.set_norm_gain(p.norm_gain);
+                s
             };
             let mut seen_epoch = shared.params_epoch.load(Ordering::Acquire);
             let mut input: Vec<f64> = Vec::new();
@@ -272,6 +288,7 @@ fn spawn_decode_thread(
                     seen_epoch = epoch;
                     let p = params.lock().unwrap();
                     stage.set_params(&p.tracks, p.master, p.mastering.clone());
+                    stage.set_norm_gain(p.norm_gain);
                 }
 
                 let n = reader.read_frames(&mut input, DECODE_BLOCK).unwrap_or(0);

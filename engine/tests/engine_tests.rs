@@ -11,8 +11,9 @@ use durecmix_engine::ixml::{
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
 use durecmix_engine::preview::WebPlayer;
 use durecmix_engine::render::{
-    plan_from_pass1, render_to_file, LoudnessMode, OutputFormat, RenderPass1, RenderPass2,
-    RenderSettings, RenderSource, StreamRender,
+    analyze_mix_level, normalisation_gain, plan_from_pass1, render_to_file, LoudnessMode,
+    MixLevelScan, OutputFormat, RenderPass1, RenderPass2, RenderSettings, RenderSource,
+    StreamRender,
 };
 use durecmix_engine::session::Session;
 use durecmix_engine::sink::{ChunkSink, StereoSink};
@@ -3013,4 +3014,128 @@ fn preview_matches_a_normalised_render_once_it_gets_the_gain() {
             "{loudness:?}: preview and render differ by {worst}"
         );
     }
+}
+
+/// The gain the preview would apply is the gain the export *did* apply.
+///
+/// This is the whole point of #113: the preview's level comes from
+/// [`normalisation_gain`] over a scan of the mix, the export's from render
+/// pass 1, and if those two ever disagree the mixer lies about its own
+/// result. One shared formula, asserted against the rendered file's report.
+#[test]
+fn preview_gain_equals_the_gain_the_render_applies() {
+    let frames = 60_000;
+    // Hot enough that every mode has real work to do: a unity mix of these
+    // two tracks sits above 0 dBFS, like a DUREC take does.
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 180.0 * std::f64::consts::TAU).sin() * 0.9 * 32767.0) as i16,
+                ((t * 90.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    std::fs::write(&in_path, wav16(2, 48_000, &samples, None)).unwrap();
+    let tracks = vec![track(1, 3.0, -0.5), track(2, 0.0, 0.5)];
+
+    for loudness in [
+        LoudnessMode::PeakDbfs(-1.0),
+        LoudnessMode::LufsIntegrated(-14.0),
+        LoudnessMode::LufsIntegrated(-23.0),
+        LoudnessMode::None,
+    ] {
+        let settings = RenderSettings {
+            loudness,
+            format: OutputFormat::Wav32Float,
+            limiter_enabled: true,
+            ..RenderSettings::default()
+        };
+        let out_path = dir.path().join("out.wav");
+        let report = render_to_file(&in_path, &tracks, &settings, &out_path, |_| {}).unwrap();
+
+        let level = analyze_mix_level(
+            &InputHandle::Path(in_path.to_str().unwrap().into()),
+            &tracks,
+            &settings,
+            |_| {},
+        )
+        .unwrap();
+        let preview_db = linear_to_db(normalisation_gain(&settings, level));
+
+        assert!(
+            (preview_db - report.gain_applied_db).abs() < 1e-9,
+            "{loudness:?}: preview would apply {preview_db} dB, render applied {} dB",
+            report.gain_applied_db
+        );
+    }
+}
+
+/// The browser measures the same level as the file scan.
+///
+/// Same rule as every other engine entry point on the web: the byte-range
+/// twin may not become a second implementation that drifts (docs/PLAN-PWA.md).
+#[test]
+fn mix_level_scan_matches_the_file_scan() {
+    let frames = 40_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 44_100.0;
+            [
+                ((t * 220.0 * std::f64::consts::TAU).sin() * 0.7 * 32767.0) as i16,
+                ((t * 55.0 * std::f64::consts::TAU).sin() * 0.6 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let wav = wav16(2, 44_100, &samples, None);
+    std::fs::write(&in_path, &wav).unwrap();
+
+    let tracks = vec![track(1, -2.0, -1.0), track(2, -4.0, 1.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::LufsIntegrated(-16.0),
+        ..RenderSettings::default()
+    };
+
+    let by_file = analyze_mix_level(
+        &InputHandle::Path(in_path.to_str().unwrap().into()),
+        &tracks,
+        &settings,
+        |_| {},
+    )
+    .unwrap();
+
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+    let total_frames = data.size / spec.bytes_per_frame() as u64;
+
+    let mut scan = MixLevelScan::new(spec, total_frames, &tracks, &settings).unwrap();
+    const BLOCK: usize = 65_537; // odd, so no block ends on a frame edge
+    for block in payload.chunks(BLOCK) {
+        scan.push(block).unwrap();
+    }
+    assert_eq!(scan.frames_done(), total_frames);
+    let by_push = scan.finish();
+
+    assert_eq!(by_file.peak, by_push.peak, "peak differs");
+    assert!(
+        (by_file.integrated_lufs - by_push.integrated_lufs).abs() < 1e-9,
+        "loudness differs: {} vs {}",
+        by_file.integrated_lufs,
+        by_push.integrated_lufs
+    );
+
+    // And the gain that follows from it — the number the preview would use.
+    assert_eq!(
+        normalisation_gain(&settings, by_file),
+        normalisation_gain(&settings, by_push)
+    );
 }

@@ -382,6 +382,9 @@ class MixerState extends ChangeNotifier {
     fadeOutMs: trimEndSeconds != null ? fadeMs : 0,
     masteringEnabled: mastering.enabled,
     masteringReferences: mastering.references,
+    // Neutral until the mix has been measured — wiring the measurement into
+    // the preview is the second half of #113.
+    previewNormGain: 1.0,
   );
 
   void setTrimStart(double? seconds) {
