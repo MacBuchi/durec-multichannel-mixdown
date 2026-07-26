@@ -290,4 +290,26 @@ impl WebPlayer {
         self.start_frame = frame;
         self.position_frames = 0;
     }
+
+    /// Produce again from `frame`, **keeping** the chain's filter state.
+    ///
+    /// The browser mixes ahead into a ring buffer, so changed parameters are
+    /// only heard once that buffer drains. The caller drops the stale part
+    /// and rewinds here to re-mix it with the new settings — a fraction of a
+    /// second back, not a jump.
+    ///
+    /// [`seek`](Self::seek) would be wrong for that: resetting the biquads
+    /// and the limiter is audible, and avoiding exactly that click is the
+    /// point of live parameter updates. The filter state kept here belongs
+    /// to material a few hundred milliseconds away, which for filters whose
+    /// memory is measured in milliseconds is no difference at all.
+    ///
+    /// The decoder is rebuilt because the caller resumes on a frame
+    /// boundary; a carried mid-frame remainder would belong to the dropped
+    /// audio.
+    pub fn rewind_to(&mut self, frame: u64) {
+        self.decoder = crate::wav::FrameDecoder::new(self.spec);
+        self.start_frame = frame;
+        self.position_frames = 0;
+    }
 }

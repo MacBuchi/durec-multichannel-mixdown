@@ -340,6 +340,21 @@ class _WorkletPreviewSink implements PreviewSink {
   }
 
   @override
+  int trimTo(int samples) {
+    final read = _atomicsLoad(_state, _stateRead);
+    final buffered =
+        (_atomicsLoad(_state, _stateWrite) - read + _capacity) % _capacity;
+    if (buffered <= samples) return 0;
+    // Only the write index moves, and only backwards towards the read index:
+    // the worklet keeps consuming from `read` throughout, so what it is
+    // playing right now is never pulled out from under it.
+    var write = read + samples;
+    if (write >= _capacity) write -= _capacity;
+    _atomicsStore(_state, _stateWrite, write);
+    return buffered - samples;
+  }
+
+  @override
   Future<void> dispose() async {
     _node.disconnect();
     await _context.close().toDart;

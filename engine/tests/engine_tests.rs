@@ -2612,3 +2612,89 @@ fn web_player_matches_the_rendered_output() {
     assert_eq!(worst, 0.0, "preview and render differ by up to {worst}");
     assert_eq!(player.position_frames(), frames as u64);
 }
+
+/// A parameter change must reach the ear without resetting the chain.
+///
+/// The browser mixes ahead into a ring buffer, so a fader move is only heard
+/// once that buffer drains — about a second. The fix drops the stale part
+/// and produces it again from slightly earlier, which is what
+/// [`WebPlayer::rewind_to`] is for. It must NOT behave like `seek`: seek
+/// resets the biquads and the limiter, and that reset is audible.
+///
+/// The two are told apart by their output: after a reset the chain answers
+/// exactly as a freshly built one does, and with the state kept it does not.
+#[test]
+fn rewind_to_keeps_the_filter_state_that_seek_throws_away() {
+    let frames = 20_000;
+    let samples: Vec<i16> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            [
+                ((t * 90.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+                ((t * 3000.0 * std::f64::consts::TAU).sin() * 0.8 * 32767.0) as i16,
+            ]
+        })
+        .collect();
+    let wav = wav16(2, 48_000, &samples, None);
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+
+    // A high-pass gives the chain a memory to carry; without one there would
+    // be nothing for the two paths to disagree about.
+    let mut tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    for t in &mut tracks {
+        t.eq.hpf_enabled = true;
+        t.eq.hpf_freq = 400.0;
+    }
+    let master = durecmix_engine::chain::MasterParams {
+        limiter_enabled: true,
+        ..Default::default()
+    };
+    let new_player = || WebPlayer::new(spec, &tracks, master, None, 0);
+
+    // Half the material, then the same bytes again three ways.
+    let half = payload.len() / 2 / 4 * 4;
+    let second = &payload[half..];
+
+    let mut fresh = new_player();
+    let from_scratch = fresh.process(second).unwrap().to_vec();
+
+    let mut seeking = new_player();
+    seeking.process(&payload[..half]).unwrap();
+    seeking.seek(0);
+    let after_seek = seeking.process(second).unwrap().to_vec();
+
+    let mut rewinding = new_player();
+    rewinding.process(&payload[..half]).unwrap();
+    rewinding.rewind_to(0);
+    let after_rewind = rewinding.process(second).unwrap().to_vec();
+
+    assert_eq!(
+        after_seek, from_scratch,
+        "seek is documented to reset the chain"
+    );
+    assert_ne!(
+        after_rewind, from_scratch,
+        "rewind_to must keep the filter state — otherwise it is just seek and clicks"
+    );
+    // The difference has to be transient. At the very start it is large on
+    // purpose: the limiter's lookahead line still holds the audio that was
+    // dropped, so the stream continues instead of restarting from silence —
+    // which is the whole reason this does not click. Once past the lookahead
+    // and the filters' memory, both paths carry the same signal.
+    let settled = 20_000; // samples ≈ 208 ms at 48 kHz
+    let worst_settled = after_rewind
+        .iter()
+        .zip(&from_scratch)
+        .skip(settled)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    assert!(
+        worst_settled < 0.01,
+        "the two paths must converge once the chain has settled (worst {worst_settled})"
+    );
+    assert_eq!(rewinding.position_frames(), (second.len() / 4) as u64);
+}

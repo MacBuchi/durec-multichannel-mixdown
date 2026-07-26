@@ -1236,6 +1236,19 @@ pub fn web_player_update_params(
     Ok(())
 }
 
+/// Produce again from `frame` without resetting the chain — for re-mixing
+/// the browser's ring buffer after a parameter change, so a fader move is
+/// heard now instead of when the ring drains. Use [`web_player_seek`] for a
+/// real jump.
+pub fn web_player_rewind(id: u32, frame: u64) -> anyhow::Result<()> {
+    let mut map = web_players().lock().unwrap();
+    let player = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
+    player.rewind_to(frame);
+    Ok(())
+}
+
 /// Jump to `frame`. Dart resumes pushing source bytes from there.
 pub fn web_player_seek(id: u32, frame: u64) -> anyhow::Result<()> {
     let mut map = web_players().lock().unwrap();

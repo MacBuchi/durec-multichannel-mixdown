@@ -102,5 +102,13 @@ abstract class PreviewSink {
   /// Drop everything buffered — the signal is about to jump elsewhere.
   void flush();
 
+  /// Keep at most [samples] of what is buffered and drop the rest; returns
+  /// how many samples were dropped.
+  ///
+  /// For re-mixing after a parameter change: everything past the kept tail
+  /// was produced with the old settings. The tail stays so the device has
+  /// something to play while the replacement is produced.
+  int trimTo(int samples);
+
   Future<void> dispose();
 }

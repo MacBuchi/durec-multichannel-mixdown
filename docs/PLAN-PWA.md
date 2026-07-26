@@ -237,8 +237,39 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   304 ohne Nutzdaten. `Range`-Anfragen bleiben unangetastet, sonst würde aus
   einer 206 eine vollständige 200.
 
-  Offen, weiterhin in Issue #105: die ~1 s Latenz bei Fader-Änderungen (die
-  Ringtiefe, `_ringSeconds`).
+  **Fader-Latenz (nachgereicht 2026-07-26, Issue #105).** Sie war die
+  Ringtiefe: neue Parameter galten nur für Audio, das *danach* gemischt
+  wurde, und der Ring läuft rund eine Sekunde voraus. Statt den Ring zu
+  kürzen — er muss einen blockierten Main-Thread überleben — wird der
+  veraltete Teil **neu gemischt**: `PreviewSink.trimTo` behält 120 ms,
+  `WebPlayer::rewind_to` setzt die Quelle zurück, **ohne die Kette zu
+  resetten** (`seek` täte das, und genau dieser Reset ist der Klick, den
+  Live-Parameter vermeiden sollen).
+
+  Drei Dinge, die dabei nötig waren und nicht offensichtlich sind:
+
+  - **Der Wiederaufsetzpunkt wird als Summe gelesen**,
+    `playedFrames + bufferedSamples/2`. Beide Werte ändern sich beim
+    Abspielen gegenläufig, die Summe nicht — sonst läge der Punkt um ein
+    Render-Quantum daneben und es gäbe eine Naht.
+  - **Rate-Limit 300 ms.** Ein Fader-Zug schickt bei *jeder* Zeigerbewegung
+    neue Parameter; ohne Bremse würde der Ring dauernd neu gemischt und der
+    Pump auf einem Telefon zurückfallen. Die Parameter selbst gehen sofort
+    raus, nur das Nachmischen wartet.
+  - **Deckel pro Pump-Takt (200 ms Audio).** Ohne ihn füllt der erste Takt
+    nach dem Nachmischen den ganzen Ring in *einem* langen Mix auf dem
+    Main-Thread. Gemessen macht der Deckel den Start sogar besser:
+    Anlauf-Underruns 42 ohne gegen 18–24 mit.
+
+  Gemessen im Browser an `UFX34_00.WAV` (34 ch), Puffertiefe pro Pump-Takt
+  protokolliert: ruhige Wiedergabe 913–965 ms und **keine** Underruns; unter
+  Dauer-Fader-Bewegung fällt der Puffer auf 216 ms und erholt sich —
+  ebenfalls **keine** Underruns. Die Latenz ist damit der behaltene Rest
+  statt der Ringtiefe. Alle Underruns fallen vor dem ersten Pump-Takt an
+  (der Ring startet leer); das ist Anlaufverhalten und war vorher auch so.
+
+  **Ungeprüft bleibt der Klang.** Headless hat kein Audiogerät — dass es
+  nicht knackt und sich richtig anfühlt, muss auf dem iPad beurteilt werden.
 
 ## Der Web-Reader muss das echte `File` behalten
 
