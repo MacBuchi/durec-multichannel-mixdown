@@ -5,6 +5,20 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.13.2] – 2026-07-27
+
+### Added
+
+- **Hear what you will get: preview at export level.** The headphones button
+  next to the loudness target plays the mix at the level the exported file
+  will have. Until now the preview left out the gain the export applies — on
+  a DUREC take that is around 17 dB, so the limiter worked flat out and the
+  preview sounded nothing like the result. Switching it on measures the mix
+  once; after that the meters show the delivered signal.
+- Change the mix afterwards and the button turns amber: the measurement no
+  longer fits. The sound stays as it is — a level that jumped on every fader
+  move would be worse — and a tap measures again.
+
 ## [0.13.1] – 2026-07-27
 
 ### Fixed
@@ -325,6 +339,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.13.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.2
 [0.13.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.1
 [0.13.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.0
 [0.12.16]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.16

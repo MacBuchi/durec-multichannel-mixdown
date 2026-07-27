@@ -25,6 +25,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  RustStreamSink<MixLevelEvent> dco_decode_StreamSink_mix_level_event_Sse(
+    dynamic raw,
+  );
+
+  @protected
   RustStreamSink<MixStatsEvent> dco_decode_StreamSink_mix_stats_event_Sse(
     dynamic raw,
   );
@@ -76,6 +81,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ApiMasteringReference dco_decode_api_mastering_reference(dynamic raw);
 
   @protected
+  ApiMixLevel dco_decode_api_mix_level(dynamic raw);
+
+  @protected
   ApiMixStats dco_decode_api_mix_stats(dynamic raw);
 
   @protected
@@ -107,6 +115,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMaster dco_decode_box_autoadd_api_master(dynamic raw);
+
+  @protected
+  ApiMixLevel dco_decode_box_autoadd_api_mix_level(dynamic raw);
 
   @protected
   ApiMixStats dco_decode_box_autoadd_api_mix_stats(dynamic raw);
@@ -171,10 +182,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  MixLevelEvent dco_decode_mix_level_event(dynamic raw);
+
+  @protected
   MixStatsEvent dco_decode_mix_stats_event(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  ApiMixLevel? dco_decode_opt_box_autoadd_api_mix_level(dynamic raw);
 
   @protected
   ApiMixStats? dco_decode_opt_box_autoadd_api_mix_stats(dynamic raw);
@@ -233,6 +250,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
+  RustStreamSink<MixLevelEvent> sse_decode_StreamSink_mix_level_event_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RustStreamSink<MixStatsEvent> sse_decode_StreamSink_mix_stats_event_Sse(
     SseDeserializer deserializer,
   );
@@ -288,6 +310,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ApiMixLevel sse_decode_api_mix_level(SseDeserializer deserializer);
+
+  @protected
   ApiMixStats sse_decode_api_mix_stats(SseDeserializer deserializer);
 
   @protected
@@ -321,6 +346,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ApiMaster sse_decode_box_autoadd_api_master(SseDeserializer deserializer);
+
+  @protected
+  ApiMixLevel sse_decode_box_autoadd_api_mix_level(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ApiMixStats sse_decode_box_autoadd_api_mix_stats(
@@ -397,10 +427,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  MixLevelEvent sse_decode_mix_level_event(SseDeserializer deserializer);
+
+  @protected
   MixStatsEvent sse_decode_mix_stats_event(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  ApiMixLevel? sse_decode_opt_box_autoadd_api_mix_level(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ApiMixStats? sse_decode_opt_box_autoadd_api_mix_stats(
@@ -468,6 +506,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_StreamSink_mix_level_event_Sse(
+    RustStreamSink<MixLevelEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_StreamSink_mix_stats_event_Sse(
     RustStreamSink<MixStatsEvent> self,
     SseSerializer serializer,
@@ -531,6 +575,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_api_mix_level(ApiMixLevel self, SseSerializer serializer);
+
+  @protected
   void sse_encode_api_mix_stats(ApiMixStats self, SseSerializer serializer);
 
   @protected
@@ -575,6 +622,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_api_master(
     ApiMaster self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_api_mix_level(
+    ApiMixLevel self,
     SseSerializer serializer,
   );
 
@@ -669,10 +722,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_mix_level_event(MixLevelEvent self, SseSerializer serializer);
+
+  @protected
   void sse_encode_mix_stats_event(MixStatsEvent self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_api_mix_level(
+    ApiMixLevel? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_api_mix_stats(

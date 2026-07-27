@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `web_players`, `with_renderer`
+// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `mix_scans`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `web_players`, `with_renderer`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -126,6 +126,40 @@ Future<ApiReferenceProfile> mergeReferenceProfiles({
   required List<ApiReferenceProfile> profiles,
 }) => RustLib.instance.api.crateApiMixerMergeReferenceProfiles(
   profiles: profiles,
+);
+
+/// Measure the mix so the preview can play at export level.
+///
+/// Same shape as [`analyze_mix_mastering`] and one read of the recording, but
+/// without the spectral work — this only needs peak and integrated loudness.
+Stream<MixLevelEvent> analyzeMixLevel({
+  required String path,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+  int? fd,
+}) => RustLib.instance.api.crateApiMixerAnalyzeMixLevel(
+  path: path,
+  tracks: tracks,
+  master: master,
+  fd: fd,
+);
+
+/// The gain the export would put in front of the limiter for this mix.
+///
+/// Computed by the engine, not by the caller: the formula lives once
+/// (`render::normalisation_gain`), so preview and export cannot drift.
+/// Returns 1.0 while mastering is active — the reference owns the level
+/// there, exactly as in the render.
+///
+/// Sync: it is arithmetic over two numbers, and the caller needs it while
+/// building the parameter DTO — an await there would spread through every
+/// call site that sets a fader.
+double normGainForMix({
+  required ApiMaster master,
+  required ApiMixLevel level,
+}) => RustLib.instance.api.crateApiMixerNormGainForMix(
+  master: master,
+  level: level,
 );
 
 /// Analyze the current mix (same trim/fades as an export) for the mastering
@@ -271,6 +305,32 @@ Future<ApiRenderTail> renderStreamFinish({required int id}) =>
 /// Drop a render that the user cancelled or that failed mid-way.
 Future<void> renderStreamCancel({required int id}) =>
     RustLib.instance.api.crateApiMixerRenderStreamCancel(id: id);
+
+/// Open a level scan over `range_frames` of the trimmed range.
+Future<int> mixLevelBegin({
+  required List<int> fmtChunk,
+  required BigInt rangeFrames,
+  required List<ApiTrack> tracks,
+  required ApiMaster master,
+}) => RustLib.instance.api.crateApiMixerMixLevelBegin(
+  fmtChunk: fmtChunk,
+  rangeFrames: rangeFrames,
+  tracks: tracks,
+  master: master,
+);
+
+/// Feed the next slice of the `data` payload, in file order. Returns the
+/// frames measured so far, for the progress bar.
+Future<BigInt> mixLevelPush({required int id, required List<int> bytes}) =>
+    RustLib.instance.api.crateApiMixerMixLevelPush(id: id, bytes: bytes);
+
+/// Close the scan and take its measurement.
+Future<ApiMixLevel> mixLevelFinish({required int id}) =>
+    RustLib.instance.api.crateApiMixerMixLevelFinish(id: id);
+
+/// Drop a scan the user cancelled or that failed mid-way.
+Future<void> mixLevelCancel({required int id}) =>
+    RustLib.instance.api.crateApiMixerMixLevelCancel(id: id);
 
 /// Open a browser player positioned at `start_frame`.
 Future<int> webPlayerBegin({
@@ -497,6 +557,14 @@ class ApiMaster {
   final bool masteringEnabled;
   final List<ApiMasteringReference> masteringReferences;
 
+  /// The export's normalisation gain, applied to the *preview* so it plays
+  /// at the level the exported file will have (#113). 1.0 means "not
+  /// measured / play the raw mix", which is what every caller sent before
+  /// the measurement existed. Travels in this DTO on purpose: it is pushed
+  /// on every parameter change anyway, so no extra call can go missing.
+  /// Compute it with `norm_gain_for_mix`, never by hand.
+  final double previewNormGain;
+
   const ApiMaster({
     required this.loudness,
     required this.format,
@@ -509,6 +577,7 @@ class ApiMaster {
     required this.fadeOutMs,
     required this.masteringEnabled,
     required this.masteringReferences,
+    required this.previewNormGain,
   });
 
   @override
@@ -523,7 +592,8 @@ class ApiMaster {
       fadeInMs.hashCode ^
       fadeOutMs.hashCode ^
       masteringEnabled.hashCode ^
-      masteringReferences.hashCode;
+      masteringReferences.hashCode ^
+      previewNormGain.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -540,7 +610,8 @@ class ApiMaster {
           fadeInMs == other.fadeInMs &&
           fadeOutMs == other.fadeOutMs &&
           masteringEnabled == other.masteringEnabled &&
-          masteringReferences == other.masteringReferences;
+          masteringReferences == other.masteringReferences &&
+          previewNormGain == other.previewNormGain;
 }
 
 /// One chosen mastering reference (path/URI + display name).
@@ -560,6 +631,26 @@ class ApiMasteringReference {
           runtimeType == other.runtimeType &&
           path == other.path &&
           name == other.name;
+}
+
+/// What the export's first pass measures about the level of the mix — the
+/// input to the normalisation gain (#113).
+class ApiMixLevel {
+  final double peak;
+  final double integratedLufs;
+
+  const ApiMixLevel({required this.peak, required this.integratedLufs});
+
+  @override
+  int get hashCode => peak.hashCode ^ integratedLufs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ApiMixLevel &&
+          runtimeType == other.runtimeType &&
+          peak == other.peak &&
+          integratedLufs == other.integratedLufs;
 }
 
 /// Loudest-piece statistics of the current mix (mirror of the engine's
@@ -972,6 +1063,25 @@ class ApiTrackEq {
           low == other.low &&
           mid == other.mid &&
           high == other.high;
+}
+
+/// Progress of [`analyze_mix_level`]; `level` is set on the final event.
+class MixLevelEvent {
+  final double progress;
+  final ApiMixLevel? level;
+
+  const MixLevelEvent({required this.progress, this.level});
+
+  @override
+  int get hashCode => progress.hashCode ^ level.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MixLevelEvent &&
+          runtimeType == other.runtimeType &&
+          progress == other.progress &&
+          level == other.level;
 }
 
 /// One event of the mix-analysis stream: progress ticks, final event

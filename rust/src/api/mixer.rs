@@ -123,6 +123,13 @@ pub struct ApiMaster {
     /// references average into one genre target curve.
     pub mastering_enabled: bool,
     pub mastering_references: Vec<ApiMasteringReference>,
+    /// The export's normalisation gain, applied to the *preview* so it plays
+    /// at the level the exported file will have (#113). 1.0 means "not
+    /// measured / play the raw mix", which is what every caller sent before
+    /// the measurement existed. Travels in this DTO on purpose: it is pushed
+    /// on every parameter change anyway, so no extra call can go missing.
+    /// Compute it with `norm_gain_for_mix`, never by hand.
+    pub preview_norm_gain: f64,
 }
 
 /// One chosen mastering reference (path/URI + display name).
@@ -301,6 +308,9 @@ fn to_engine_settings(m: &ApiMaster) -> RenderSettings {
 
 fn from_engine_settings(s: &RenderSettings) -> ApiMaster {
     ApiMaster {
+        // A restored session carries no measurement of its mix — the app
+        // measures on demand and pushes the result.
+        preview_norm_gain: 1.0,
         loudness: match s.loudness {
             LoudnessMode::None => ApiLoudness {
                 mode: ApiLoudnessMode::None,
@@ -731,6 +741,76 @@ pub struct MixStatsEvent {
     pub stats: Option<ApiMixStats>,
 }
 
+/// What the export's first pass measures about the level of the mix — the
+/// input to the normalisation gain (#113).
+pub struct ApiMixLevel {
+    pub peak: f64,
+    pub integrated_lufs: f64,
+}
+
+/// Progress of [`analyze_mix_level`]; `level` is set on the final event.
+pub struct MixLevelEvent {
+    pub progress: f32,
+    pub level: Option<ApiMixLevel>,
+}
+
+/// Measure the mix so the preview can play at export level.
+///
+/// Same shape as [`analyze_mix_mastering`] and one read of the recording, but
+/// without the spectral work — this only needs peak and integrated loudness.
+pub fn analyze_mix_level(
+    path: String,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+    fd: Option<i32>,
+    events: StreamSink<MixLevelEvent>,
+) -> anyhow::Result<()> {
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let settings = to_engine_settings(&master);
+    let level =
+        render::analyze_mix_level(&input_handle(&path, fd), &engine_tracks, &settings, |p| {
+            if p < 1.0 {
+                let _ = events.add(MixLevelEvent {
+                    progress: p,
+                    level: None,
+                });
+            }
+        })
+        .with_context(|| format!("measure mix level of {path}"))?;
+    let _ = events.add(MixLevelEvent {
+        progress: 1.0,
+        level: Some(ApiMixLevel {
+            peak: level.peak,
+            integrated_lufs: level.integrated_lufs,
+        }),
+    });
+    Ok(())
+}
+
+/// The gain the export would put in front of the limiter for this mix.
+///
+/// Computed by the engine, not by the caller: the formula lives once
+/// (`render::normalisation_gain`), so preview and export cannot drift.
+/// Returns 1.0 while mastering is active — the reference owns the level
+/// there, exactly as in the render.
+///
+/// Sync: it is arithmetic over two numbers, and the caller needs it while
+/// building the parameter DTO — an await there would spread through every
+/// call site that sets a fader.
+#[flutter_rust_bridge::frb(sync)]
+pub fn norm_gain_for_mix(master: ApiMaster, level: ApiMixLevel) -> f64 {
+    if master.mastering_enabled {
+        return 1.0;
+    }
+    render::normalisation_gain(
+        &to_engine_settings(&master),
+        render::MixLevel {
+            peak: level.peak,
+            integrated_lufs: level.integrated_lufs,
+        },
+    )
+}
+
 /// Analyze the current mix (same trim/fades as an export) for the mastering
 /// preview. Reads the whole recording once; streams progress.
 pub fn analyze_mix_mastering(
@@ -951,6 +1031,7 @@ pub fn player_start(
             to_master_params(&master),
             plan,
             start_frame,
+            master.preview_norm_gain,
         )
         .with_context(|| format!("start playback of {path}"))?;
         let mut slot = player_slot().lock().unwrap();
@@ -996,6 +1077,7 @@ pub fn player_update_params(
             tracks.iter().map(to_engine_track).collect(),
             to_master_params(&master),
             plan,
+            master.preview_norm_gain,
         );
     }
     Ok(())
@@ -1151,6 +1233,74 @@ pub fn render_stream_cancel(id: u32) {
     renderers().lock().unwrap().remove(&id);
 }
 
+// ── mix level over byte ranges ──────────────────────────────────────────────
+//
+// [`analyze_mix_level`] needs a seekable file; in the browser Dart pushes the
+// `data` payload instead. Same engine stage behind both, so the measured
+// level — and with it the preview's gain — cannot differ between them.
+
+static MIX_SCANS: OnceLock<Mutex<HashMap<u32, render::MixLevelScan>>> = OnceLock::new();
+static NEXT_MIX_SCAN_ID: OnceLock<Mutex<u32>> = OnceLock::new();
+
+fn mix_scans() -> &'static Mutex<HashMap<u32, render::MixLevelScan>> {
+    MIX_SCANS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Open a level scan over `range_frames` of the trimmed range.
+pub fn mix_level_begin(
+    fmt_chunk: Vec<u8>,
+    range_frames: u64,
+    tracks: Vec<ApiTrack>,
+    master: ApiMaster,
+) -> anyhow::Result<u32> {
+    let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
+    let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
+    let scan = render::MixLevelScan::new(
+        spec,
+        range_frames,
+        &engine_tracks,
+        &to_engine_settings(&master),
+    )?;
+    let mut counter = NEXT_MIX_SCAN_ID
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    *counter = counter.wrapping_add(1);
+    let id = *counter;
+    mix_scans().lock().unwrap().insert(id, scan);
+    Ok(id)
+}
+
+/// Feed the next slice of the `data` payload, in file order. Returns the
+/// frames measured so far, for the progress bar.
+pub fn mix_level_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<u64> {
+    let mut map = mix_scans().lock().unwrap();
+    let scan = map
+        .get_mut(&id)
+        .ok_or_else(|| anyhow::anyhow!("no mix level scan with id {id}"))?;
+    scan.push(&bytes).context("mix level scan")?;
+    Ok(scan.frames_done())
+}
+
+/// Close the scan and take its measurement.
+pub fn mix_level_finish(id: u32) -> anyhow::Result<ApiMixLevel> {
+    let scan = mix_scans()
+        .lock()
+        .unwrap()
+        .remove(&id)
+        .ok_or_else(|| anyhow::anyhow!("no mix level scan with id {id}"))?;
+    let level = scan.finish();
+    Ok(ApiMixLevel {
+        peak: level.peak,
+        integrated_lufs: level.integrated_lufs,
+    })
+}
+
+/// Drop a scan the user cancelled or that failed mid-way.
+pub fn mix_level_cancel(id: u32) {
+    mix_scans().lock().unwrap().remove(&id);
+}
+
 // ── browser playback ────────────────────────────────────────────────────────
 //
 // No cpal in wasm and no synchronous read on a Blob, so the arrangement is
@@ -1188,13 +1338,16 @@ pub fn web_player_begin(
     let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
     let plan = preview_plan(&master, mastering_stats, reference)?;
-    let player = preview::WebPlayer::new(
+    let mut player = preview::WebPlayer::new(
         spec,
         &engine_tracks,
         to_master_params(&master),
         plan,
         start_frame,
     );
+    // Set before the first block is mixed: adopting it afterwards would play
+    // the raw mix — far louder than the export — for that block.
+    player.set_norm_gain(master.preview_norm_gain);
     let mut counter = NEXT_WEB_PLAYER_ID
         .get_or_init(|| Mutex::new(0))
         .lock()
@@ -1233,6 +1386,7 @@ pub fn web_player_update_params(
         .ok_or_else(|| anyhow::anyhow!("no browser player with id {id}"))?;
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
     player.set_params(&engine_tracks, to_master_params(&master), plan);
+    player.set_norm_gain(master.preview_norm_gain);
     Ok(())
 }
 

@@ -234,8 +234,57 @@ pub fn analyze_mix_mastering(
     input: &InputHandle,
     tracks: &[TrackParams],
     settings: &RenderSettings,
-    mut progress: impl FnMut(f32),
+    progress: impl FnMut(f32),
 ) -> Result<crate::mastering::MasteringStats> {
+    scan_pass1(input, tracks, settings, true, progress)?
+        .stats
+        .ok_or_else(|| EngineError::Encode("mastering analyzer missing".into()))
+}
+
+/// What the export's first pass measures about the level of the mix.
+///
+/// This is everything the preview needs to play at export level (#113): the
+/// normalisation gain is a function of these two numbers and the loudness
+/// setting, see [`normalisation_gain`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MixLevel {
+    /// Sample peak of the mixed stereo bus, linear.
+    pub peak: f64,
+    /// Integrated loudness of the mix (EBU R128), in LUFS. `-inf` for
+    /// silence, which the gain formula treats as "no gain".
+    pub integrated_lufs: f64,
+}
+
+/// Measure the mix without producing it — pass 1 with neither the mastering
+/// analyzer nor an encoder behind it.
+///
+/// Costs one read of the trimmed range, the same as the mastering analysis
+/// and cheaper by the spectral work it skips.
+pub fn analyze_mix_level(
+    input: &InputHandle,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    progress: impl FnMut(f32),
+) -> Result<MixLevel> {
+    let pass1 = scan_pass1(input, tracks, settings, false, progress)?;
+    Ok(MixLevel {
+        peak: pass1.peak,
+        integrated_lufs: pass1.source_lufs,
+    })
+}
+
+/// Run render pass 1 over the trimmed range and hand back its measurements.
+///
+/// Shared by the two things that need pass 1 without a render: the mastering
+/// analysis and the level scan. `want_analyzer` decides whether the spectral
+/// work runs at all.
+fn scan_pass1(
+    input: &InputHandle,
+    tracks: &[TrackParams],
+    settings: &RenderSettings,
+    want_analyzer: bool,
+    mut progress: impl FnMut(f32),
+) -> Result<Pass1> {
     let mut reader = input.open()?;
     let spec = reader.spec();
     let num_frames = reader.num_frames();
@@ -247,8 +296,8 @@ pub fn analyze_mix_mastering(
     let range = end - start;
     let scale = range.max(1) as f64;
 
-    // Exactly render pass 1, minus the peak/loudness read-out — sharing the
-    // stage is what keeps the preview's FIRs identical to the export's.
+    // Exactly render pass 1 — sharing the stage is what keeps the preview's
+    // FIRs and gain identical to the export's.
     let mut p1 = RenderPass1::new(
         &RenderSource {
             channels: spec.channels as usize,
@@ -257,7 +306,7 @@ pub fn analyze_mix_mastering(
             range_frames: range,
         },
         settings,
-        true,
+        want_analyzer,
     )?;
     reader.seek_to_frame(start)?;
     let mut buf = Vec::new();
@@ -273,9 +322,7 @@ pub fn analyze_mix_mastering(
         progress((p1.frames_done() as f64 / scale) as f32);
     }
     progress(1.0);
-    p1.finish()
-        .stats
-        .ok_or_else(|| EngineError::Encode("mastering analyzer missing".into()))
+    Ok(p1.finish())
 }
 
 /// The two render passes as pushable stages, so the same DSP serves both
@@ -389,35 +436,53 @@ pub fn plan_from_pass1(
     let norm_gain = if mastering.is_some() {
         1.0
     } else {
-        match settings.loudness {
-            LoudnessMode::PeakDbfs(target_db) => {
-                if pass1.peak > 0.0 {
-                    10f64.powf(target_db / 20.0) / pass1.peak
-                } else {
-                    1.0
-                }
-            }
-            LoudnessMode::LufsIntegrated(target_lufs) => {
-                if pass1.source_lufs.is_finite() {
-                    10f64.powf((target_lufs - pass1.source_lufs) / 20.0)
-                } else {
-                    1.0
-                }
-            }
-            LoudnessMode::None => {
-                // Clip protection is the limiter's job when it is enabled.
-                if !settings.limiter_enabled && pass1.peak > 1.0 {
-                    1.0 / pass1.peak
-                } else {
-                    1.0
-                }
-            }
-        }
+        normalisation_gain(
+            settings,
+            MixLevel {
+                peak: pass1.peak,
+                integrated_lufs: pass1.source_lufs,
+            },
+        )
     };
     Ok(RenderPlan {
         norm_gain,
         mastering,
     })
+}
+
+/// The gain the export puts in front of the limiter, from a measurement of
+/// the mix.
+///
+/// Factored out of [`plan_from_pass1`] so the preview can apply the *same*
+/// number (#113): a second implementation of this formula would be a silent
+/// way for "what you hear" and "what you get" to drift apart. Mastering is
+/// not handled here — it supersedes normalisation, and both call sites decide
+/// that above this function.
+pub fn normalisation_gain(settings: &RenderSettings, level: MixLevel) -> f64 {
+    match settings.loudness {
+        LoudnessMode::PeakDbfs(target_db) => {
+            if level.peak > 0.0 {
+                10f64.powf(target_db / 20.0) / level.peak
+            } else {
+                1.0
+            }
+        }
+        LoudnessMode::LufsIntegrated(target_lufs) => {
+            if level.integrated_lufs.is_finite() {
+                10f64.powf((target_lufs - level.integrated_lufs) / 20.0)
+            } else {
+                1.0
+            }
+        }
+        LoudnessMode::None => {
+            // Clip protection is the limiter's job when it is enabled.
+            if !settings.limiter_enabled && level.peak > 1.0 {
+                1.0 / level.peak
+            } else {
+                1.0
+            }
+        }
+    }
 }
 
 /// Pass 2: mix → normalisation gain → mastering FIR → limiter → measure →
@@ -694,6 +759,63 @@ pub fn render_io(
 /// The encoded output is not kept: [`push_pass2`](Self::push_pass2) returns
 /// each block as it is produced, and the patched header follows from
 /// [`finish`](Self::finish). The caller writes `head ++ blocks…`.
+/// [`analyze_mix_level`] for the browser: Dart pushes the source blocks
+/// because a `Blob` has no synchronous seek.
+///
+/// The byte-range twin every engine entry point needs on the web — and it is
+/// the same [`RenderPass1`] the file-based scan runs, so the two cannot
+/// measure different things.
+pub struct MixLevelScan {
+    decoder: crate::wav::FrameDecoder,
+    scratch: Vec<f64>,
+    pass: RenderPass1,
+}
+
+impl MixLevelScan {
+    pub fn new(
+        spec: crate::wav::WavSpec,
+        range_frames: u64,
+        tracks: &[TrackParams],
+        settings: &RenderSettings,
+    ) -> Result<MixLevelScan> {
+        let pass = RenderPass1::new(
+            &RenderSource {
+                channels: spec.channels as usize,
+                sample_rate: spec.sample_rate,
+                tracks,
+                range_frames,
+            },
+            settings,
+            false,
+        )?;
+        Ok(MixLevelScan {
+            decoder: crate::wav::FrameDecoder::new(spec),
+            scratch: Vec::new(),
+            pass,
+        })
+    }
+
+    /// Feed the next slice of the `data` chunk, in file order.
+    pub fn push(&mut self, bytes: &[u8]) -> Result<()> {
+        self.decoder.push(bytes, &mut self.scratch)?;
+        self.pass.push_frames(&self.scratch);
+        Ok(())
+    }
+
+    /// Frames measured so far — for a progress bar over the pushed range.
+    pub fn frames_done(&self) -> u64 {
+        self.pass.frames_done()
+    }
+
+    pub fn finish(self) -> MixLevel {
+        let pass1 = self.pass.finish();
+        MixLevel {
+            peak: pass1.peak,
+            integrated_lufs: pass1.source_lufs,
+        }
+    }
+}
+
 pub struct StreamRender {
     channels: usize,
     sample_rate: u32,

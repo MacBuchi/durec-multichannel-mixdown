@@ -7,6 +7,7 @@ import '../src/rust/api/mixer.dart' as rust;
 import 'analysis_cache.dart';
 import 'export_controller.dart';
 import 'mastering_controller.dart';
+import 'preview_level.dart';
 import 'mix_types.dart';
 import 'playback_controller.dart';
 import 'range_probe.dart';
@@ -31,11 +32,13 @@ class MixerState extends ChangeNotifier {
     playback = PlaybackController(this);
     exporter = ExportController(this);
     mastering = MasteringController(this);
+    previewLevel = PreviewLevelController(this);
   }
 
   late final PlaybackController playback;
   late final ExportController exporter;
   late final MasteringController mastering;
+  late final PreviewLevelController previewLevel;
 
   rust.RecordingInfo? recording;
   List<TrackUi> tracks = [];
@@ -119,6 +122,7 @@ class MixerState extends ChangeNotifier {
       exporter.lastReport = null;
       exporter.batchQueue.clear();
       mastering.resetForNewTake();
+      previewLevel.resetForNewTake();
       expandedEq.clear();
       unlinkedPairs.clear();
       opening = false;
@@ -237,10 +241,12 @@ class MixerState extends ChangeNotifier {
     syncPairOnto(partner, from);
   }
 
-  /// A mix edit reaches the running player and invalidates the mastering
-  /// preview's whole-file analysis.
+  /// A mix edit reaches the running player and invalidates both whole-file
+  /// measurements: the mastering preview's analysis and the export level the
+  /// preview plays at. Both keep their frozen value and say they are stale.
   void _afterMixEdit() {
     mastering.markMixEdited();
+    previewLevel.markMixEdited();
     playback.pushLiveParams();
   }
 
@@ -313,6 +319,9 @@ class MixerState extends ChangeNotifier {
     loudness = snap.loudness;
     customLufs = snap.customLufs;
     format = snap.format;
+    // A snapshot can carry a different loudness target, so the gain follows
+    // it — the measurement itself is stale either way (_afterMixEdit).
+    previewLevel.recomputeGain();
     _afterMixEdit();
     scheduleSave();
     notifyListeners();
@@ -382,6 +391,9 @@ class MixerState extends ChangeNotifier {
     fadeOutMs: trimEndSeconds != null ? fadeMs : 0,
     masteringEnabled: mastering.enabled,
     masteringReferences: mastering.references,
+    // Only the preview reads this; renders normalise from their own pass 1.
+    // 1.0 until the mix has been measured and the switch is on.
+    previewNormGain: previewLevel.gain,
   );
 
   void setTrimStart(double? seconds) {
@@ -456,6 +468,10 @@ class MixerState extends ChangeNotifier {
 
   void setLoudness(LoudnessChoice c) {
     loudness = c;
+    // The measurement still holds — only the target moved, so the gain is
+    // recomputed rather than the file re-read.
+    previewLevel.recomputeGain();
+    playback.pushLiveParams();
     scheduleSave();
     notifyListeners();
   }

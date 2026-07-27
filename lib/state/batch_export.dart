@@ -230,6 +230,9 @@ class MultiExportRunner extends ChangeNotifier {
     fadeOutMs: 0,
     masteringEnabled: m.masteringEnabled,
     masteringReferences: m.masteringReferences,
+    // Renders normalise from their own pass 1; the preview gain is for
+    // listening, not for the file.
+    previewNormGain: m.previewNormGain,
   );
 
   static rust.ApiTrack _applied(rust.ApiTrack target, rust.ApiTrack? source) =>

@@ -176,6 +176,68 @@ class _MixerScreenState extends State<MixerScreen> {
   /// The engine analyses the reference through its filesystem API, which has
   /// no byte-range twin yet — in the browser the analysis would always fail
   /// with a raw exception in the dialog. Say so instead.
+  /// The export-level switch (#113): measure once, then play what the file
+  /// will sound like. Stale means the mix changed since the measurement —
+  /// tapping then re-measures instead of switching off, because that is what
+  /// someone who sees an amber icon wants.
+  Future<void> _togglePreviewLevel() async {
+    final level = state.previewLevel;
+    if (level.measuring) return;
+    if (!level.enabled) {
+      await level.enable();
+    } else if (level.stale) {
+      await level.refresh();
+    } else {
+      level.disable();
+    }
+  }
+
+  String _previewLevelTooltip() {
+    final level = state.previewLevel;
+    if (state.mastering.enabled) {
+      return 'Preview level is set by the reference while mastering is on';
+    }
+    if (level.measuring) {
+      return 'Measuring the mix… ${(level.progress * 100).round()} %';
+    }
+    if (level.enabled && level.stale) {
+      return 'Export level is stale — the mix changed since the measurement. '
+          'Tap to measure again';
+    }
+    if (level.enabled) {
+      return 'Preview plays at export level '
+          '(${level.gain > 0 ? (20 * math.log(level.gain) / math.ln10).toStringAsFixed(1) : '0.0'} dB). '
+          'Tap to hear the raw mix again';
+    }
+    return 'Preview at export level — measures the mix once, then plays it '
+        'the way the exported file will sound';
+  }
+
+  Widget _previewLevelIcon() {
+    final level = state.previewLevel;
+    if (level.measuring) {
+      return SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          value: level.progress > 0 ? level.progress : null,
+        ),
+      );
+    }
+    return Icon(
+      Icons.headphones,
+      size: 20,
+      color: state.mastering.enabled
+          ? AppColors.of(context).faint
+          : level.enabled && level.stale
+          ? AppColors.of(context).warning
+          : level.enabled
+          ? AppColors.of(context).accent
+          : AppColors.of(context).faint,
+    );
+  }
+
   Future<void> _mastering() async {
     if (!canMasterToReference) {
       _snack(
@@ -344,6 +406,13 @@ class _MixerScreenState extends State<MixerScreen> {
                         ),
                       ),
                       _loudnessSelector(),
+                      IconButton(
+                        tooltip: _previewLevelTooltip(),
+                        onPressed: state.mastering.enabled
+                            ? null
+                            : _togglePreviewLevel,
+                        icon: _previewLevelIcon(),
+                      ),
                       const SizedBox(width: 8),
                       _formatSelector(),
                       const SizedBox(width: 8),
@@ -510,6 +579,8 @@ class _MixerScreenState extends State<MixerScreen> {
             switch (v) {
               case 'mastering':
                 await _mastering();
+              case 'previewLevel':
+                await _togglePreviewLevel();
               case 'loudness':
                 await pickLoudnessDialog(context, state);
               case 'format':
@@ -535,6 +606,20 @@ class _MixerScreenState extends State<MixerScreen> {
                 state.mastering.enabled
                     ? 'Mastering: ${state.mastering.referenceName}'
                     : 'Reference mastering…',
+              ),
+            ),
+            PopupMenuItem(
+              value: 'previewLevel',
+              enabled: !state.mastering.enabled,
+              child: Text(
+                state.previewLevel.measuring
+                    ? 'Measuring the mix… '
+                          '${(state.previewLevel.progress * 100).round()} %'
+                    : state.previewLevel.enabled && state.previewLevel.stale
+                    ? 'Export level is stale — measure again'
+                    : state.previewLevel.enabled
+                    ? 'Preview at export level: on'
+                    : 'Preview at export level…',
               ),
             ),
             PopupMenuItem(
