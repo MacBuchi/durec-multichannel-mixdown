@@ -31,5 +31,53 @@ void main() {
       expect(find.text('About DurecMix'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    // The playback diagnostics (#114) only appear after something played in a
+    // browser, so the plain case above would never catch them overflowing.
+    testWidgets('settings dialog with diagnostics fits at '
+        '${size.width.toInt()} dp', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showSettingsDialog(
+                context,
+                playbackUnderruns: 12,
+                mixRate: 1.7,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('12 dropouts'), findsOneWidget);
+      expect(find.textContaining('1.7× realtime'), findsOneWidget);
+      expect(find.text('About DurecMix'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   }
+
+  testWidgets('no diagnostics section before anything played', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showSettingsDialog(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Playback diagnostics'), findsNothing);
+  });
 }

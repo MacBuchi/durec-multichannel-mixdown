@@ -23,6 +23,16 @@ class PlaybackController {
 
   Timer? _pollTimer;
 
+  /// Browser-preview diagnostics (#114), kept after playback stops so they
+  /// can still be read out of the Settings dialog. `null` while nothing has
+  /// played in the browser — on native there is no pump to report on.
+  ///
+  /// [webUnderruns] counts how often the worklet found the ring empty, which
+  /// is what a click sounds like; [webMixRate] is the measured mixing speed
+  /// the pacing derives its buffers from.
+  int? webUnderruns;
+  double? webMixRate;
+
   /// Set while a take opened in the browser is playing; native takes keep
   /// using the engine's own player.
   WebPlayback? _web;
@@ -101,6 +111,8 @@ class PlaybackController {
     final web = _web;
     if (web == null) return;
     positionSeconds = web.positionSeconds;
+    webUnderruns = web.underruns;
+    webMixRate = web.mixRate;
     final id = web.playerId;
     final s = id == null ? null : rust.webPlayerState(id: id);
     if (s != null) {
