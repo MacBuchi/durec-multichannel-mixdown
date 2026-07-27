@@ -18,7 +18,8 @@ rust_builder/    cargokit glue (generated, don't touch)
 3. **Audio is never fully loaded into RAM** — stream in blocks (`BLOCK_FRAMES`), render in two passes. DUREC files are multi-GB; this must work on phones.
 4. After changing `rust/src/api/`, regenerate bindings: `flutter_rust_bridge_codegen generate` (tool is installed via cargo).
 5. **There IS a web target** (since v0.13.0 — it was ruled out before, see "The PWA" below). Nothing platform-specific may be reached directly from shared code: `dart:io`, cpal playback, SAF and the native pickers all go through the platform shim, and any capability the web lacks is a `const` flag there, never an exception at the call site.
-6. Session files (`<take>_<pathhash>.durecmix.json`) live in the app container (`Application Support/sessions/`, path built by `lib/state/session_paths.dart`) — sandboxed platforms forbid writing next to the source WAV. A legacy sibling `<take>.durecmix.json` is read once as migration fallback.
+6. **The preview must sound like the export.** Both run the same chain (`PreviewStage` / render pass 2) in the same order, and the normalisation gain has exactly one implementation — `render::normalisation_gain`, fed by a measurement of the mix (`analyze_mix_level`, or `MixLevelScan` in the browser). It reaches the players inside `ApiMaster.preview_norm_gain`, which is pushed on every parameter change. A second gain formula anywhere is how "what you hear" and "what you get" drift apart; the guard is `preview_gain_equals_the_gain_the_render_applies`.
+7. Session files (`<take>_<pathhash>.durecmix.json`) live in the app container (`Application Support/sessions/`, path built by `lib/state/session_paths.dart`) — sandboxed platforms forbid writing next to the source WAV. A legacy sibling `<take>.durecmix.json` is read once as migration fallback.
 
 ## Commands
 

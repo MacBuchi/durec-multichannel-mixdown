@@ -793,6 +793,11 @@ pub fn analyze_mix_level(
 /// (`render::normalisation_gain`), so preview and export cannot drift.
 /// Returns 1.0 while mastering is active — the reference owns the level
 /// there, exactly as in the render.
+///
+/// Sync: it is arithmetic over two numbers, and the caller needs it while
+/// building the parameter DTO — an await there would spread through every
+/// call site that sets a fader.
+#[flutter_rust_bridge::frb(sync)]
 pub fn norm_gain_for_mix(master: ApiMaster, level: ApiMixLevel) -> f64 {
     if master.mastering_enabled {
         return 1.0;

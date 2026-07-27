@@ -97,9 +97,29 @@ height; its meters show:
 - **TP** — running true-peak maximum (dBTP),
 - **corr** — stereo correlation.
 
-The preview plays *pre-normalisation*: LUFS-I predicts what the export's
-first pass will measure. With the [mastered preview](#7-reference-mastering)
-enabled, the meters show the mastered signal instead.
+By default the preview plays *pre-normalisation*: LUFS-I predicts what the
+export's first pass will measure. With the [mastered
+preview](#7-reference-mastering) enabled, the meters show the mastered signal
+instead.
+
+### Preview at export level
+
+The headphones button next to the loudness target switches the preview to the
+level the exported file will have. This matters more than it sounds: a DUREC
+take whose unity mix sits around +16 dBFS is turned down by roughly 17 dB on
+export, so without this the limiter works flat out during preview and the
+preview does not sound like the result.
+
+Switching it on measures the mix once (progress runs in the button) — the
+gain the export would apply needs a look at the whole file. From then on the
+meters show the *delivered* signal rather than the raw mix, which is the
+point: what you hear is what you get.
+
+Change the mix afterwards and the button turns **amber**: the measurement
+belongs to a mix that no longer exists. The gain keeps playing unchanged —
+one that jumped on every fader move would be worse — and a tap measures
+again. While reference mastering is on the button is disabled, because the
+reference owns the level there.
 
 After an export, the status line above the transport summarises the result —
 hover for the full text (desktop) or **tap it** for a detail dialog with all

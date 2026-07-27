@@ -74,6 +74,9 @@ class MasteringController {
   void setEnabled(bool value) {
     enabled = value && references.isNotEmpty;
     if (!enabled) preview = false;
+    // Mastering owns the level while it is on; switching it off hands the
+    // export level back to the normalisation gain.
+    _owner.previewLevel.recomputeGain();
     _owner.scheduleSave();
     _owner.notify();
     _owner.playback.pushLiveParams();

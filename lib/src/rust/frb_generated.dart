@@ -142,7 +142,7 @@ abstract class RustLibApi extends BaseApi {
     required List<int> bytes,
   });
 
-  Future<double> crateApiMixerNormGainForMix({
+  double crateApiMixerNormGainForMix({
     required ApiMaster master,
     required ApiMixLevel level,
   });
@@ -753,22 +753,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Future<double> crateApiMixerNormGainForMix({
+  double crateApiMixerNormGainForMix({
     required ApiMaster master,
     required ApiMixLevel level,
   }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_box_autoadd_api_master(master, serializer);
           sse_encode_box_autoadd_api_mix_level(level, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 14,
-            port: port_,
-          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_f_64,

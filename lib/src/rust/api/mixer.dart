@@ -150,7 +150,11 @@ Stream<MixLevelEvent> analyzeMixLevel({
 /// (`render::normalisation_gain`), so preview and export cannot drift.
 /// Returns 1.0 while mastering is active — the reference owns the level
 /// there, exactly as in the render.
-Future<double> normGainForMix({
+///
+/// Sync: it is arithmetic over two numbers, and the caller needs it while
+/// building the parameter DTO — an await there would spread through every
+/// call site that sets a fader.
+double normGainForMix({
   required ApiMaster master,
   required ApiMixLevel level,
 }) => RustLib.instance.api.crateApiMixerNormGainForMix(
