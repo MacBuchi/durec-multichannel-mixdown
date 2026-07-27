@@ -7,7 +7,16 @@ import 'about_dialog.dart';
 ///
 /// The gear in the app bar opens this; About sits at the bottom because it
 /// is reference material, not something you come here to change.
-Future<void> showSettingsDialog(BuildContext context) {
+///
+/// [playbackUnderruns] and [mixRate] are the browser preview's diagnostics
+/// (#114): they only appear once something has played in a browser, because
+/// on a device one cannot attach a debugger to, the count of dropouts is the
+/// only way to tell whether the pacing holds.
+Future<void> showSettingsDialog(
+  BuildContext context, {
+  int? playbackUnderruns,
+  double? mixRate,
+}) {
   return showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -55,6 +64,28 @@ Future<void> showSettingsDialog(BuildContext context) {
               'System follows your device’s light/dark setting.',
               style: Theme.of(dialogContext).textTheme.bodySmall,
             ),
+            if (playbackUnderruns != null) ...[
+              const Divider(height: 24),
+              Text(
+                'Playback diagnostics',
+                style: Theme.of(dialogContext).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                playbackUnderruns == 0
+                    ? 'No dropouts${mixRate == null ? '' : ' · mixes at ${mixRate.toStringAsFixed(1)}× realtime'}'
+                    : '$playbackUnderruns dropout${playbackUnderruns == 1 ? '' : 's'}'
+                          '${mixRate == null ? '' : ' · mixes at ${mixRate.toStringAsFixed(1)}× realtime'}',
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Counted since this take started playing. Dropouts are heard '
+                'as clicks; the mixing speed decides how much audio is kept '
+                'buffered when you move a fader.',
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+            ],
             const Divider(height: 24),
             ListTile(
               contentPadding: EdgeInsets.zero,

@@ -19,6 +19,21 @@ releases and ships the artifacts. The app bundles this file and shows it under
   longer fits. The sound stays as it is — a level that jumped on every fader
   move would be worse — and a tap measures again.
 
+## [0.13.1] – 2026-07-27
+
+### Fixed
+
+- **No more clicks when you drag a fader in the browser.** To make a fader
+  move audible right away, the app throws away the audio it had already
+  mixed and mixes it again — but it kept a fixed amount of sound to play
+  while doing so, and on a tablet mixing 34 channels that ran out before the
+  replacement arrived. It now measures how fast the device actually mixes and
+  keeps as much as that device needs; where even that is not enough, your
+  change simply takes effect a moment later instead of tearing a hole into
+  playback. Nothing changes on a fast machine.
+- Settings now shows how often playback ran dry and how fast this device
+  mixes — the numbers to send along when browser playback stutters.
+
 ## [0.13.0] – 2026-07-27
 
 ### Added
@@ -325,6 +340,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
   waveforms and the full mixer UI.
 
 [0.13.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.2
+[0.13.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.1
 [0.13.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.0
 [0.12.16]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.16
 [0.12.15]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.15

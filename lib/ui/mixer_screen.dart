@@ -491,7 +491,11 @@ class _MixerScreenState extends State<MixerScreen> {
                       ),
                     IconButton(
                       tooltip: 'Settings',
-                      onPressed: () => showSettingsDialog(context),
+                      onPressed: () => showSettingsDialog(
+                        context,
+                        playbackUnderruns: state.playback.webUnderruns,
+                        mixRate: state.playback.webMixRate,
+                      ),
                       icon: const Icon(Icons.settings_outlined),
                     ),
                     // Only once a recording is open: on the start screen the
@@ -555,7 +559,11 @@ class _MixerScreenState extends State<MixerScreen> {
         _cancelExportButton(),
       IconButton(
         tooltip: 'Settings',
-        onPressed: () => showSettingsDialog(context),
+        onPressed: () => showSettingsDialog(
+          context,
+          playbackUnderruns: state.playback.webUnderruns,
+          mixRate: state.playback.webMixRate,
+        ),
         icon: const Icon(Icons.settings_outlined),
       ),
       // See the wide layout: hidden on the start screen (#74).
