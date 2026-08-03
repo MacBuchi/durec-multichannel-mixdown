@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../src/rust/api/mixer.dart' as rust;
+import '../state/app_settings.dart';
 import '../state/mixer_state.dart';
 import 'app_colors.dart';
+import 'meters.dart';
 import 'waveform.dart';
 
 /// One track row: toggles, pan, fader, mini waveform.
@@ -56,6 +58,8 @@ class TrackStrip extends StatelessWidget {
         _panControl(context, width: 110),
         const SizedBox(width: 8),
         Expanded(flex: 3, child: _gainControl(context)),
+        const SizedBox(width: 6),
+        _levelMeter(),
         const SizedBox(width: 8),
         SizedBox(width: 180, child: _waveform()),
       ],
@@ -81,10 +85,36 @@ class TrackStrip extends StatelessWidget {
             _panControl(context, width: 110),
             const SizedBox(width: 8),
             Expanded(child: _gainControl(context)),
+            const SizedBox(width: 6),
+            // Shorter on a phone: this row is the fader's own, without the
+            // waveform to set the height.
+            _levelMeter(height: 32),
           ],
         ),
         SizedBox(height: 36, width: double.infinity, child: _waveform()),
       ],
+    );
+  }
+
+  /// This track's level (#115), or an empty bar while nothing plays.
+  ///
+  /// The engine measures once, post-EQ and pre-fader; post-fader is that times
+  /// the fader, so the mode switch is arithmetic here rather than a round trip
+  /// to the engine. Listens to the mode on its own so flipping it does not
+  /// rebuild the mixer.
+  Widget _levelMeter({double height = 40}) {
+    final peaks = state.playback.trackPeaks;
+    final channel = track.index - 1;
+    final pre = channel >= 0 && channel < peaks.length ? peaks[channel] : 0.0;
+    final anySolo = state.tracks.any((t) => t.solo);
+    final audible = track.inMix && !track.muted && (!anySolo || track.solo);
+    return ValueListenableBuilder<TrackMeterMode>(
+      valueListenable: AppSettings.trackMeterMode,
+      builder: (context, mode, _) => TrackLevelMeter(
+        peak: mode == TrackMeterMode.preFader ? pre : pre * _gainLinear,
+        audible: audible,
+        height: height,
+      ),
     );
   }
 

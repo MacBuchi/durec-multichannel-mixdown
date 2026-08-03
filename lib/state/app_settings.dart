@@ -11,6 +11,7 @@ class AppSettings {
     : lastFolder = data['lastFolder'] as String?,
       sortByDate = data['sortByDate'] as bool? ?? false {
     themeMode.value = _parseThemeMode(data['themeMode'] as String?);
+    trackMeterMode.value = _parseMeterMode(data['trackMeterMode'] as String?);
   }
 
   static AppSettings? _instance;
@@ -40,10 +41,29 @@ class AppSettings {
     return ThemeMode.system;
   }
 
+  /// What the per-track meters show (#115). Live like [themeMode], because
+  /// every one of the 34 strips listens to it and the mixer must not rebuild
+  /// wholesale when it flips.
+  static final ValueNotifier<TrackMeterMode> trackMeterMode = ValueNotifier(
+    TrackMeterMode.postFader,
+  );
+
+  static TrackMeterMode _parseMeterMode(String? name) {
+    for (final mode in TrackMeterMode.values) {
+      if (mode.name == name) return mode;
+    }
+    return TrackMeterMode.postFader;
+  }
+
   /// Apply and persist a theme choice. Applies immediately even if the
   /// write fails — this is a preference, not a transaction.
   Future<void> setThemeMode(ThemeMode mode) async {
     themeMode.value = mode;
+    await save();
+  }
+
+  Future<void> setTrackMeterMode(TrackMeterMode mode) async {
+    trackMeterMode.value = mode;
     await save();
   }
 
@@ -68,10 +88,32 @@ class AppSettings {
           'lastFolder': lastFolder,
           'sortByDate': sortByDate,
           'themeMode': themeMode.value.name,
+          'trackMeterMode': trackMeterMode.value.name,
         }),
       );
     } catch (_) {
       // Settings are a convenience; never surface write failures.
     }
   }
+}
+
+/// Where the per-track meters tap the signal (#115).
+///
+/// Both come from one engine measurement: the engine reports the level after
+/// the EQ and before the fader, and the post-fader reading is that times the
+/// track's gain. Switching therefore costs nothing and takes effect on the
+/// next frame.
+enum TrackMeterMode {
+  /// What arrives on the track — good for finding silent, hot or wrongly
+  /// patched channels, and unaffected by how far the fader is down.
+  preFader('pre'),
+
+  /// What the track contributes to the mix. The default: it is the question
+  /// you are asking while you mix.
+  postFader('post');
+
+  const TrackMeterMode(this.label);
+
+  /// Shown on the toggle in the mixer's header.
+  final String label;
 }

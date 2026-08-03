@@ -21,6 +21,13 @@ class PlaybackController {
   double truePeak = 0; // linear, running max since start/seek
   double correlation = 0;
 
+  /// Held peak of every source channel, linear, **post-EQ and pre-fader**
+  /// (#115). Index `track.index - 1`; empty while nothing is playing.
+  ///
+  /// The post-fader reading is this times the track's gain, so both meter
+  /// modes come from one array and switching needs no engine call.
+  List<double> trackPeaks = const [];
+
   Timer? _pollTimer;
 
   /// Browser-preview diagnostics (#114), kept after playback stops so they
@@ -125,6 +132,7 @@ class PlaybackController {
       lufsIntegrated = s.lufsIntegrated;
       truePeak = s.truePeak;
       correlation = s.correlation;
+      trackPeaks = s.trackPeaks;
     }
     if (web.finished) {
       unawaited(stopAsync());
@@ -200,6 +208,7 @@ class PlaybackController {
       lufsIntegrated = s.lufsIntegrated;
       truePeak = s.truePeak;
       correlation = s.correlation;
+      trackPeaks = s.trackPeaks;
       if (!s.playing && playing) {
         playing = false;
         _stopPolling();
@@ -213,6 +222,8 @@ class PlaybackController {
     _pollTimer = null;
     peakL = 0;
     peakR = 0;
+    // Bars left standing after stop would read as signal on a silent mix.
+    trackPeaks = const [];
   }
 
   void dispose() {

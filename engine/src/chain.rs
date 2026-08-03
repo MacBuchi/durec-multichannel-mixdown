@@ -170,12 +170,27 @@ impl Default for MasterParams {
 pub struct MixChain {
     strips: Vec<ChannelStrip>,
     num_channels: usize,
+    /// Peak of each source channel in the block just processed, linear —
+    /// **post-EQ and pre-fader**, which is what a console's pre-fader meter
+    /// shows. The post-fader value follows exactly by multiplying with the
+    /// track's gain, so only one measurement is ever taken (#115).
+    ///
+    /// Empty unless [`enable_metering`](Self::enable_metering) was called: the
+    /// render has no meters and must not pay for them.
+    peaks: Vec<f32>,
+    metering: bool,
+    /// Source channels with no strip at all. `resolve_channels` drops muted,
+    /// soloed-away, out-of-mix and zero-gain tracks, so they are never
+    /// processed — yet their meter has to keep showing signal (dimmed), which
+    /// is the whole point of metering a muted track. These are read straight
+    /// from the input, and therefore *without* their EQ.
+    unstripped: Vec<usize>,
 }
 
 impl MixChain {
     pub fn new(tracks: &[TrackParams], num_channels: usize, cfg: &ChainConfig) -> Self {
         let sr = cfg.sample_rate as f64;
-        let strips = resolve_channels(tracks, num_channels)
+        let strips: Vec<ChannelStrip> = resolve_channels(tracks, num_channels)
             .into_iter()
             .map(|c| {
                 let eq = &tracks[c.track_pos].eq;
@@ -188,10 +203,30 @@ impl MixChain {
                 }
             })
             .collect();
+        let unstripped = (0..num_channels)
+            .filter(|ch| !strips.iter().any(|s| s.channel == *ch))
+            .collect();
         Self {
             strips,
             num_channels,
+            peaks: Vec::new(),
+            metering: false,
+            unstripped,
         }
+    }
+
+    /// Start filling [`block_peaks`](Self::block_peaks). Playback calls this;
+    /// the render never does.
+    pub fn enable_metering(&mut self) {
+        self.metering = true;
+        self.peaks = vec![0.0; self.num_channels];
+    }
+
+    /// Per-source-channel peaks of the most recent [`process`](Self::process)
+    /// call. One block only — the ballistics live in the caller, which knows
+    /// how long a block lasts.
+    pub fn block_peaks(&self) -> &[f32] {
+        &self.peaks
     }
 
     pub fn is_silent(&self) -> bool {
@@ -219,24 +254,60 @@ impl MixChain {
     /// stereo. `input.len()` must be a multiple of the channel count.
     /// `out` is cleared and refilled with `2 * num_frames` samples.
     pub fn process(&mut self, input: &[f64], out: &mut Vec<f64>) {
-        let n_ch = self.num_channels;
+        // Destructured so the per-strip loop can touch `peaks` — iterating
+        // `self.strips` mutably would otherwise hold all of `self`.
+        let Self {
+            strips,
+            num_channels,
+            peaks,
+            metering,
+            unstripped,
+        } = self;
+        let n_ch = *num_channels;
+        let metering = *metering;
         debug_assert_eq!(input.len() % n_ch, 0);
         let frames = input.len() / n_ch;
         out.clear();
         out.resize(frames * 2, 0.0);
-        for strip in &mut self.strips {
+        if metering {
+            peaks.fill(0.0);
+        }
+        for strip in strips.iter_mut() {
+            // Accumulated locally and merged once: a `&mut peaks[i]` held
+            // across the sample loop would cost a bounds check per sample.
+            let mut pk = 0.0f32;
             if strip.has_eq {
                 for (f, frame) in input.chunks_exact(n_ch).enumerate() {
                     let s = strip.eq.process(frame[strip.channel]);
+                    if metering {
+                        pk = pk.max(s.abs() as f32);
+                    }
                     out[2 * f] += s * strip.left;
                     out[2 * f + 1] += s * strip.right;
                 }
             } else {
                 for (f, frame) in input.chunks_exact(n_ch).enumerate() {
                     let s = frame[strip.channel];
+                    if metering {
+                        pk = pk.max(s.abs() as f32);
+                    }
                     out[2 * f] += s * strip.left;
                     out[2 * f + 1] += s * strip.right;
                 }
+            }
+            if metering {
+                // Two tracks may point at one channel; the louder wins.
+                let slot = &mut peaks[strip.channel];
+                *slot = slot.max(pk);
+            }
+        }
+        if metering {
+            for &ch in unstripped.iter() {
+                let mut pk = 0.0f32;
+                for frame in input.chunks_exact(n_ch) {
+                    pk = pk.max(frame[ch].abs() as f32);
+                }
+                peaks[ch] = pk;
             }
         }
     }

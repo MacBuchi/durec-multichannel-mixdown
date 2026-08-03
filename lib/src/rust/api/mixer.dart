@@ -743,6 +743,17 @@ class ApiPlayerState {
   final double truePeak;
   final double correlation;
 
+  /// Held peak of every SOURCE channel, linear, post-EQ and pre-fader
+  /// (#115). Index `track.index - 1`, so the length is the file's channel
+  /// count, not the track count.
+  ///
+  /// One array serves both meter modes: the post-fader reading is exactly
+  /// this value times the track's gain, so Dart derives it and switching
+  /// pre/post costs no engine call. Muted, soloed-away and out-of-mix
+  /// tracks are measured too — they are shown dimmed rather than blank —
+  /// but without their EQ, since the mix never builds a strip for them.
+  final Float32List trackPeaks;
+
   const ApiPlayerState({
     required this.playing,
     required this.positionFrames,
@@ -752,6 +763,7 @@ class ApiPlayerState {
     required this.lufsIntegrated,
     required this.truePeak,
     required this.correlation,
+    required this.trackPeaks,
   });
 
   @override
@@ -763,7 +775,8 @@ class ApiPlayerState {
       lufsMomentary.hashCode ^
       lufsIntegrated.hashCode ^
       truePeak.hashCode ^
-      correlation.hashCode;
+      correlation.hashCode ^
+      trackPeaks.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -777,7 +790,8 @@ class ApiPlayerState {
           lufsMomentary == other.lufsMomentary &&
           lufsIntegrated == other.lufsIntegrated &&
           truePeak == other.truePeak &&
-          correlation == other.correlation;
+          correlation == other.correlation &&
+          trackPeaks == other.trackPeaks;
 }
 
 /// Meters plus the playhead, polled by the UI at frame rate.
@@ -790,6 +804,17 @@ class ApiPreviewState {
   final double truePeak;
   final double correlation;
 
+  /// Held peak of every SOURCE channel, linear, post-EQ and pre-fader
+  /// (#115). Index `track.index - 1`, so the length is the file's channel
+  /// count, not the track count.
+  ///
+  /// One array serves both meter modes: the post-fader reading is exactly
+  /// this value times the track's gain, so Dart derives it and switching
+  /// pre/post costs no engine call. Muted, soloed-away and out-of-mix
+  /// tracks are measured too — they are shown dimmed rather than blank —
+  /// but without their EQ, since the mix never builds a strip for them.
+  final Float32List trackPeaks;
+
   const ApiPreviewState({
     required this.positionFrames,
     required this.peakL,
@@ -798,6 +823,7 @@ class ApiPreviewState {
     required this.lufsIntegrated,
     required this.truePeak,
     required this.correlation,
+    required this.trackPeaks,
   });
 
   @override
@@ -808,7 +834,8 @@ class ApiPreviewState {
       lufsMomentary.hashCode ^
       lufsIntegrated.hashCode ^
       truePeak.hashCode ^
-      correlation.hashCode;
+      correlation.hashCode ^
+      trackPeaks.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -821,7 +848,8 @@ class ApiPreviewState {
           lufsMomentary == other.lufsMomentary &&
           lufsIntegrated == other.lufsIntegrated &&
           truePeak == other.truePeak &&
-          correlation == other.correlation;
+          correlation == other.correlation &&
+          trackPeaks == other.trackPeaks;
 }
 
 /// Lightweight file metadata for the in-app WAV browser: header parse only

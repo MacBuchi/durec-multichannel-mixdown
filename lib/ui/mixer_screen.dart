@@ -404,6 +404,7 @@ class _MixerScreenState extends State<MixerScreen> {
                             : _togglePreviewLevel,
                         icon: _previewLevelIcon(),
                       ),
+                      _trackMeterToggle(),
                       const SizedBox(width: 8),
                       _formatSelector(),
                       const SizedBox(width: 8),
@@ -576,6 +577,13 @@ class _MixerScreenState extends State<MixerScreen> {
                 await _mastering();
               case 'previewLevel':
                 await _togglePreviewLevel();
+              case 'trackMeters':
+                final settings = await AppSettings.load();
+                await settings.setTrackMeterMode(
+                  AppSettings.trackMeterMode.value == TrackMeterMode.preFader
+                      ? TrackMeterMode.postFader
+                      : TrackMeterMode.preFader,
+                );
               case 'loudness':
                 await pickLoudnessDialog(context, state);
               case 'format':
@@ -615,6 +623,14 @@ class _MixerScreenState extends State<MixerScreen> {
                     : state.previewLevel.enabled
                     ? 'Preview at export level: on'
                     : 'Preview at export level…',
+              ),
+            ),
+            PopupMenuItem(
+              value: 'trackMeters',
+              child: Text(
+                AppSettings.trackMeterMode.value == TrackMeterMode.preFader
+                    ? 'Track meters: what arrives (pre-fader)'
+                    : 'Track meters: contribution to the mix (post-fader)',
               ),
             ),
             PopupMenuItem(
@@ -1000,6 +1016,37 @@ class _MixerScreenState extends State<MixerScreen> {
       maxLines: oneLine ? 1 : 2,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(fontSize: 10, color: AppColors.of(context).dim),
+    );
+  }
+
+  /// Switches every track meter between pre- and post-fader (#115).
+  ///
+  /// A text button rather than an icon: "pre" and "post" are the words for it,
+  /// and no icon says which one is active. Listens to the setting directly so
+  /// flipping it repaints the 34 bars without rebuilding the mixer.
+  Widget _trackMeterToggle() {
+    return ValueListenableBuilder<TrackMeterMode>(
+      valueListenable: AppSettings.trackMeterMode,
+      builder: (context, mode, _) => Tooltip(
+        message: mode == TrackMeterMode.preFader
+            ? 'Track meters show what arrives on the track — tap for the '
+                  'contribution to the mix'
+            : 'Track meters show each track’s contribution to the mix — tap '
+                  'for what arrives on it',
+        child: TextButton(
+          onPressed: () async => (await AppSettings.load()).setTrackMeterMode(
+            mode == TrackMeterMode.preFader
+                ? TrackMeterMode.postFader
+                : TrackMeterMode.preFader,
+          ),
+          style: TextButton.styleFrom(
+            minimumSize: const Size(44, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            foregroundColor: AppColors.of(context).dim,
+          ),
+          child: Text(mode.label, style: const TextStyle(fontSize: 12)),
+        ),
+      ),
     );
   }
 

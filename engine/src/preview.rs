@@ -58,7 +58,20 @@ pub struct PreviewStage {
     limited: Vec<f64>,
     out: Vec<f32>,
     meters: Meters,
+    /// Held per-track peaks with meter ballistics (#115), linear, indexed by
+    /// source channel. Post-EQ and pre-fader — see [`MixChain::block_peaks`];
+    /// the UI multiplies by the fader to get the post-fader reading, so this
+    /// serves both modes from one measurement.
+    track_peaks: Vec<f32>,
 }
+
+/// Peak-meter release, in dB per second.
+///
+/// Fast attack (a peak shows immediately), slow release, because a bar that
+/// falls as fast as the signal is unreadable — the eye needs the peak to stay
+/// long enough to be seen. Chosen at the lively end of the IEC range: at 34
+/// bars the alternative is a wall of flicker.
+const TRACK_METER_RELEASE_DB_PER_S: f64 = 20.0;
 
 fn build_limiter(m: &MasterParams, sample_rate: u32) -> Option<TruePeakLimiter> {
     m.limiter_enabled.then(|| {
@@ -97,8 +110,10 @@ impl PreviewStage {
         mastering: Option<MasteringPlan>,
     ) -> PreviewStage {
         let cfg = ChainConfig { sample_rate };
+        let mut chain = MixChain::new(tracks, channels, &cfg);
+        chain.enable_metering();
         PreviewStage {
-            chain: MixChain::new(tracks, channels, &cfg),
+            chain,
             limiter: build_limiter(&master, sample_rate),
             fir: build_fir(&mastering),
             ebu: make_ebu(sample_rate),
@@ -112,6 +127,7 @@ impl PreviewStage {
             limited: Vec::new(),
             out: Vec::new(),
             meters: Meters::default(),
+            track_peaks: vec![0.0; channels],
         }
     }
 
@@ -119,8 +135,6 @@ impl PreviewStage {
         self.cfg.sample_rate
     }
 
-    /// Mix one block of interleaved source frames into interleaved stereo
-    /// f32, updating the meters.
     /// Set the normalisation gain the export would apply.
     ///
     /// Deliberately a linear factor and not a loudness target: computing it
@@ -146,6 +160,8 @@ impl PreviewStage {
         }
     }
 
+    /// Mix one block of interleaved source frames into interleaved stereo f32,
+    /// updating the bus meters and the per-track meters.
     pub fn process(&mut self, input: &[f64]) -> &[f32] {
         self.chain.process(input, &mut self.stereo);
         // Same ordering as render pass 2: mix → normalisation gain → matching
@@ -177,7 +193,33 @@ impl PreviewStage {
         self.out.clear();
         self.out.extend(block.iter().map(|&s| s as f32));
         self.measure();
+        self.hold_track_peaks(input.len() / self.channels.max(1));
         &self.out
+    }
+
+    /// Fold this block's per-channel peaks into the held values.
+    ///
+    /// The release is applied here rather than in the UI because only the
+    /// engine knows how much time a block covers — the UI polls on a timer
+    /// that says nothing about how far playback advanced.
+    fn hold_track_peaks(&mut self, frames: usize) {
+        let block = self.chain.block_peaks();
+        if block.len() != self.track_peaks.len() {
+            // Channel count changed under us (a fresh take): start over
+            // rather than read a stale array at the wrong length.
+            self.track_peaks = vec![0.0; block.len()];
+        }
+        let seconds = frames as f64 / self.cfg.sample_rate.max(1) as f64;
+        let release = 10f64.powf(-TRACK_METER_RELEASE_DB_PER_S * seconds / 20.0) as f32;
+        for (held, &now) in self.track_peaks.iter_mut().zip(block) {
+            *held = now.max(*held * release);
+        }
+    }
+
+    /// Held per-track peaks, linear, indexed by source channel (post-EQ,
+    /// pre-fader).
+    pub fn track_peaks(&self) -> &[f32] {
+        &self.track_peaks
     }
 
     fn measure(&mut self) {
@@ -230,6 +272,9 @@ impl PreviewStage {
     ) {
         let mut chain = MixChain::new(tracks, self.channels, &self.cfg);
         chain.adopt_state_from(&self.chain);
+        // The fresh chain meters too, or moving one fader would freeze all 34
+        // bars — the held values would simply stop being fed.
+        chain.enable_metering();
         self.chain = chain;
         if master != self.master {
             self.master = master;
@@ -254,6 +299,9 @@ impl PreviewStage {
         }
         self.ebu = make_ebu(self.cfg.sample_rate);
         self.meters = Meters::default();
+        // Held peaks describe the stretch just left behind; after a seek they
+        // would sit there as bars for signal that is no longer playing.
+        self.track_peaks.fill(0.0);
     }
 }
 
@@ -314,6 +362,11 @@ impl WebPlayer {
 
     pub fn meters(&self) -> Meters {
         self.stage.meters()
+    }
+
+    /// Held per-track peaks (#115), linear, by source channel.
+    pub fn track_peaks(&self) -> &[f32] {
+        self.stage.track_peaks()
     }
 
     pub fn set_params(

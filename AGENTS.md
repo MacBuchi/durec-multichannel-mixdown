@@ -64,6 +64,16 @@ Note: a unity mix of all tracks of these takes peaks ~+16 dBFS because DUREC als
 - **Multi-file export done (v0.8.0)** — browser checkboxes (multichannel pre-ticked on probe), `MultiExportRunner` (`lib/state/batch_export.dart`): sequential renders of all ticked takes with the CURRENT mix mapped by track NAME onto each file (index fallback; trim/fades deliberately not applied — take-specific; sessions of other files never written), output into a `Mixdown/` subfolder (SAF: `ensureDirectory`/`createFileInDirectory` — use the returned URI, providers may rename), per-row progress/✓/error, result bar with system share sheet (`shareFiles`, ACTION_SEND_MULTIPLE + READ grant); single-export snackbar also offers Share on Android. This closes the former "batch export on phones" remainder.
 - **PWA (v0.13.0, PRs #95–#112, plan `docs/PLAN-PWA.md`)** — the app runs in a browser with the same engine: open, analyse, mix, preview and export a multi-GB take, offline-capable, deployed to GitHub Pages. Device-verified on the user's iPad Air with a 1.35 GB, 34-channel take. Details below; **issue #111 is closed as of v0.16.0** — persistence (v0.14.0), reference mastering (v0.15.0) and multi-file export (v0.16.0) all work in the browser, and #114 (fader clicks on the iPad) was fixed in two rounds (v0.13.1 measures the device, v0.13.3 removes a splice and learns from actual dropouts).
 
+## Per-track meters (#115, v0.17.0)
+
+One measurement serves both modes. `MixChain` reports each **source channel's** peak post-EQ and pre-fader; the post-fader reading is exactly that times the track's gain, so Dart derives it and the pre/post switch costs no engine call and no second measurement. Three things follow from that, and all three are load-bearing:
+
+- **Metering is off by default in `MixChain` and only `PreviewStage` enables it.** The render has no meters and must not pay for them.
+- **Muted, soloed-away and out-of-mix tracks are metered too**, because the decision was that their bar greys out rather than disappears — seeing that a muted track carries signal is the point. `resolve_channels` drops exactly those tracks, so they have no strip and are read straight from the input: their meter therefore ignores their EQ. That asymmetry is deliberate and documented at the field.
+- **The ballistics live in the engine** (`TRACK_METER_RELEASE_DB_PER_S`), not the UI: only the engine knows how much time a block covers, while the UI polls on a timer that says nothing about how far playback advanced. Without a release a peak between two 30 Hz polls would be invisible.
+
+Natively the values travel as a `Vec<AtomicU32>` so the decode thread still never blocks; `PlayerSnapshot` stays `Copy` and the peaks come through their own accessor. The cost is one abs+max per sample on channels that are being processed anyway — the instrument for checking it on a real device is the mix rate in **Settings → Playback diagnostics**.
+
 ## The PWA (web target)
 
 `web/` holds the shell (`index.html`, `manifest.json`, `coi-sw.js`, `audio-pump.js`); the engine is the *same* Rust crate compiled to threaded wasm. Read `docs/PLAN-PWA.md` before touching any of it — it records the measurements and the dead ends.
@@ -117,7 +127,7 @@ xcrun devicectl device process launch --device <udid> --console de.macbuchi.dure
 
 ## Testing
 
-Rust carries the correctness load (102 engine tests: pan law, limiter ceiling, LUFS targets, session migration). On the Dart side:
+Rust carries the correctness load (107 engine tests: pan law, limiter ceiling, LUFS targets, session migration). On the Dart side:
 
 - `flutter analyze` + `flutter test` after every change; the macOS integration test (`flutter test integration_test -d macos`) is the flow guard and runs in CI.
 - **Keep the integration test in ONE file** — several app launches per run are flaky on macOS. Build synthetic fixtures inline (the doc fixture WAV with iXML), never the user's multi-GB recordings. Network stays off.
