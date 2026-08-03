@@ -76,7 +76,7 @@ class WebPlayback {
   /// See [nextTailBonus] — the prediction is an average and a single slow
   /// round can exceed it, so the outcome corrects it.
   double _tailBonus = 0;
-  int _underrunsAtRewind = 0;
+  int? _underrunsAtRewind;
 
   /// What the pacing currently costs, for the diagnostics line in Settings:
   /// mixing speed and how much audio a parameter change keeps.
@@ -266,11 +266,14 @@ class WebPlayback {
     _lastRewind = now;
 
     // Did the previous re-mix survive? Whatever dropped out since then grows
-    // the remainder this one keeps; a clean run gives a step back.
-    _tailBonus = nextTailBonus(
-      _tailBonus,
-      dropouts: sink.underruns - _underrunsAtRewind,
-    );
+    // the remainder this one keeps; a clean run gives a step back. The first
+    // re-mix has nothing to judge — and the dropouts a fresh `AudioContext`
+    // produces while the ring first fills belong to the start of playback,
+    // not to a fader move.
+    final judged = _underrunsAtRewind;
+    if (judged != null) {
+      _tailBonus = nextTailBonus(_tailBonus, dropouts: sink.underruns - judged);
+    }
     _underrunsAtRewind = sink.underruns;
 
     // What the ring must keep so the device plays on until the replacement
