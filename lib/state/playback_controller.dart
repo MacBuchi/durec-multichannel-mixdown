@@ -29,9 +29,11 @@ class PlaybackController {
   ///
   /// [webUnderruns] counts how often the worklet found the ring empty, which
   /// is what a click sounds like; [webMixRate] is the measured mixing speed
-  /// the pacing derives its buffers from.
+  /// the pacing derives its buffers from, and [webTailSeconds] the buffer it
+  /// arrived at — the number to ask for when a device still clicks.
   int? webUnderruns;
   double? webMixRate;
+  double? webTailSeconds;
 
   /// Set while a take opened in the browser is playing; native takes keep
   /// using the engine's own player.
@@ -113,6 +115,7 @@ class PlaybackController {
     positionSeconds = web.positionSeconds;
     webUnderruns = web.underruns;
     webMixRate = web.mixRate;
+    webTailSeconds = web.tailSeconds;
     final id = web.playerId;
     final s = id == null ? null : rust.webPlayerState(id: id);
     if (s != null) {

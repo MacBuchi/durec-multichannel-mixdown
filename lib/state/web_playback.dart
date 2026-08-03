@@ -71,9 +71,29 @@ class WebPlayback {
   double get _chunkSeconds => _fillAheadSeconds;
   static const _tickSeconds = 0.04;
 
+  /// Remainder this device has earned on top of the predicted one by dropping
+  /// out anyway, and the dropout count the last re-mix was judged against.
+  /// See [nextTailBonus] — the prediction is an average and a single slow
+  /// round can exceed it, so the outcome corrects it.
+  double _tailBonus = 0;
+  int? _underrunsAtRewind;
+
   /// What the pacing currently costs, for the diagnostics line in Settings:
   /// mixing speed and how much audio a parameter change keeps.
   double get mixRate => _mixRate;
+
+  /// Audio the next parameter change would keep buffered — prediction plus
+  /// what the dropouts so far have added.
+  double get tailSeconds => _tailFor(_tailBonus);
+
+  double _tailFor(double bonus) =>
+      (previewTailSeconds(
+                _mixRate,
+                chunkSeconds: _chunkSeconds,
+                tickSeconds: _tickSeconds,
+              ) +
+              bonus)
+          .clamp(minTailSeconds, maxTailSeconds);
 
   PreviewSink? _sink;
   int? _id;
@@ -245,27 +265,43 @@ class WebPlayback {
     if (last != null && now.difference(last) < minGap) return;
     _lastRewind = now;
 
+    // Did the previous re-mix survive? Whatever dropped out since then grows
+    // the remainder this one keeps; a clean run gives a step back. The first
+    // re-mix has nothing to judge — and the dropouts a fresh `AudioContext`
+    // produces while the ring first fills belong to the start of playback,
+    // not to a fader move.
+    final judged = _underrunsAtRewind;
+    if (judged != null) {
+      _tailBonus = nextTailBonus(_tailBonus, dropouts: sink.underruns - judged);
+    }
+    _underrunsAtRewind = sink.underruns;
+
     // What the ring must keep so the device plays on until the replacement
     // arrives — derived from this machine's measured mixing speed, because
     // 120 ms was chosen on a fast one and is a dropout on the iPad (#114).
-    final tail = previewTailSeconds(
-      _mixRate,
-      chunkSeconds: _chunkSeconds,
-      tickSeconds: _tickSeconds,
-    );
-    final keep = (_sampleRate * tail).round() * 2;
-    // Nothing past the tail means nothing to redo — and on a slow device
-    // that is the good outcome, not a missed one: the ring holds less than
-    // this machine needs to refill it, so the change becomes audible when
-    // the buffer plays out instead of tearing a hole into it.
-    if (sink.trimTo(keep) == 0) return;
-    // Where the kept audio ends, in file frames. Read as a sum on purpose:
-    // as the worklet plays, `playedFrames` rises and `bufferedSamples` falls
-    // by the same amount, so this total does not race with it.
-    final frontier =
-        _startFrame + _playedSinceStart + (sink.bufferedSamples ~/ 2);
-    await rust.webPlayerRewind(id: id, frame: BigInt.from(frontier));
-    _feedAt = _dataStart + frontier * _bytesPerFrame;
+    final keep = (_sampleRate * _tailFor(_tailBonus)).round() * 2;
+    // The pump may not run between the trim and the rewind. It would still
+    // hold the old `_feedAt`, a ring's length ahead of the trimmed tail, and
+    // append audio from a second later right behind it — not a hole but a
+    // jump, and then a jump back once the rewind lands. Claiming the pump's
+    // own flag makes the pair atomic; the finally releases it.
+    _busy = true;
+    try {
+      // Nothing past the tail means nothing to redo — and on a slow device
+      // that is the good outcome, not a missed one: the ring holds less than
+      // this machine needs to refill it, so the change becomes audible when
+      // the buffer plays out instead of tearing a hole into it.
+      if (sink.trimTo(keep) == 0) return;
+      // Where the kept audio ends, in file frames. Read as a sum on purpose:
+      // as the worklet plays, `playedFrames` rises and `bufferedSamples` falls
+      // by the same amount, so this total does not race with it.
+      final frontier =
+          _startFrame + _playedSinceStart + (sink.bufferedSamples ~/ 2);
+      await rust.webPlayerRewind(id: id, frame: BigInt.from(frontier));
+      _feedAt = _dataStart + frontier * _bytesPerFrame;
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<void> seek(int frame) async {

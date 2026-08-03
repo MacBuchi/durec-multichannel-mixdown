@@ -73,6 +73,54 @@ void main() {
     });
   });
 
+  group('nextTailBonus', () {
+    test('a clean re-mix asks for nothing extra', () {
+      expect(nextTailBonus(0, dropouts: 0), 0);
+    });
+
+    test('a dropout buys more remainder than the prediction gave', () {
+      expect(nextTailBonus(0, dropouts: 1), tailBonusStep);
+      // Three in one round is a badly wrong prediction, not a hiccup.
+      expect(nextTailBonus(0, dropouts: 3), closeTo(3 * tailBonusStep, 1e-12));
+    });
+
+    test('a device that stops dropping out gets its response back', () {
+      var bonus = nextTailBonus(0, dropouts: 4);
+      for (var i = 0; i < 10; i++) {
+        bonus = nextTailBonus(bonus, dropouts: 0);
+      }
+      expect(bonus, 0);
+    });
+
+    test('never grows past the tail budget', () {
+      var bonus = 0.0;
+      for (var i = 0; i < 100; i++) {
+        bonus = nextTailBonus(bonus, dropouts: 5);
+      }
+      expect(bonus, maxTailSeconds - minTailSeconds);
+      // Which is exactly enough to lift the fastest prediction to the cap,
+      // and no further — past it the re-mix stops happening instead.
+      expect(minTailSeconds + bonus, maxTailSeconds);
+    });
+
+    test('a struggling device converges within one drag', () {
+      // 300 ms between re-mixes, so ten rounds is about three seconds of
+      // holding a fader — the answer to one dropout per round has to arrive
+      // inside that, not over the course of a session.
+      double keep(double bonus) =>
+          (tail(1.5) + bonus).clamp(minTailSeconds, maxTailSeconds);
+      var bonus = 0.0;
+      for (var i = 0; i < 3; i++) {
+        bonus = nextTailBonus(bonus, dropouts: 1);
+      }
+      expect(keep(bonus), greaterThan(tail(1.5) + 0.15));
+      for (var i = 0; i < 7; i++) {
+        bonus = nextTailBonus(bonus, dropouts: 1);
+      }
+      expect(keep(bonus), maxTailSeconds);
+    });
+  });
+
   group('blendMixRate', () {
     test('adopts a drop faster than a recovery', () {
       // Being wrong on the low side costs silence, on the high side latency.

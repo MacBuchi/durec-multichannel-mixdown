@@ -34,6 +34,13 @@ const maxTailSeconds = 0.75;
 /// one such tick without a dropout.
 const _tailSafety = 2.0;
 
+/// How much a single observed dropout adds to the remainder.
+///
+/// Around one and a half pump ticks: small enough that a device which drops
+/// out once does not jump to a sluggish fader, large enough that a handful of
+/// dropouts during one drag converge on a working buffer rather than creeping.
+const tailBonusStep = 0.06;
+
 /// Audio the pump must keep in the ring when it re-mixes for changed
 /// parameters, given how fast this machine mixes.
 ///
@@ -69,6 +76,29 @@ Duration previewRewindInterval(
   final mixingTime = chunkSeconds / mixRate * _tailSafety;
   final micros = (mixingTime * Duration.microsecondsPerSecond).round();
   return micros > floor.inMicroseconds ? Duration(microseconds: micros) : floor;
+}
+
+/// Extra remainder a device has earned by dropping out anyway.
+///
+/// [previewTailSeconds] is derived from an *average* round, so it carries about
+/// one round of margin — and a browser main thread can spend several times its
+/// average on one round (garbage collection, laying out thirty-odd channel
+/// strips while the finger moves). Prediction alone therefore cannot get this
+/// right on every device, so the pacing also learns from the outcome:
+/// [dropouts] observed since the previous re-mix each add a [tailBonusStep],
+/// and a clean re-mix gives one step back.
+///
+/// Not every dropout is caused by re-mixing — an unrelated main-thread stall
+/// counts too. That errs towards a longer buffer, which is also the answer for
+/// a stall, so it is left uncorrected on purpose.
+double nextTailBonus(double bonus, {required int dropouts}) {
+  final next = dropouts > 0
+      ? bonus + tailBonusStep * dropouts
+      : bonus - tailBonusStep;
+  // The cap is the whole tail budget: past it the remainder is what
+  // [maxTailSeconds] allows and the re-mix stops happening at all, which is
+  // the honest outcome for a device that cannot keep up.
+  return next.clamp(0.0, maxTailSeconds - minTailSeconds);
 }
 
 /// Fold a fresh throughput sample into the running estimate.
