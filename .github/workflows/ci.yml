@@ -126,6 +126,12 @@ jobs:
       - name: Integration test (real engine, headless-driven GUI)
         if: matrix.name == 'macOS'
         run: flutter test integration_test -d macos
+      # IndexedDB exists in no VM test, so the persistence adapter is only
+      # ever proven here (@TestOn('browser') keeps it out of `flutter test`).
+      # Chrome is preinstalled on the ubuntu runner image.
+      - name: Browser storage round-trip (IndexedDB)
+        if: matrix.name == 'Web'
+        run: flutter test --platform chrome test/web_storage_browser_test.dart
 
   # Housekeeping: catches "merged but never released" states. A release only
   # fires when main carries an UNTAGGED pubspec version (see release.yml) —

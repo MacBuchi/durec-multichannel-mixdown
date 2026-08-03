@@ -5,6 +5,21 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.14.0] – 2026-08-04
+
+### Added
+
+- **In the browser, your work now survives a reload.** Mixes, the appearance
+  setting, the waveform caches and the reference profiles are kept in the
+  browser instead of only for as long as the tab is open. Come back tomorrow,
+  choose the same recording again, and your mix is exactly where you left it.
+- The recording itself cannot be kept — a browser is not allowed to hold on to
+  a file you picked, so you do choose it again after a reload. The mix finds
+  its way back on its own, by the file's name.
+- **Settings now says which of the two you are getting.** In a private window
+  a browser stores nothing at all; rather than quietly losing your mix, the
+  dialog tells you so.
+
 ## [0.13.3] – 2026-08-03
 
 ### Fixed
@@ -357,6 +372,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.14.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.14.0
 [0.13.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.3
 [0.13.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.2
 [0.13.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.1

@@ -1,18 +1,21 @@
 /// Web implementation of the platform shim (docs/PLAN-PWA.md, S1).
 ///
-/// The app container is an in-memory map — settings, sessions and caches
-/// live for the tab's lifetime. Persistent web storage (OPFS/localStorage)
-/// and fetch-based networking are later PWA stages; everything here is
-/// deliberately the smallest thing that lets the app boot.
+/// The app container is a map in memory mirrored into IndexedDB, so settings,
+/// the mix and the caches outlive the tab (see [FileStore] for why the map is
+/// the source of truth and storage the mirror). What cannot outlive it is the
+/// *recording*: without a File System Access API there is no handle to keep, so
+/// the file is picked again and the mix re-attaches by name.
+///
+/// Networking is still absent by design ([hasNetwork]).
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:js_interop';
 
 import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 
+import 'file_store.dart';
 import 'platform_shim_types.dart';
 
 bool get isAndroidPlatform => false;
@@ -22,51 +25,162 @@ bool get isWindowsPlatform => false;
 String get operatingSystemName => 'Web';
 String get pathSeparator => '/';
 
-/// Tab-lifetime file store; keys are the virtual paths handed out below.
-final Map<String, Uint8List> _files = {};
+const _appSupport = '/web-app-support';
 
-Future<String> applicationSupportPath() async => '/web-app-support';
+/// The app container: an in-memory map mirrored into IndexedDB, so settings,
+/// the mix and the caches survive a reload (#111). Keys are the virtual paths
+/// handed out below.
+final _files = FileStore(persistPrefix: _appSupport);
+
+/// Read browser storage into the container. Called from `main` before anything
+/// reads it, because [fileExistsSync] cannot wait.
+///
+/// The **file** a mix belongs to cannot be kept: Safari has no File System
+/// Access API, so there is no handle to store and the recording has to be
+/// picked again after a reload. It re-attaches by itself — [_lazyRecording]
+/// keys a source on the file name, and that is what the session path hashes.
+Future<void> initPlatformStorage() async {
+  await _files.hydrate(await IndexedDbFileStoreBackend.open());
+  // Without this, Safari may evict the store after a week of not visiting;
+  // granted silently for an installed PWA, refused (harmlessly) elsewhere.
+  try {
+    await web.window.navigator.storage.persist().toDart;
+  } catch (_) {
+    // Not implemented in every browser, and never worth failing a boot over.
+  }
+}
+
+/// Whether what the app writes will still be there on the next visit — false
+/// in a private window, where IndexedDB is refused. Never null here: in a
+/// browser the answer always needs saying, one way or the other.
+bool? get browserStoragePersists => _files.persists;
+
+Future<String> applicationSupportPath() async => _appSupport;
 
 Future<String> systemTempPath() async => '/web-tmp';
 
 Future<void> ensureDirectory(String path) async {}
 
-bool fileExistsSync(String path) => _files.containsKey(path);
+bool fileExistsSync(String path) => _files.exists(path);
 
-void renameFileSync(String from, String to) {
-  final bytes = _files.remove(from);
-  if (bytes == null) {
-    throw ArgumentError.value(from, 'from', 'no such in-memory file');
-  }
-  _files[to] = bytes;
-}
+void renameFileSync(String from, String to) => _files.rename(from, to);
 
-void deleteFileSync(String path) {
-  _files.remove(path);
-}
+void deleteFileSync(String path) => _files.delete(path);
 
-Future<String> readTextFile(String path) async {
-  final bytes = _files[path];
-  if (bytes == null) {
-    throw StateError('no such in-memory file: $path');
-  }
-  return utf8.decode(bytes);
-}
+Future<String> readTextFile(String path) async => _files.readText(path);
 
-Future<void> writeTextFile(String path, String contents) async {
-  _files[path] = Uint8List.fromList(utf8.encode(contents));
-}
+Future<void> writeTextFile(String path, String contents) async =>
+    _files.writeText(path, contents);
 
 Future<Uint8List> readBinaryFile(String path) async {
-  final bytes = _files[path];
+  final bytes = _files.read(path);
   if (bytes == null) {
-    throw StateError('no such in-memory file: $path');
+    throw StateError('no such file in the app container: $path');
   }
   return bytes;
 }
 
-Future<void> writeBinaryFile(String path, Uint8List bytes) async {
-  _files[path] = bytes;
+Future<void> writeBinaryFile(String path, Uint8List bytes) async =>
+    _files.write(path, bytes);
+
+/// IndexedDB as a flat path → bytes store.
+///
+/// One object store keyed by the virtual path; values are `Uint8List`, which
+/// the structured clone algorithm stores natively. IndexedDB rather than OPFS
+/// because it is supported everywhere the app runs — OPFS writable streams
+/// arrived late in Safari, and this needs no worker.
+///
+/// Public only so a browser test can prove the round trip: unit tests run on
+/// the VM, where none of this exists, so `test/web_storage_browser_test.dart`
+/// drives this class under `flutter test --platform chrome`. Nothing else
+/// should reach for it — the app goes through [initPlatformStorage].
+class IndexedDbFileStoreBackend implements FileStoreBackend {
+  IndexedDbFileStoreBackend(this._db);
+
+  static const _dbName = 'durecmix';
+  static const _storeName = 'container';
+
+  final web.IDBDatabase _db;
+
+  /// Opens the database, creating the object store on first visit. Throws when
+  /// the browser refuses IndexedDB (private windows do); [FileStore.hydrate]
+  /// turns that into "runs without persistence".
+  static Future<FileStoreBackend> open() async {
+    final request = web.window.indexedDB.open(_dbName, 1);
+    final done = Completer<web.IDBDatabase>();
+    request.onupgradeneeded = ((web.Event _) {
+      final db = request.result as web.IDBDatabase;
+      if (!db.objectStoreNames.contains(_storeName)) {
+        db.createObjectStore(_storeName);
+      }
+    }).toJS;
+    request.onsuccess = ((web.Event _) {
+      if (!done.isCompleted) done.complete(request.result as web.IDBDatabase);
+    }).toJS;
+    request.onerror = ((web.Event _) {
+      if (!done.isCompleted) {
+        done.completeError(StateError('IndexedDB unavailable'));
+      }
+    }).toJS;
+    // A `versionchange` transaction that another tab blocks would otherwise
+    // hang the boot; without a timeout the app would never show a frame.
+    return IndexedDbFileStoreBackend(
+      await done.future.timeout(const Duration(seconds: 5)),
+    );
+  }
+
+  web.IDBObjectStore _store(String mode) =>
+      _db.transaction(_storeName.toJS, mode).objectStore(_storeName);
+
+  @override
+  Future<Map<String, Uint8List>> loadAll() async {
+    final store = _store('readonly');
+    final keys = await _await<JSObject>(store.getAllKeys());
+    final values = await _await<JSObject>(store.getAll());
+    final keyList = (keys as JSArray).toDart;
+    final valueList = (values as JSArray).toDart;
+    final out = <String, Uint8List>{};
+    for (var i = 0; i < keyList.length && i < valueList.length; i++) {
+      final key = (keyList[i] as JSString).toDart;
+      final value = valueList[i];
+      // Anything that is not a byte buffer was not written by this version;
+      // drop it rather than crash the boot on it.
+      if (value.isA<JSUint8Array>()) {
+        out[key] = (value as JSUint8Array).toDart;
+      } else if (value.isA<JSArrayBuffer>()) {
+        out[key] = (value as JSArrayBuffer).toDart.asUint8List();
+      }
+    }
+    return out;
+  }
+
+  @override
+  Future<void> put(String key, Uint8List bytes) async {
+    // A fresh copy: the caller may hold a view into a larger buffer, and
+    // structured clone would then store the whole thing.
+    await _await<JSAny?>(
+      _store('readwrite').put(Uint8List.fromList(bytes).toJS, key.toJS),
+    );
+  }
+
+  @override
+  Future<void> remove(String key) async {
+    await _await<JSAny?>(_store('readwrite').delete(key.toJS));
+  }
+
+  /// One `IDBRequest` as a future.
+  static Future<T> _await<T extends JSAny?>(web.IDBRequest request) {
+    final done = Completer<T>();
+    request.onsuccess = ((web.Event _) {
+      if (!done.isCompleted) done.complete(request.result as T);
+    }).toJS;
+    request.onerror = ((web.Event _) {
+      if (!done.isCompleted) {
+        done.completeError(StateError('IndexedDB request failed'));
+      }
+    }).toJS;
+    return done.future;
+  }
 }
 
 /// No desktop-style directory listing in the browser; the web build gets

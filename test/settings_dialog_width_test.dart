@@ -49,6 +49,7 @@ void main() {
                 playbackUnderruns: 12,
                 mixRate: 1.7,
                 tailSeconds: 0.43,
+                storagePersists: true,
               ),
               child: const Text('open'),
             ),
@@ -61,6 +62,7 @@ void main() {
       expect(find.textContaining('12 dropouts'), findsOneWidget);
       expect(find.textContaining('1.7× realtime'), findsOneWidget);
       expect(find.textContaining('430 ms'), findsOneWidget);
+      expect(find.textContaining('kept in this browser'), findsOneWidget);
       expect(find.text('About DurecMix'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -81,5 +83,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Playback diagnostics'), findsNothing);
+    // Native builds have a filesystem; nothing to explain about storage.
+    expect(find.text('Storage'), findsNothing);
+  });
+
+  testWidgets('a browser that stores nothing says so', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                showSettingsDialog(context, storagePersists: false),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Storage'), findsOneWidget);
+    expect(find.textContaining('not storing anything'), findsOneWidget);
   });
 }

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../io/platform_shim.dart'
+    show fileExistsSync, readTextFile, writeTextFile;
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'analysis_cache.dart';
@@ -143,9 +145,9 @@ class MixerState extends ChangeNotifier {
     }
   }
 
-  /// Open a take that has no file behind it (web): the chunks are fetched
-  /// through [sourceReader] and the session JSON is kept in memory, since
-  /// there is no app container to read.
+  /// Open a take that has no file behind it (web): the header chunks are
+  /// fetched through [sourceReader], and the saved mix comes out of the app
+  /// container the same way it does natively — see [_storedSessionJson].
   Future<rust.RecordingInfo> _loadByRanges(
     String source,
     RangeReader reader,
@@ -172,12 +174,27 @@ class MixerState extends ChangeNotifier {
       fmtChunk: await payload(fmt),
       ixmlChunk: ixml == null ? null : await payload(ixml),
       dataBytes: data.size,
-      sessionJson: _webSessions[source],
+      sessionJson: await _storedSessionJson(),
     );
   }
 
-  /// Sessions for sources without a filesystem, for the tab's lifetime.
-  static final Map<String, String> _webSessions = {};
+  /// The saved mix for this take, read straight from the app container.
+  ///
+  /// A source without a filesystem still gets a session *path* — on the web
+  /// that container is browser storage behind the same virtual paths (see
+  /// `lib/io/file_store.dart`), so there is no separate in-memory map any more
+  /// and the mix survives a reload.
+  Future<String?> _storedSessionJson() async {
+    final path = _sessionPath;
+    if (path == null || !fileExistsSync(path)) return null;
+    try {
+      return await readTextFile(path);
+    } catch (_) {
+      // A half-written or unreadable session must not stop the take from
+      // opening — the user gets the unity mix instead of an error.
+      return null;
+    }
+  }
 
   static const int _waveformBuckets = 600;
 
@@ -446,15 +463,20 @@ class MixerState extends ChangeNotifier {
   Future<void> saveSession() async {
     final sessionPath = _sessionPath;
     if (recording == null || sessionPath == null) return;
-    if (sourceReader != null) {
-      // No filesystem: keep the session JSON for this tab instead.
-      _webSessions[recording!.path] = rust.sessionToJson(
-        tracks: tracks.map((t) => t.toApi()).toList(),
-        master: master,
-      );
-      return;
-    }
     try {
+      if (sourceReader != null) {
+        // The engine writes sessions with `std::fs`, which wasm has none of,
+        // so Dart serialises it and puts it in the container at the very path
+        // the native build uses — same file name, same hash, same contents.
+        await writeTextFile(
+          sessionPath,
+          rust.sessionToJson(
+            tracks: tracks.map((t) => t.toApi()).toList(),
+            master: master,
+          ),
+        );
+        return;
+      }
       await rust.saveSession(
         sessionPath: sessionPath,
         tracks: tracks.map((t) => t.toApi()).toList(),
