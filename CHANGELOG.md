@@ -5,6 +5,22 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.16.0] – 2026-08-04
+
+### Added
+
+- **Export several takes at once in the browser.** Tick the takes in the file
+  list, edit their names, press Export — the current mix is applied to each one
+  and every finished mixdown is downloaded as soon as it is ready.
+- Downloading each file as it finishes rather than everything at the end means
+  a cancelled run keeps what it already produced.
+- Because a browser is not allowed to write into a folder of your choosing,
+  there is no `Mixdown/` subfolder there; the files land wherever your browser
+  puts downloads. On iPhone and iPad Safari asks once per file.
+
+With this, everything the installed app does is available in the browser except
+MP3 export.
+
 ## [0.15.0] – 2026-08-04
 
 ### Added
@@ -384,6 +400,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.16.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.16.0
 [0.15.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.15.0
 [0.14.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.14.0
 [0.13.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.3

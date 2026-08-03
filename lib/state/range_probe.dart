@@ -88,6 +88,36 @@ Future<RangeProbe> probeByRanges(RangeReader read, int fileSize) async {
   );
 }
 
+/// Open a recording through [read] alone: header chunks over ranges, track
+/// names from iXML, and the saved mix from [sessionJson] when there is one.
+///
+/// The engine cannot read the session itself here — it writes and reads those
+/// with `std::fs`, which wasm has none of — so the caller fetches the JSON from
+/// the app container and passes it in. Shared by the mixer (opening a take) and
+/// the multi-file export (rendering takes it never opened), which must agree on
+/// what a take's saved mix is.
+Future<rust.RecordingInfo> loadRecordingByRanges(
+  RangeReader read,
+  int fileSize, {
+  required String source,
+  String? sessionJson,
+}) async {
+  final chunks = await scanChunksByRanges(read, fileSize);
+  final fmt = _find(chunks, 'fmt ');
+  final data = _find(chunks, 'data');
+  if (fmt == null || data == null) {
+    throw const FormatException('not a readable WAV (fmt/data missing)');
+  }
+  final ixml = _find(chunks, 'iXML');
+  return rust.loadRecordingFromChunks(
+    source: source,
+    fmtChunk: await _payload(read, fmt),
+    ixmlChunk: ixml == null ? null : await _payload(read, ixml),
+    dataBytes: data.size,
+    sessionJson: sessionJson,
+  );
+}
+
 /// Waveform + BPM analysis through [read] alone.
 ///
 /// Unlike [probeByRanges] this genuinely streams the audio: the `data`
