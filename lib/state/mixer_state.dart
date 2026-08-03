@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../io/platform_shim.dart'
-    show fileExistsSync, readTextFile, writeTextFile;
+import '../io/platform_shim.dart' show writeTextFile;
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'analysis_cache.dart';
@@ -151,50 +150,12 @@ class MixerState extends ChangeNotifier {
   Future<rust.RecordingInfo> _loadByRanges(
     String source,
     RangeReader reader,
-  ) async {
-    final chunks = await scanChunksByRanges(reader, sourceSize);
-    rust.ApiChunk? find(String id) {
-      for (final c in chunks) {
-        if (c.id == id) return c;
-      }
-      return null;
-    }
-
-    final fmt = find('fmt ');
-    final data = find('data');
-    if (fmt == null || data == null) {
-      throw const FormatException('not a readable WAV (fmt/data missing)');
-    }
-    Future<Uint8List> payload(rust.ApiChunk c) =>
-        reader(c.offset.toInt(), c.offset.toInt() + c.size.toInt());
-    final ixml = find('iXML');
-
-    return rust.loadRecordingFromChunks(
-      source: source,
-      fmtChunk: await payload(fmt),
-      ixmlChunk: ixml == null ? null : await payload(ixml),
-      dataBytes: data.size,
-      sessionJson: await _storedSessionJson(),
-    );
-  }
-
-  /// The saved mix for this take, read straight from the app container.
-  ///
-  /// A source without a filesystem still gets a session *path* — on the web
-  /// that container is browser storage behind the same virtual paths (see
-  /// `lib/io/file_store.dart`), so there is no separate in-memory map any more
-  /// and the mix survives a reload.
-  Future<String?> _storedSessionJson() async {
-    final path = _sessionPath;
-    if (path == null || !fileExistsSync(path)) return null;
-    try {
-      return await readTextFile(path);
-    } catch (_) {
-      // A half-written or unreadable session must not stop the take from
-      // opening — the user gets the unity mix instead of an error.
-      return null;
-    }
-  }
+  ) async => loadRecordingByRanges(
+    reader,
+    sourceSize,
+    source: source,
+    sessionJson: await storedSessionJson(_sessionPath),
+  );
 
   static const int _waveformBuckets = 600;
 

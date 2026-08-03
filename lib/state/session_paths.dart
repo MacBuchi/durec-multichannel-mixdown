@@ -34,6 +34,24 @@ Future<String> sessionPathFor(String wavSource, {String? displayName}) async {
   return path;
 }
 
+/// The saved mix at [sessionPath], or null when there is none.
+///
+/// Only the byte-range paths need this: the engine reads sessions itself when
+/// it opens a file, but it does that with `std::fs`, which wasm has none of —
+/// so in the browser Dart fetches the JSON from the app container and hands it
+/// to `loadRecordingFromChunks`. Same file, same name, same contents as
+/// natively; since v0.14.0 the container persists, so this survives a reload.
+Future<String?> storedSessionJson(String? sessionPath) async {
+  if (sessionPath == null || !fileExistsSync(sessionPath)) return null;
+  try {
+    return await readTextFile(sessionPath);
+  } catch (_) {
+    // A half-written or unreadable session must not stop a take from opening
+    // (or a batch render from starting) — it falls back to the unity mix.
+    return null;
+  }
+}
+
 /// Stable identity of a source. Android SAF exposes the SAME file under
 /// different URI strings — `…/document/<id>` from the single-file picker vs
 /// `…/tree/<t>/document/<id>` from a folder tree — but the documentId is

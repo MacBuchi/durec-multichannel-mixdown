@@ -476,6 +476,27 @@ Trim-Bereich, Blöcke mit ungerader Größe) und
 gemasterte Browser-Render ist **byte-identisch** zum nativen. Damit ist die
 letzte Stelle geschlossen, die AGENTS.md als „unproven" führte.
 
+## Multi-Datei-Export (v0.16.0, Rest von #111)
+
+Ein Browser kann nicht in einen Ordner schreiben — ohne File System Access API
+gibt es den `Mixdown/`-Unterordner der App dort nicht. Also wird jede fertige
+Datei heruntergeladen.
+
+- **`MultiExportRunner.run` nimmt einen nullbaren Ordner.** `null` ist der
+  Browser-Modus, kein fehlendes Argument; dann wird nichts angelegt und jeder
+  Render geht in `createDownloadOutput`.
+- **Pro Datei, nicht als ZIP am Ende.** Nutzerentscheidung vom 2026-08-04, und
+  sie hat zwei technische Vorteile: ein abgebrochener Lauf behält, was schon
+  fertig ist, und es muss nichts im Speicher liegen, während der Rest rendert.
+  Preis: iOS Safari fragt pro Datei nach.
+- **Das Laden über Ranges liegt jetzt an einer Stelle.** `loadRecordingByRanges`
+  in `range_probe.dart`, samt `storedSessionJson` in `session_paths.dart` —
+  vorher steckte das privat in `MixerState`. Mixer und Batch-Export müssen sich
+  darüber einig sein, was die gespeicherte Mischung eines Takes ist.
+- Der Auswahlmodus im Browser war im Web bewusst versteckt, weil „ankreuzen,
+  Namen tippen, Export drücken, nichts passiert" schlimmer ist als ein fehlender
+  Knopf. Jetzt ist er da, weil er funktioniert.
+
 ## Nicht-Ziele
 
 - MP3-Export im Browser (bis ein tragfähiger Encoder-Weg feststeht).

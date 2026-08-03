@@ -6,6 +6,8 @@ import '../io/platform_shim.dart';
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
+import 'range_probe.dart';
+import 'range_render.dart';
 import 'session_paths.dart';
 import 'wav_browser.dart';
 
@@ -52,6 +54,14 @@ class EntryStatus {
 /// mapped by track name onto each take. Sessions of the other files are
 /// only read, never written; trim/fades are deliberately NOT applied —
 /// they are take-specific.
+///
+/// **In a browser there is no target folder** — no File System Access API means
+/// nothing can be written into a directory. Each finished mixdown is delivered
+/// as its own download instead, as soon as it is rendered (#111). That is why
+/// [run] takes a nullable folder: null *is* the browser's mode, not a missing
+/// argument. Delivering per file rather than one archive at the end is
+/// deliberate — a cancelled run keeps what it already produced, and nothing has
+/// to be held in memory while the rest renders.
 class MultiExportRunner extends ChangeNotifier {
   final Map<String, EntryStatus> status = {};
   bool running = false;
@@ -69,9 +79,13 @@ class MultiExportRunner extends ChangeNotifier {
   /// interrupted mid-pass).
   void cancel() => _cancelRequested = true;
 
+  /// True when the finished files went to the browser's downloads rather than
+  /// a folder — the result bar has to say something different then.
+  bool downloaded = false;
+
   Future<void> run(
     List<WavEntry> entries,
-    String folder,
+    String? folder,
     MultiExportConfig config,
   ) async {
     if (running || entries.isEmpty) return;
@@ -86,24 +100,28 @@ class MultiExportRunner extends ChangeNotifier {
     }
     notifyListeners();
 
-    final isSaf = Saf.isContentUri(folder);
-    String outDir;
-    try {
-      if (isSaf) {
-        outDir = await Saf.ensureDirectory(folder, 'Mixdown');
-      } else {
-        outDir = '$folder/Mixdown';
-        await ensureDirectory(outDir);
+    final isSaf = folder != null && Saf.isContentUri(folder);
+    downloaded = folder == null;
+    // Null folder = the browser: nothing to create, every file is a download.
+    String? outDir;
+    if (folder != null) {
+      try {
+        if (isSaf) {
+          outDir = await Saf.ensureDirectory(folder, 'Mixdown');
+        } else {
+          outDir = '$folder/Mixdown';
+          await ensureDirectory(outDir);
+        }
+      } catch (e) {
+        for (final entry in entries) {
+          statusFor(entry)
+            ..phase = EntryPhase.failed
+            ..error = 'Mixdown folder: $e';
+        }
+        running = false;
+        notifyListeners();
+        return;
       }
-    } catch (e) {
-      for (final entry in entries) {
-        statusFor(entry)
-          ..phase = EntryPhase.failed
-          ..error = 'Mixdown folder: $e';
-      }
-      running = false;
-      notifyListeners();
-      return;
     }
 
     final currentByName = {for (final t in config.tracks) t.name: t};
@@ -124,13 +142,24 @@ class MultiExportRunner extends ChangeNotifier {
           entry.source,
           displayName: entry.name,
         );
-        final info = await rust.loadRecording(
-          path: entry.source,
-          sessionPath: sessionPath,
-          fd: Saf.isContentUri(entry.source)
-              ? await Saf.openFd(entry.source)
-              : null,
-        );
+        final byRanges = entry.read;
+        final info = byRanges != null
+            // Browser: no file for the engine to open, and no filesystem for it
+            // to read the session from — both come through ranges and the app
+            // container instead (`loadRecordingByRanges`).
+            ? await loadRecordingByRanges(
+                byRanges,
+                entry.sizeBytes ?? 0,
+                source: entry.source,
+                sessionJson: await storedSessionJson(sessionPath),
+              )
+            : await rust.loadRecording(
+                path: entry.source,
+                sessionPath: sessionPath,
+                fd: Saf.isContentUri(entry.source)
+                    ? await Saf.openFd(entry.source)
+                    : null,
+              );
         // …then the current mixer values override wherever a name matches
         // (index fallback), so one mix drives all takes of the session.
         final tracks = [
@@ -152,12 +181,40 @@ class MultiExportRunner extends ChangeNotifier {
           entry.defaultStem,
         );
         final outName = '$stem${extensionFor(config.format)}';
+
+        if (byRanges != null) {
+          // Rendered from ranges, delivered as a download the moment it is
+          // finished. Byte-identical to what the app would write — the same
+          // `renderByRanges` the single export uses, pinned by the equality
+          // tests in `engine/tests`.
+          final report = await renderByRanges(
+            byRanges,
+            entry.sizeBytes ?? 0,
+            tracks: tracks,
+            master: master,
+            reference: master.masteringEnabled ? config.reference : null,
+            output: createDownloadOutput(outName),
+            onProgress: (p) {
+              st.progress = p;
+              notifyListeners();
+            },
+          );
+          st
+            ..integratedLufs = report.integratedLufs
+            ..phase = EntryPhase.done
+            ..output = outName;
+          outputs.add(outName);
+          notifyListeners();
+          continue;
+        }
+
         String outTarget;
         int? outputFd;
         if (isSaf) {
           // SAF providers de-duplicate colliding names themselves.
           outTarget = await Saf.createFileInDirectory(
-            outDir,
+            // Non-null whenever `isSaf` is: both follow from a real folder.
+            outDir!,
             outName,
             _mime(config.format),
           );

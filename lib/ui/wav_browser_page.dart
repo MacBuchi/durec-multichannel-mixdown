@@ -64,10 +64,15 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
 
   Future<void> _exportSelected() async {
     final config = widget.exportConfig?.call();
-    final folder = widget.browser.folder;
-    if (config == null || folder == null) return;
+    if (config == null) return;
+    // `folder` is null in a browser, and that is a mode, not a failure: the
+    // runner then delivers each finished mixdown as its own download.
     widget.browser.cancel(); // pause metadata probes while rendering
-    await _runner.run(widget.browser.selectedEntries, folder, config);
+    await _runner.run(
+      widget.browser.selectedEntries,
+      widget.browser.folder,
+      config,
+    );
     widget.browser.resumeProbing(); // finish annotating the remaining rows
   }
 
@@ -118,14 +123,11 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
         style: const TextStyle(fontSize: 16),
       ),
       actions: [
-        // The multi-take export renders into a `Mixdown/` folder next to the
-        // takes and needs paths throughout (`rust.renderMix`), so it cannot
-        // run on a picked `Blob`. Offering it anyway let the user tick
-        // takes, edit names, press Export — and nothing happened at all,
-        // because `_exportSelected` returns on `folder == null`.
-        if (canPickFolders &&
-            widget.exportConfig != null &&
-            b.entries.isNotEmpty)
+        // Available in the browser too since v0.16.0: the takes are rendered
+        // from their byte ranges and each finished file is downloaded. Before
+        // that this was hidden here, because offering it let the user tick
+        // takes, edit names, press Export — and nothing happened at all.
+        if (widget.exportConfig != null && b.entries.isNotEmpty)
           IconButton(
             tooltip: 'Export multiple takes…',
             onPressed: b.enterSelectionMode,
@@ -194,9 +196,13 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
           )
         else if (b.selectedEntries.isNotEmpty)
           Tooltip(
-            message:
-                'Render the ticked takes with the current mix into '
-                'the Mixdown folder',
+            message: canPickFolders
+                ? 'Render the ticked takes with the current mix into '
+                      'the Mixdown folder'
+                // No folder to render into in a browser; each finished take
+                // arrives as its own download.
+                : 'Render the ticked takes with the current mix and '
+                      'download each one',
             child: FilledButton.icon(
               onPressed: _exportSelected,
               icon: const Icon(Icons.save_alt, size: 16),
@@ -322,7 +328,8 @@ class _WavBrowserPageState extends State<WavBrowserPage> {
             Expanded(
               child: Text(
                 '${_runner.outputs.length} mixdown'
-                '${_runner.outputs.length == 1 ? '' : 's'} exported to Mixdown/',
+                '${_runner.outputs.length == 1 ? '' : 's'} '
+                '${_runner.downloaded ? 'downloaded' : 'exported to Mixdown/'}',
                 style: const TextStyle(fontSize: 13),
               ),
             ),
