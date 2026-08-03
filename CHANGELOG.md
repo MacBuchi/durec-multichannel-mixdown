@@ -5,6 +5,18 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.15.0] – 2026-08-04
+
+### Added
+
+- **Reference mastering now works in the browser.** Pick a commercial song as
+  a reference, and your mix is matched to it exactly as the installed app does
+  — the exported file is bit-for-bit the same one the app would have written.
+- **Including the mastered preview:** switch it on and you hear the matched
+  sound before exporting, on a tablet too.
+- Once analyzed, a reference is remembered: after a reload the app reuses what
+  it learned about that song instead of reading it again.
+
 ## [0.14.0] – 2026-08-04
 
 ### Added
@@ -372,6 +384,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.15.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.15.0
 [0.14.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.14.0
 [0.13.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.3
 [0.13.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.2

@@ -38,6 +38,25 @@ class PickedRecording {
   final Future<Uint8List> Function(int start, int end) read;
 }
 
+/// A mastering reference the user picked in the browser.
+///
+/// Unlike a recording this travels whole: a reference song is a few megabytes,
+/// and the analysis decodes it front to back anyway, so slicing would buy
+/// nothing. [source] is a `blob:<name>` pseudo-path — the same shape a picked
+/// recording gets, which is what lets the session and the profile cache key on
+/// it unchanged (docs/PLAN-PWA.md).
+class PickedReference {
+  const PickedReference({
+    required this.source,
+    required this.name,
+    required this.bytes,
+  });
+
+  final String source;
+  final String name;
+  final Uint8List bytes;
+}
+
 /// Progress of an in-app APK install (Android OTA update).
 enum ApkInstallPhase { downloading, installing, error }
 

@@ -2,6 +2,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../io/ios_files.dart';
+import '../../io/platform_shim.dart' show canPickFolders, pickReferenceAudio;
 import '../../io/saf.dart';
 import '../../state/mixer_state.dart';
 import '../app_colors.dart';
@@ -192,7 +193,15 @@ Future<void> _pickReference(BuildContext context, MixerState state) async {
   final messenger = ScaffoldMessenger.of(context);
   String? path;
   String? name;
-  if (Saf.isAvailable) {
+  if (!canPickFolders) {
+    // Browser: no paths at all. The picker reads the reference whole and keeps
+    // the bytes for the analysis; `blob:<name>` then serves as its identity in
+    // the session and the profile cache, exactly as for a recording.
+    final picked = await pickReferenceAudio();
+    if (picked == null) return;
+    path = picked.source;
+    name = picked.name;
+  } else if (Saf.isAvailable) {
     path = await Saf.pickAudio();
     if (path != null) name = await Saf.displayName(path);
   } else if (IosFiles.isAvailable) {

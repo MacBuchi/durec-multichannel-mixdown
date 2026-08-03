@@ -11,9 +11,8 @@ use durecmix_engine::ixml::{
 use durecmix_engine::mix::{EqBand, HpfSlope, MixBus, TrackEq, TrackParams};
 use durecmix_engine::preview::WebPlayer;
 use durecmix_engine::render::{
-    analyze_mix_level, normalisation_gain, plan_from_pass1, render_to_file, LoudnessMode,
-    MixLevelScan, OutputFormat, RenderPass1, RenderPass2, RenderSettings, RenderSource,
-    StreamRender,
+    analyze_mix_level, normalisation_gain, plan_from_pass1, render_to_file, LoudnessMode, MixScan,
+    OutputFormat, RenderPass1, RenderPass2, RenderSettings, RenderSource, StreamRender,
 };
 use durecmix_engine::session::Session;
 use durecmix_engine::sink::{ChunkSink, StereoSink};
@@ -1817,6 +1816,69 @@ fn reference_decodes_from_raw_fd() {
 }
 
 #[test]
+fn reference_decodes_from_bytes_exactly_as_from_a_path() {
+    // The browser's only route (#111): no path, no fd, the whole file in
+    // memory. Same profile as the path variant, per format — and it is the
+    // *name* that supplies the extension Symphonia needs when a container is
+    // ambiguous, so getting that wrong is what this would catch.
+    use durecmix_engine::reference::analyze_reference_bytes;
+    let sr = 44_100u32;
+    let stereo = ms_noise(16 * sr as usize, 0.2, 0.05, 72);
+    let dir = tempfile::tempdir().unwrap();
+
+    for (name, format) in [
+        ("ref.wav", OutputFormat::Wav24),
+        ("ref.flac", OutputFormat::Flac24),
+        ("ref.mp3", OutputFormat::Mp3),
+    ] {
+        let path = dir.path().join(name);
+        write_ref_fixture(&path, format, &stereo, sr);
+        let by_path =
+            analyze_reference(&InputHandle::Path(path.to_str().unwrap().into()), |_| {}).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let mut last = 0.0f32;
+        let by_bytes = analyze_reference_bytes(bytes, Some(name), |p| {
+            assert!(p >= last, "{name}: progress went backwards");
+            last = p;
+        })
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+
+        assert_eq!(by_path.sample_rate, by_bytes.sample_rate, "{name}: rate");
+        assert_eq!(
+            by_path.mid_spectrum, by_bytes.mid_spectrum,
+            "{name}: mid spectrum differs"
+        );
+        assert_eq!(
+            by_path.side_spectrum, by_bytes.side_spectrum,
+            "{name}: side spectrum differs"
+        );
+        assert_eq!(by_path.mid_rms, by_bytes.mid_rms, "{name}: mid RMS");
+        assert_eq!(by_path.side_rms, by_bytes.side_rms, "{name}: side RMS");
+    }
+}
+
+#[test]
+fn reference_from_bytes_survives_a_missing_name() {
+    // A picker that hands over no usable name must not be fatal: the
+    // containers we care about are self-describing, the hint only helps.
+    use durecmix_engine::reference::analyze_reference_bytes;
+    let sr = 44_100u32;
+    let stereo = ms_noise(4 * sr as usize, 0.2, 0.05, 73);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ref.wav");
+    write_ref_fixture(&path, OutputFormat::Wav24, &stereo, sr);
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(analyze_reference_bytes(bytes, None, |_| {}).is_ok());
+}
+
+#[test]
+fn reference_from_bytes_rejects_non_audio() {
+    use durecmix_engine::reference::analyze_reference_bytes;
+    assert!(analyze_reference_bytes(vec![0u8; 4096], Some("junk.mp3"), |_| {}).is_err());
+}
+
+#[test]
 fn reference_rejects_non_audio() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("junk.mp3");
@@ -1826,7 +1888,7 @@ fn reference_rejects_non_audio() {
 
 // ── mastering: render integration ───────────────────────────────────────────
 
-use durecmix_engine::render::{render_io, MasteringSettings};
+use durecmix_engine::render::{analyze_mix_mastering, render_io, MasteringSettings};
 
 /// Stereo f64 noise → 24-bit 2-channel WAV bytes for render fixtures.
 fn stereo_wav24(stereo: &[f64], sr: u32) -> Vec<u8> {
@@ -3117,13 +3179,13 @@ fn mix_level_scan_matches_the_file_scan() {
     let payload = &wav[data.offset as usize..][..data.size as usize];
     let total_frames = data.size / spec.bytes_per_frame() as u64;
 
-    let mut scan = MixLevelScan::new(spec, total_frames, &tracks, &settings).unwrap();
+    let mut scan = MixScan::new(spec, total_frames, &tracks, &settings, false).unwrap();
     const BLOCK: usize = 65_537; // odd, so no block ends on a frame edge
     for block in payload.chunks(BLOCK) {
         scan.push(block).unwrap();
     }
     assert_eq!(scan.frames_done(), total_frames);
-    let by_push = scan.finish();
+    let by_push = scan.finish_level();
 
     assert_eq!(by_file.peak, by_push.peak, "peak differs");
     assert!(
@@ -3137,5 +3199,207 @@ fn mix_level_scan_matches_the_file_scan() {
     assert_eq!(
         normalisation_gain(&settings, by_file),
         normalisation_gain(&settings, by_push)
+    );
+}
+
+// ── mastering in the browser (#111) ─────────────────────────────────────────
+//
+// The two byte-range paths reference mastering needs, each pinned against the
+// file-based one it must not drift from. Until these existed, AGENTS.md
+// recorded the mastering plan as the one part of the browser preview that was
+// unproven.
+
+#[test]
+fn pushed_mastering_scan_matches_the_file_scan() {
+    let sr = 44_100u32;
+    let source = ms_noise(6 * sr as usize, 0.3, 0.04, 91);
+    let wav = stereo_wav24(&source, sr);
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    std::fs::write(&in_path, &wav).unwrap();
+
+    let tracks = vec![track(1, -2.0, -1.0), track(2, -3.0, 1.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::LufsIntegrated(-16.0),
+        // A trim range too: the scan must measure the same window the export
+        // does, and Dart applies it by slicing bytes rather than seeking.
+        trim_start_frame: 4_000,
+        trim_end_frame: Some(6 * sr as u64 - 5_000),
+        ..RenderSettings::default()
+    };
+
+    let by_file = analyze_mix_mastering(
+        &InputHandle::Path(in_path.to_str().unwrap().into()),
+        &tracks,
+        &settings,
+        |_| {},
+    )
+    .unwrap();
+
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let bpf = spec.bytes_per_frame() as u64;
+    // Exactly what `range_mastering.dart` does: the trim is byte arithmetic.
+    let from = (data.offset + settings.trim_start_frame * bpf) as usize;
+    let to = (data.offset + settings.trim_end_frame.unwrap() * bpf) as usize;
+    let payload = &wav[from..to];
+    let range_frames = (to - from) as u64 / bpf;
+
+    let mut scan = MixScan::new(spec, range_frames, &tracks, &settings, true).unwrap();
+    const BLOCK: usize = 65_537; // odd, so no block ends on a frame edge
+    for block in payload.chunks(BLOCK) {
+        scan.push(block).unwrap();
+    }
+    assert_eq!(scan.frames_done(), range_frames);
+    let by_push = scan.finish_stats().unwrap();
+
+    assert_eq!(
+        by_file.mid_spectrum.len(),
+        by_push.mid_spectrum.len(),
+        "spectrum length differs"
+    );
+    for (i, (a, b)) in by_file
+        .mid_spectrum
+        .iter()
+        .zip(by_push.mid_spectrum.iter())
+        .enumerate()
+    {
+        assert!(
+            (a - b).abs() < 1e-9,
+            "mid spectrum differs at bin {i}: {a} vs {b}"
+        );
+    }
+    for (i, (a, b)) in by_file
+        .side_spectrum
+        .iter()
+        .zip(by_push.side_spectrum.iter())
+        .enumerate()
+    {
+        assert!(
+            (a - b).abs() < 1e-9,
+            "side spectrum differs at bin {i}: {a} vs {b}"
+        );
+    }
+    assert!((by_file.mid_rms - by_push.mid_rms).abs() < 1e-12, "mid RMS");
+    assert!(
+        (by_file.side_rms - by_push.side_rms).abs() < 1e-12,
+        "side RMS"
+    );
+}
+
+#[test]
+fn a_scan_without_the_analyzer_cannot_produce_a_mastering_plan() {
+    // The spectral work cannot be reconstructed afterwards, so asking for
+    // stats from a level-only scan has to fail loudly rather than return
+    // something empty that would silently master against nothing.
+    let sr = 44_100u32;
+    let source = ms_noise(sr as usize, 0.3, 0.04, 92);
+    let wav = stereo_wav24(&source, sr);
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+    let frames = data.size / spec.bytes_per_frame() as u64;
+
+    let tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    let settings = RenderSettings::default();
+    let mut scan = MixScan::new(spec, frames, &tracks, &settings, false).unwrap();
+    scan.push(payload).unwrap();
+    assert!(scan.finish_stats().is_err());
+}
+
+#[test]
+fn byte_driven_render_matches_the_file_render_with_a_mastering_plan() {
+    let sr = 44_100u32;
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.wav");
+    let out_path = dir.path().join("out.wav");
+
+    let source = ms_noise(8 * sr as usize, 0.3, 0.03, 93);
+    let wav = stereo_wav24(&source, sr);
+    std::fs::write(&in_path, &wav).unwrap();
+
+    // A reference that differs in level, width and tilt, so the designed FIRs
+    // are substantial — a near-identity filter would pass this test even if
+    // the two paths disagreed.
+    let mut reference = ms_noise(8 * sr as usize, 0.15, 0.07, 94);
+    let coeffs = BiquadCoeffs::high_shelf(sr as f64, 4000.0, 6.0, BUTTERWORTH_2ND_Q);
+    let (mut bl, mut br) = (Biquad::new(coeffs), Biquad::new(coeffs));
+    for fr in reference.chunks_exact_mut(2) {
+        fr[0] = bl.process(fr[0]);
+        fr[1] = br.process(fr[1]);
+    }
+    let profile = ReferenceProfile::from_stats(&analyze(&reference, sr));
+
+    let tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::LufsIntegrated(-14.0), // ignored while mastering
+        format: OutputFormat::Wav24,
+        limiter_enabled: true,
+        mastering: Some(MasteringSettings {
+            enabled: true,
+            reference_path: "ref".into(),
+            reference_name: "Ref Song".into(),
+            references: Vec::new(),
+        }),
+        ..RenderSettings::default()
+    };
+
+    let native_report = render_io(
+        &InputHandle::Path(in_path.to_str().unwrap().into()),
+        &tracks,
+        &settings,
+        Some(&profile),
+        &OutputHandle::Path(out_path.to_str().unwrap().into()),
+        |_| {},
+    )
+    .unwrap();
+    assert!(native_report.mastering_applied);
+    let native = std::fs::read(&out_path).unwrap();
+
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+    let total_frames = data.size / spec.bytes_per_frame() as u64;
+
+    let mut render = StreamRender::new(
+        spec,
+        total_frames,
+        tracks.clone(),
+        settings.clone(),
+        Some(profile.clone()),
+    )
+    .unwrap();
+    const BLOCK: usize = 65_537;
+    for block in payload.chunks(BLOCK) {
+        render.push_pass1(block).unwrap();
+    }
+    render.start_pass2().unwrap();
+    let mut body = Vec::new();
+    for block in payload.chunks(BLOCK) {
+        body.extend_from_slice(&render.push_pass2(block).unwrap());
+    }
+    let out = render.finish().unwrap();
+
+    let mut streamed = out.head;
+    streamed.extend_from_slice(&body);
+    streamed.extend_from_slice(&out.tail);
+
+    assert_eq!(streamed.len(), native.len(), "length differs");
+    assert!(
+        streamed == native,
+        "the browser's mastered render differs from the file render"
+    );
+    assert!(out.report.mastering_applied);
+    assert!(
+        (out.report.mastering_gain_db - native_report.mastering_gain_db).abs() < 1e-9,
+        "mastering gain differs: {} vs {}",
+        out.report.mastering_gain_db,
+        native_report.mastering_gain_db
     );
 }

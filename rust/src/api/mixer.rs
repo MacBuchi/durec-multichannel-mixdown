@@ -846,6 +846,34 @@ pub struct ReferenceEvent {
     pub profile: Option<ApiReferenceProfile>,
 }
 
+/// Analyze a reference track the caller already holds in memory — the
+/// browser's only option, since there is no path and no fd there.
+///
+/// `name_hint` is the file name; Symphonia takes the extension from it to pick
+/// a demuxer when the container is ambiguous. Reference songs are a few
+/// megabytes, so unlike a recording they travel whole (see
+/// `reference::analyze_reference_bytes`).
+pub fn analyze_reference_from_bytes(
+    bytes: Vec<u8>,
+    name_hint: Option<String>,
+    events: StreamSink<ReferenceEvent>,
+) -> anyhow::Result<()> {
+    let profile = reference::analyze_reference_bytes(bytes, name_hint.as_deref(), |p| {
+        if p < 1.0 {
+            let _ = events.add(ReferenceEvent {
+                progress: p,
+                profile: None,
+            });
+        }
+    })
+    .context("analyze reference")?;
+    let _ = events.add(ReferenceEvent {
+        progress: 1.0,
+        profile: Some(from_engine_profile(profile)),
+    });
+    Ok(())
+}
+
 /// Decode and analyze a reference track (WAV/FLAC/MP3/OGG) into a profile.
 /// Streams progress like `render_mix`.
 pub fn analyze_reference(
@@ -1239,27 +1267,33 @@ pub fn render_stream_cancel(id: u32) {
 // `data` payload instead. Same engine stage behind both, so the measured
 // level — and with it the preview's gain — cannot differ between them.
 
-static MIX_SCANS: OnceLock<Mutex<HashMap<u32, render::MixLevelScan>>> = OnceLock::new();
+static MIX_SCANS: OnceLock<Mutex<HashMap<u32, render::MixScan>>> = OnceLock::new();
 static NEXT_MIX_SCAN_ID: OnceLock<Mutex<u32>> = OnceLock::new();
 
-fn mix_scans() -> &'static Mutex<HashMap<u32, render::MixLevelScan>> {
+fn mix_scans() -> &'static Mutex<HashMap<u32, render::MixScan>> {
     MIX_SCANS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Open a level scan over `range_frames` of the trimmed range.
-pub fn mix_level_begin(
+/// Open a scan over `range_frames` of the trimmed range.
+///
+/// `want_stats` decides which of the two finishers the id is for:
+/// [`mix_level_finish`] (level only, cheaper) or [`mastering_scan_finish`]
+/// (the mastering plan's spectral input). The push loop is the same for both.
+pub fn mix_scan_begin(
     fmt_chunk: Vec<u8>,
     range_frames: u64,
     tracks: Vec<ApiTrack>,
     master: ApiMaster,
+    want_stats: bool,
 ) -> anyhow::Result<u32> {
     let spec = wav::spec_from_fmt_chunk(&fmt_chunk).context("parse fmt chunk")?;
     let engine_tracks: Vec<TrackParams> = tracks.iter().map(to_engine_track).collect();
-    let scan = render::MixLevelScan::new(
+    let scan = render::MixScan::new(
         spec,
         range_frames,
         &engine_tracks,
         &to_engine_settings(&master),
+        want_stats,
     )?;
     let mut counter = NEXT_MIX_SCAN_ID
         .get_or_init(|| Mutex::new(0))
@@ -1273,31 +1307,41 @@ pub fn mix_level_begin(
 
 /// Feed the next slice of the `data` payload, in file order. Returns the
 /// frames measured so far, for the progress bar.
-pub fn mix_level_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<u64> {
+pub fn mix_scan_push(id: u32, bytes: Vec<u8>) -> anyhow::Result<u64> {
     let mut map = mix_scans().lock().unwrap();
     let scan = map
         .get_mut(&id)
-        .ok_or_else(|| anyhow::anyhow!("no mix level scan with id {id}"))?;
-    scan.push(&bytes).context("mix level scan")?;
+        .ok_or_else(|| anyhow::anyhow!("no mix scan with id {id}"))?;
+    scan.push(&bytes).context("mix scan")?;
     Ok(scan.frames_done())
 }
 
-/// Close the scan and take its measurement.
-pub fn mix_level_finish(id: u32) -> anyhow::Result<ApiMixLevel> {
-    let scan = mix_scans()
+fn take_scan(id: u32) -> anyhow::Result<render::MixScan> {
+    mix_scans()
         .lock()
         .unwrap()
         .remove(&id)
-        .ok_or_else(|| anyhow::anyhow!("no mix level scan with id {id}"))?;
-    let level = scan.finish();
+        .ok_or_else(|| anyhow::anyhow!("no mix scan with id {id}"))
+}
+
+/// Close the scan and take its level measurement.
+pub fn mix_level_finish(id: u32) -> anyhow::Result<ApiMixLevel> {
+    let level = take_scan(id)?.finish_level();
     Ok(ApiMixLevel {
         peak: level.peak,
         integrated_lufs: level.integrated_lufs,
     })
 }
 
+/// Close the scan and take the mastering plan's input. Only valid for an id
+/// opened with `want_stats`.
+pub fn mastering_scan_finish(id: u32) -> anyhow::Result<ApiMixStats> {
+    let stats = take_scan(id)?.finish_stats().context("mastering scan")?;
+    Ok(from_engine_stats(stats))
+}
+
 /// Drop a scan the user cancelled or that failed mid-way.
-pub fn mix_level_cancel(id: u32) {
+pub fn mix_scan_cancel(id: u32) {
     mix_scans().lock().unwrap().remove(&id);
 }
 
