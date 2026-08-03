@@ -48,6 +48,7 @@ void main() {
                 context,
                 playbackUnderruns: 12,
                 mixRate: 1.7,
+                tailSeconds: 0.43,
               ),
               child: const Text('open'),
             ),
@@ -59,6 +60,7 @@ void main() {
 
       expect(find.textContaining('12 dropouts'), findsOneWidget);
       expect(find.textContaining('1.7× realtime'), findsOneWidget);
+      expect(find.textContaining('430 ms'), findsOneWidget);
       expect(find.text('About DurecMix'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

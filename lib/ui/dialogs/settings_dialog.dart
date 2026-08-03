@@ -8,14 +8,16 @@ import 'about_dialog.dart';
 /// The gear in the app bar opens this; About sits at the bottom because it
 /// is reference material, not something you come here to change.
 ///
-/// [playbackUnderruns] and [mixRate] are the browser preview's diagnostics
-/// (#114): they only appear once something has played in a browser, because
-/// on a device one cannot attach a debugger to, the count of dropouts is the
-/// only way to tell whether the pacing holds.
+/// [playbackUnderruns], [mixRate] and [tailSeconds] are the browser preview's
+/// diagnostics (#114): they only appear once something has played in a
+/// browser, because on a device one cannot attach a debugger to, these three
+/// numbers are the only way to tell whether the pacing holds — and if it does
+/// not, which of the two knobs was wrong.
 Future<void> showSettingsDialog(
   BuildContext context, {
   int? playbackUnderruns,
   double? mixRate,
+  double? tailSeconds,
 }) {
   return showDialog<void>(
     context: context,
@@ -72,17 +74,24 @@ Future<void> showSettingsDialog(
               ),
               const SizedBox(height: 4),
               Text(
-                playbackUnderruns == 0
-                    ? 'No dropouts${mixRate == null ? '' : ' · mixes at ${mixRate.toStringAsFixed(1)}× realtime'}'
-                    : '$playbackUnderruns dropout${playbackUnderruns == 1 ? '' : 's'}'
-                          '${mixRate == null ? '' : ' · mixes at ${mixRate.toStringAsFixed(1)}× realtime'}',
+                [
+                  playbackUnderruns == 0
+                      ? 'No dropouts'
+                      : '$playbackUnderruns dropout'
+                            '${playbackUnderruns == 1 ? '' : 's'}',
+                  if (mixRate != null)
+                    'mixes at ${mixRate.toStringAsFixed(1)}× realtime',
+                  if (tailSeconds != null)
+                    'keeps ${(tailSeconds * 1000).round()} ms on a fader move',
+                ].join(' · '),
                 style: Theme.of(dialogContext).textTheme.bodySmall,
               ),
               const SizedBox(height: 2),
               Text(
                 'Counted since this take started playing. Dropouts are heard '
-                'as clicks; the mixing speed decides how much audio is kept '
-                'buffered when you move a fader.',
+                'as clicks; the mixing speed sets how much audio stays '
+                'buffered when you move a fader, and every dropout raises '
+                'that buffer a little.',
                 style: Theme.of(dialogContext).textTheme.bodySmall,
               ),
             ],

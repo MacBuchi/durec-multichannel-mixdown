@@ -5,6 +5,24 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.13.3] – 2026-08-03
+
+### Fixed
+
+- **The last few dropouts while dragging a fader in the browser.** 0.13.1
+  sized the buffer from how fast the device mixes, and that was still not
+  enough on the iPad. Two reasons. The audio was briefly spliced: while the
+  app asked the engine to go back and re-mix, the loader could slip in one
+  more block from where it had been reading — a second further into the
+  recording — so you heard a jump forward and then back. And the buffer was
+  sized from an average round, which a browser can exceed once at any time,
+  for instance while it lays out the channel strips under your finger.
+- The buffer therefore no longer only predicts, it also learns: every dropout
+  raises it a little and a clean move gives that back, so a device settles on
+  the buffer it really needs instead of the one it was expected to need.
+- **Settings → Playback diagnostics** now also shows that buffer, so a device
+  that still clicks can say by how much it is off.
+
 ## [0.13.2] – 2026-07-27
 
 ### Added
@@ -339,6 +357,7 @@ releases and ships the artifacts. The app bundles this file and shows it under
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.13.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.3
 [0.13.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.2
 [0.13.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.1
 [0.13.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.0
