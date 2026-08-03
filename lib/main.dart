@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry, debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:durecmix/io/platform_shim.dart' show initPlatformStorage;
 import 'package:durecmix/src/rust/api/simple.dart' as rust_simple;
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/state/app_settings.dart';
@@ -43,6 +44,10 @@ Future<void> main() async {
     // headless CI/screenshot runs grep for exactly this line.
     debugPrint('DURECMIX_WEB_BOOT ${rust_simple.greet(name: 'wasm engine')}');
   }
+  // Fills the app container from browser storage on the web (a no-op with a
+  // real filesystem). Must come before the first read of it — the settings
+  // below are one, and the saved mix of the take the user opens next another.
+  await initPlatformStorage();
   // Before the first frame, so the stored theme never flashes past.
   await AppSettings.load();
   runApp(const DurecMixApp());

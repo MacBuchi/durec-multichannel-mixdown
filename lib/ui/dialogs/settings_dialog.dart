@@ -13,11 +13,15 @@ import 'about_dialog.dart';
 /// browser, because on a device one cannot attach a debugger to, these three
 /// numbers are the only way to tell whether the pacing holds — and if it does
 /// not, which of the two knobs was wrong.
+///
+/// [storagePersists] is web-only in the same way: `null` on a platform with a
+/// real filesystem, where a saved mix staying saved needs no explanation.
 Future<void> showSettingsDialog(
   BuildContext context, {
   int? playbackUnderruns,
   double? mixRate,
   double? tailSeconds,
+  bool? storagePersists,
 }) {
   return showDialog<void>(
     context: context,
@@ -66,6 +70,24 @@ Future<void> showSettingsDialog(
               'System follows your device’s light/dark setting.',
               style: Theme.of(dialogContext).textTheme.bodySmall,
             ),
+            if (storagePersists != null) ...[
+              const Divider(height: 24),
+              Text(
+                'Storage',
+                style: Theme.of(dialogContext).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                storagePersists
+                    ? 'Your mixes and settings are kept in this browser. The '
+                          'recording itself is not — after a reload, choose '
+                          'the same file again and its mix comes back.'
+                    : 'This browser is not storing anything, so mixes are '
+                          'lost when the page reloads. Private windows block '
+                          'storage; a normal window keeps it.',
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+            ],
             if (playbackUnderruns != null) ...[
               const Divider(height: 24),
               Text(

@@ -98,6 +98,15 @@ Future<HttpTextResponse> httpPostJson(
   }
 }
 
+/// Nothing to prepare: the app container is a real directory, and the OS has
+/// already mounted it by the time the app starts. The web build hydrates its
+/// container from browser storage here instead.
+Future<void> initPlatformStorage() async {}
+
+/// Null because the question does not arise: a real filesystem always keeps
+/// what was written to it, and the UI has nothing to explain.
+bool? get browserStoragePersists => null;
+
 /// Native platforms have real folder pickers (SAF tree on Android, a path
 /// dialog elsewhere), so the browser page keeps its folder flow.
 const canPickFolders = true;

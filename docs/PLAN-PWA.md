@@ -94,9 +94,9 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   Engine**. JS-Heap-Spitze ~80 MB (Blockgröße + GC-Verzug), nicht
   dateigroß. Nativ läuft dieselbe Analyse in ~8 s; der Browser ist also
   grob 3× langsamer.
-  - **Sessions ohne Dateisystem:** `session_to_json` / `Session::from_json`;
-    der Web-Build hält sie im Speicher der Registerkarte (dauerhafte
-    Ablage in OPFS/localStorage bleibt offen).
+  - **Sessions ohne Dateisystem:** `session_to_json` / `Session::from_json`.
+    Zunächst nur im Speicher der Registerkarte; **seit v0.14.0 dauerhaft**
+    in IndexedDB — siehe „Persistenz" weiter unten.
   - **Das wasm-Bündel muss `--release` sein.** Debug ist 4,8 MB statt
     674 KB und spürbar langsamer — `tool/build_web_engine.sh` baut deshalb
     seit S2b standardmäßig optimiert.
@@ -406,6 +406,43 @@ sich leicht übersehen lassen:
 - **AGENTS.md wusste nichts von der PWA.** Die Web-Geschichte stand nur in
   diesem Plan, obwohl AGENTS.md zuerst gelesen wird; sie hat dort jetzt einen
   eigenen Abschnitt.
+
+## Persistenz (v0.14.0, Teil von #111)
+
+Der App-Container ist weiterhin eine `Map` im Speicher, spiegelt sich aber in
+IndexedDB (`lib/io/file_store.dart` + Adapter in `platform_shim_web.dart`).
+Vier Entscheidungen, die sich nicht von selbst ergeben:
+
+- **Die Map bleibt die Wahrheit, IndexedDB ist der Spiegel.** `fileExistsSync`,
+  `renameFileSync` und `deleteFileSync` sind synchron, jeder Web-Speicher ist
+  asynchron. Die Map zu behalten erhält diese Signaturen; alles andere hätte
+  die Aufrufer angefasst (Session-Migration, Cache-Lookup, Export-Cleanup).
+- **IndexedDB, nicht OPFS.** OPFS wäre der bessere Fit für Pfade, aber
+  `createWritable` kam in Safari spät; IndexedDB gibt es überall, wo die App
+  läuft, und braucht keinen Worker. Werte sind `Uint8List` — structured clone
+  speichert die direkt.
+- **Gespiegelt wird nur unterhalb des App-Support-Prefix.** Ein gerenderter
+  Export ist dreistellig MB groß und hat in einem quotierten Speicher nichts
+  zu suchen; heute geht er direkt in den Download, der Prefix ist die Sperre
+  gegen einen künftigen Schreiber.
+- **Die Aufnahme selbst lässt sich nicht behalten.** Ohne File System Access
+  API gibt es kein Handle — nach dem Reload wird die Datei neu gewählt und der
+  Mix hängt sich selbst wieder an, weil `_lazyRecording` die Quelle über den
+  Datei*namen* schlüsselt und der Session-Pfad genau den hasht.
+
+Getestet in zwei Hälften, weil eine allein nichts beweist: die Regeln
+(Hydration vor dem ersten Lesen, Zusammenfassen wiederholter Schreibvorgänge,
+verweigerter Speicher bricht nichts) gegen einen Fake auf der VM in
+`test/file_store_test.dart`; der Adapter selbst in Chrome
+(`test/web_storage_browser_test.dart`, `@TestOn('browser')`, in der CI im
+Web-Job) — inklusive Byte-für-Byte-Rundlauf, weil der Wellenform-Cache sonst
+falsch zeichnet.
+
+`navigator.storage.persist()` wird beim Start best-effort angefragt: ohne das
+räumt Safari den Speicher nach etwa einer Woche ohne Besuch ab. Als installierte
+PWA wird es still gewährt, sonst folgenlos abgelehnt. Verweigert der Browser
+IndexedDB ganz (privates Fenster), fällt alles auf das alte Verhalten zurück
+und der Einstellungsdialog sagt das, statt Persistenz zu versprechen.
 
 ## Nicht-Ziele
 
