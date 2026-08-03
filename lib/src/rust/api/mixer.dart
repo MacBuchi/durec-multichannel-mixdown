@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `mix_scans`, `player_slot`, `preview_plan`, `renderers`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `web_players`, `with_renderer`
+// These functions are ignored because they are not marked as `pub`: `analyzers`, `from_engine_band`, `from_engine_eq`, `from_engine_profile`, `from_engine_settings`, `from_engine_stats`, `from_engine_track`, `idle_player_state`, `input_handle`, `mix_scans`, `player_slot`, `preview_plan`, `renderers`, `take_scan`, `to_api_analysis`, `to_engine_band`, `to_engine_eq`, `to_engine_profile`, `to_engine_settings`, `to_engine_stats`, `to_engine_track`, `to_master_params`, `web_players`, `with_renderer`
 
 /// Open a multichannel WAV/RF64, parse iXML track metadata and merge the
 /// session at `session_path` (falling back once to a legacy sibling file
@@ -176,6 +176,21 @@ Stream<MixStatsEvent> analyzeMixMastering({
   fd: fd,
 );
 
+/// Analyze a reference track the caller already holds in memory — the
+/// browser's only option, since there is no path and no fd there.
+///
+/// `name_hint` is the file name; Symphonia takes the extension from it to pick
+/// a demuxer when the container is ambiguous. Reference songs are a few
+/// megabytes, so unlike a recording they travel whole (see
+/// `reference::analyze_reference_bytes`).
+Stream<ReferenceEvent> analyzeReferenceFromBytes({
+  required List<int> bytes,
+  String? nameHint,
+}) => RustLib.instance.api.crateApiMixerAnalyzeReferenceFromBytes(
+  bytes: bytes,
+  nameHint: nameHint,
+);
+
 /// Decode and analyze a reference track (WAV/FLAC/MP3/OGG) into a profile.
 /// Streams progress like `render_mix`.
 Stream<ReferenceEvent> analyzeReference({required String path, int? fd}) =>
@@ -306,31 +321,42 @@ Future<ApiRenderTail> renderStreamFinish({required int id}) =>
 Future<void> renderStreamCancel({required int id}) =>
     RustLib.instance.api.crateApiMixerRenderStreamCancel(id: id);
 
-/// Open a level scan over `range_frames` of the trimmed range.
-Future<int> mixLevelBegin({
+/// Open a scan over `range_frames` of the trimmed range.
+///
+/// `want_stats` decides which of the two finishers the id is for:
+/// [`mix_level_finish`] (level only, cheaper) or [`mastering_scan_finish`]
+/// (the mastering plan's spectral input). The push loop is the same for both.
+Future<int> mixScanBegin({
   required List<int> fmtChunk,
   required BigInt rangeFrames,
   required List<ApiTrack> tracks,
   required ApiMaster master,
-}) => RustLib.instance.api.crateApiMixerMixLevelBegin(
+  required bool wantStats,
+}) => RustLib.instance.api.crateApiMixerMixScanBegin(
   fmtChunk: fmtChunk,
   rangeFrames: rangeFrames,
   tracks: tracks,
   master: master,
+  wantStats: wantStats,
 );
 
 /// Feed the next slice of the `data` payload, in file order. Returns the
 /// frames measured so far, for the progress bar.
-Future<BigInt> mixLevelPush({required int id, required List<int> bytes}) =>
-    RustLib.instance.api.crateApiMixerMixLevelPush(id: id, bytes: bytes);
+Future<BigInt> mixScanPush({required int id, required List<int> bytes}) =>
+    RustLib.instance.api.crateApiMixerMixScanPush(id: id, bytes: bytes);
 
-/// Close the scan and take its measurement.
+/// Close the scan and take its level measurement.
 Future<ApiMixLevel> mixLevelFinish({required int id}) =>
     RustLib.instance.api.crateApiMixerMixLevelFinish(id: id);
 
+/// Close the scan and take the mastering plan's input. Only valid for an id
+/// opened with `want_stats`.
+Future<ApiMixStats> masteringScanFinish({required int id}) =>
+    RustLib.instance.api.crateApiMixerMasteringScanFinish(id: id);
+
 /// Drop a scan the user cancelled or that failed mid-way.
-Future<void> mixLevelCancel({required int id}) =>
-    RustLib.instance.api.crateApiMixerMixLevelCancel(id: id);
+Future<void> mixScanCancel({required int id}) =>
+    RustLib.instance.api.crateApiMixerMixScanCancel(id: id);
 
 /// Open a browser player positioned at `start_frame`.
 Future<int> webPlayerBegin({

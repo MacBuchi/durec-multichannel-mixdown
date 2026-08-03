@@ -444,6 +444,38 @@ PWA wird es still gewährt, sonst folgenlos abgelehnt. Verweigert der Browser
 IndexedDB ganz (privates Fenster), fällt alles auf das alte Verhalten zurück
 und der Einstellungsdialog sagt das, statt Persistenz zu versprechen.
 
+## Referenz-Mastering im Browser (v0.15.0, Teil von #111)
+
+Der Export konnte es die ganze Zeit schon: `render_stream_begin` nimmt ein
+`Option<ApiReferenceProfile>` und baut daraus in Pass 1 den Plan. Gefehlt hat
+nur der Weg, überhaupt ein Profil zu bekommen — und die Mix-Analyse für die
+Vorschau.
+
+- **Die Referenz reist ganz, die Aufnahme nie.** Ein Referenzsong ist ein paar
+  Megabyte und wird sowieso von vorn bis hinten dekodiert; ihn zu slicen würde
+  nichts sparen. `analyze_reference_from_bytes` nimmt die Datei in einem
+  Bridge-Aufruf (Symphonia über einen `Cursor`). Diese Abkürzung gilt
+  ausdrücklich **nicht** für Aufnahmen — genau dafür gibt es die
+  Byte-Range-Zwillinge.
+- **Die Mix-Analyse ist derselbe Scan wie die Pegelmessung.** `MixLevelScan`
+  heißt jetzt `MixScan` und bekommt ein `want_stats`; an ist es die spektrale
+  Analyse für den Mastering-Plan, aus nur der Pegel. Ein Codepfad heißt: der
+  Browser kann nicht anders messen als der Export.
+- **Ohne `want_stats` gibt es keine Stats.** `finish_stats()` schlägt fehl,
+  statt etwas Leeres zu liefern — sonst würde gegen ein Nichts gemastert.
+- **Die Referenz-Bytes liegen bewusst außerhalb des App-Containers.** Sie
+  gehören nicht in ein quotiertes IndexedDB. Persistent ist das analysierte
+  Profil (`ReferenceProfileCache`, wenige Kilobyte), und das reicht: nach einem
+  Reload kommt es aus dem Cache und die Datei wird nie wieder gelesen. Fehlt es
+  dort, schlägt die Analyse hörbar fehl statt still zu mastern.
+
+Bewiesen in `engine/tests`, nicht behauptet:
+`pushed_mastering_scan_matches_the_file_scan` (Spektren auf 1e-9, mit
+Trim-Bereich, Blöcke mit ungerader Größe) und
+`byte_driven_render_matches_the_file_render_with_a_mastering_plan` — der
+gemasterte Browser-Render ist **byte-identisch** zum nativen. Damit ist die
+letzte Stelle geschlossen, die AGENTS.md als „unproven" führte.
+
 ## Nicht-Ziele
 
 - MP3-Export im Browser (bis ein tragfähiger Encoder-Weg feststeht).

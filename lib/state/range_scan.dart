@@ -18,6 +18,50 @@ Future<rust.ApiMixLevel> measureMixLevelByRanges(
   required List<rust.ApiTrack> tracks,
   required rust.ApiMaster master,
   void Function(double progress)? onProgress,
+}) => _scanByRanges(
+  read,
+  fileSize,
+  tracks: tracks,
+  master: master,
+  wantStats: false,
+  finish: (id) => rust.mixLevelFinish(id: id),
+  onProgress: onProgress,
+);
+
+/// Analyze the mix for the mastering plan through [read] alone.
+///
+/// The browser twin of `analyzeMixMastering`, and the reason the mastered
+/// preview works without a filesystem (#111). Same pass, same trim arithmetic
+/// and the same engine stage as the level scan above — only the spectral work
+/// is switched on, which is what makes it the more expensive of the two.
+/// `pushed_mastering_scan_matches_the_file_scan` in `engine/tests` pins the
+/// result to the file-based analysis.
+Future<rust.ApiMixStats> analyzeMixMasteringByRanges(
+  RangeReader read,
+  int fileSize, {
+  required List<rust.ApiTrack> tracks,
+  required rust.ApiMaster master,
+  void Function(double progress)? onProgress,
+}) => _scanByRanges(
+  read,
+  fileSize,
+  tracks: tracks,
+  master: master,
+  wantStats: true,
+  finish: (id) => rust.masteringScanFinish(id: id),
+  onProgress: onProgress,
+);
+
+/// One pass over the trimmed range, pushed from Dart. [finish] decides which
+/// of the scan's two results is taken; [wantStats] must match it.
+Future<T> _scanByRanges<T>(
+  RangeReader read,
+  int fileSize, {
+  required List<rust.ApiTrack> tracks,
+  required rust.ApiMaster master,
+  required bool wantStats,
+  required Future<T> Function(int id) finish,
+  void Function(double progress)? onProgress,
 }) async {
   final chunks = await scanChunksByRanges(read, fileSize);
   final fmt = chunks.where((c) => c.id == 'fmt ').firstOrNull;
@@ -46,24 +90,25 @@ Future<rust.ApiMixLevel> measureMixLevelByRanges(
   final start = data.offset.toInt() + firstFrame * bytesPerFrame;
   final end = data.offset.toInt() + lastFrame * bytesPerFrame;
 
-  final id = await rust.mixLevelBegin(
+  final id = await rust.mixScanBegin(
     fmtChunk: fmtChunk,
     rangeFrames: BigInt.from(lastFrame - firstFrame),
     tracks: tracks,
     master: master,
+    wantStats: wantStats,
   );
   try {
     final span = end - start > 0 ? end - start : 1;
     for (var at = start; at < end; at += _scanBlock) {
       final stop = (at + _scanBlock).clamp(at, end);
-      await rust.mixLevelPush(id: id, bytes: await read(at, stop));
+      await rust.mixScanPush(id: id, bytes: await read(at, stop));
       onProgress?.call((stop - start) / span);
     }
-    return await rust.mixLevelFinish(id: id);
+    return await finish(id);
   } catch (_) {
     // The scan holds engine state until it is finished or dropped; a throw
     // between begin and finish would leak it for the tab's lifetime.
-    await rust.mixLevelCancel(id: id);
+    await rust.mixScanCancel(id: id);
     rethrow;
   }
 }

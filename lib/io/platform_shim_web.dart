@@ -210,10 +210,11 @@ const canExportAudio = true;
 /// an encoder error instead of a file (docs/PLAN-PWA.md).
 const canEncodeMp3 = false;
 
-/// Reference mastering reads the reference track through the engine's
-/// filesystem API (`analyzeReference(path:)`), which has no byte-range twin
-/// yet — a picked reference is a `Blob` and the analysis always fails.
-const canMasterToReference = false;
+/// Reference mastering works here since v0.15.0: the reference is analyzed
+/// from bytes ([pickReferenceAudio]) and the mix from byte ranges, and
+/// `engine/tests` pins both to the file-based paths — including a mastered
+/// render that is byte-identical to the native one.
+const canMasterToReference = true;
 
 /// [httpGetText] and [httpPostJson] throw here, so anything that talks to a
 /// server must not be offered — and must not pretend it happened. The update
@@ -314,6 +315,51 @@ Future<List<PickedRecording>> pickRecordings() {
   input.click();
   return completer.future;
 }
+
+/// Bytes of the mastering references picked this session, by pseudo-path.
+///
+/// Deliberately *not* in the app container: a reference is megabytes and would
+/// eat the storage quota for no gain. What persists is its analyzed profile
+/// (`ReferenceProfileCache`, a few kilobytes), and that is enough — after a
+/// reload the profile comes from the cache and the file is never re-read.
+final Map<String, Uint8List> _referenceBytes = {};
+
+/// Pick a mastering reference (WAV/FLAC/MP3/OGG) and read it whole.
+Future<PickedReference?> pickReferenceAudio() async {
+  final completer = Completer<web.File?>();
+  final input = web.document.createElement('input') as web.HTMLInputElement
+    ..type = 'file'
+    // Same reason as the recording picker: iOS Safari ignores an
+    // extension-only list for files coming out of iCloud Drive.
+    ..accept =
+        '.wav,.flac,.mp3,.ogg,audio/wav,audio/x-wav,audio/flac,'
+        'audio/mpeg,audio/ogg';
+  web.document.body!.appendChild(input);
+  void finish(web.File? file) {
+    if (completer.isCompleted) return;
+    input.remove();
+    completer.complete(file);
+  }
+
+  input.onChange.first.then((_) => finish(input.files?.item(0)));
+  input.addEventListener('cancel', ((web.Event _) => finish(null)).toJS);
+  input.click();
+
+  final file = await completer.future;
+  if (file == null) return null;
+  final buffer = await file.arrayBuffer().toDart;
+  final picked = PickedReference(
+    source: 'blob:${file.name}',
+    name: file.name,
+    bytes: buffer.toDart.asUint8List(),
+  );
+  _referenceBytes[picked.source] = picked.bytes;
+  return picked;
+}
+
+/// Bytes for a reference picked in this tab, or null when only its profile is
+/// known (after a reload) — the caller then relies on the profile cache.
+Uint8List? referenceBytesFor(String source) => _referenceBytes[source];
 
 /// Wraps one picked file so ranges come straight off it.
 ///

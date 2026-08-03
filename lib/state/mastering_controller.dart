@@ -1,8 +1,10 @@
+import '../io/platform_shim.dart' show referenceBytesFor;
 import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'package:flutter/foundation.dart' show listEquals;
 
 import 'mixer_state.dart';
+import 'range_scan.dart';
 import 'reference_profile_cache.dart';
 
 /// Reference mastering: the chosen reference set, its analyzed (and merged)
@@ -166,8 +168,20 @@ class MasteringController {
     _owner.notify();
     rust.ApiReferenceProfile? result;
     try {
-      final fd = Saf.isContentUri(ref.path) ? await Saf.openFd(ref.path) : null;
-      await for (final ev in rust.analyzeReference(path: ref.path, fd: fd)) {
+      // In a browser there is no path: the picker kept the bytes, and they go
+      // over the bridge whole (a reference is megabytes, not gigabytes). If
+      // they are gone — a reload — only the cached profile can help, and
+      // `ensureProfile` has already looked there, so this must fail loudly.
+      final bytes = referenceBytesFor(ref.path);
+      final events = bytes != null
+          ? rust.analyzeReferenceFromBytes(bytes: bytes, nameHint: ref.name)
+          : rust.analyzeReference(
+              path: ref.path,
+              fd: Saf.isContentUri(ref.path)
+                  ? await Saf.openFd(ref.path)
+                  : null,
+            );
+      await for (final ev in events) {
         referenceProgress = ev.progress;
         if (ev.profile != null) result = ev.profile;
         _owner.notify();
@@ -217,6 +231,22 @@ class MasteringController {
     mixAnalysisProgress = 0;
     _owner.notify();
     try {
+      final reader = _owner.sourceReader;
+      if (reader != null) {
+        // No file to hand the engine: Dart pushes the trimmed range instead.
+        // Same pass, same stage — see `range_scan.dart`.
+        mixStats = await analyzeMixMasteringByRanges(
+          reader,
+          _owner.sourceSize,
+          tracks: _owner.tracks.map((t) => t.toApi()).toList(),
+          master: _owner.master,
+          onProgress: (p) {
+            mixAnalysisProgress = p;
+            _owner.notify();
+          },
+        );
+        return;
+      }
       await for (final ev in rust.analyzeMixMastering(
         path: rec.path,
         tracks: _owner.tracks.map((t) => t.toApi()).toList(),

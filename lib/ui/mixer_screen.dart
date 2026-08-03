@@ -238,16 +238,7 @@ class _MixerScreenState extends State<MixerScreen> {
     );
   }
 
-  Future<void> _mastering() async {
-    if (!canMasterToReference) {
-      _snack(
-        'Reference mastering is not available in the web version yet — '
-        'the reference track has to be read from a file.',
-      );
-      return;
-    }
-    await showMasteringDialog(context, state);
-  }
+  Future<void> _mastering() async => showMasteringDialog(context, state);
 
   Future<void> _export() async {
     if (state.recording == null) return;

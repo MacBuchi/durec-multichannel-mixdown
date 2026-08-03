@@ -27,7 +27,7 @@ fn ref_err(what: &str, e: impl std::fmt::Display) -> EngineError {
 /// called with 0..=1 (only when the container reports its length).
 pub fn analyze_reference(
     input: &InputHandle,
-    mut progress: impl FnMut(f32),
+    progress: impl FnMut(f32),
 ) -> Result<ReferenceProfile> {
     let mut hint = Hint::new();
     let file = match input {
@@ -52,7 +52,47 @@ pub fn analyze_reference(
         }
     };
 
-    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+    analyze_stream(
+        MediaSourceStream::new(Box::new(file), Default::default()),
+        hint,
+        progress,
+    )
+}
+
+/// Analyze a reference that is already in memory — the browser's only option,
+/// since there is no path and no fd there (docs/PLAN-PWA.md).
+///
+/// Buffering the whole file is a deliberate exception to this module's
+/// streaming rule: a reference song is a few megabytes, unlike the multi-GB
+/// takes, and slicing a `Blob` into a seekable source through the bridge would
+/// cost far more than it saves. `name_hint` supplies the extension Symphonia
+/// uses to pick a demuxer when the container itself is ambiguous.
+pub fn analyze_reference_bytes(
+    bytes: Vec<u8>,
+    name_hint: Option<&str>,
+    progress: impl FnMut(f32),
+) -> Result<ReferenceProfile> {
+    let mut hint = Hint::new();
+    if let Some(ext) = name_hint
+        .and_then(|n| Path::new(n).extension())
+        .and_then(|e| e.to_str())
+    {
+        hint.with_extension(ext);
+    }
+    analyze_stream(
+        MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default()),
+        hint,
+        progress,
+    )
+}
+
+/// The decode-and-analyze loop, shared by both sources above. Everything
+/// upstream of this differs only in where the bytes come from.
+fn analyze_stream(
+    stream: MediaSourceStream<'static>,
+    hint: Hint,
+    mut progress: impl FnMut(f32),
+) -> Result<ReferenceProfile> {
     let mut format = symphonia::default::get_probe()
         .probe(
             &hint,

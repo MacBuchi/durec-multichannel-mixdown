@@ -1,6 +1,6 @@
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
-import 'range_mix_level.dart';
+import 'range_scan.dart';
 
 /// Playing the preview at the level the export will have (#113).
 ///

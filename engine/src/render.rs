@@ -748,36 +748,32 @@ pub fn render_io(
     Ok(report)
 }
 
-/// The whole render driven from outside, byte block by byte block.
+/// Pass 1 driven from outside: the byte-range twin of [`analyze_mix_level`]
+/// and [`analyze_mix_mastering`], because a `Blob` has no synchronous seek and
+/// Dart therefore has to push the source blocks.
 ///
-/// This is what the browser runs: Dart slices the `data` chunk off the
-/// `Blob` and pushes it — twice, once per pass, because there is no
-/// synchronous seek to rewind with. Everything below is the same
-/// [`RenderPass1`]/[`RenderPass2`] the native file loop uses; only the
-/// source of the bytes differs.
-///
-/// The encoded output is not kept: [`push_pass2`](Self::push_pass2) returns
-/// each block as it is produced, and the patched header follows from
-/// [`finish`](Self::finish). The caller writes `head ++ blocks…`.
-/// [`analyze_mix_level`] for the browser: Dart pushes the source blocks
-/// because a `Blob` has no synchronous seek.
-///
-/// The byte-range twin every engine entry point needs on the web — and it is
-/// the same [`RenderPass1`] the file-based scan runs, so the two cannot
-/// measure different things.
-pub struct MixLevelScan {
+/// It is the same [`RenderPass1`] the file-based scans run, so the browser
+/// cannot measure something different from the export — which is exactly what
+/// the equality tests in `engine/tests` pin down.
+pub struct MixScan {
     decoder: crate::wav::FrameDecoder,
     scratch: Vec<f64>,
     pass: RenderPass1,
 }
 
-impl MixLevelScan {
+impl MixScan {
+    /// `want_stats` turns on the spectral work the mastering plan needs. Off,
+    /// this measures only the level and is correspondingly cheaper — the two
+    /// callers ([`MixScan::finish_level`] and [`MixScan::finish_stats`]) are
+    /// otherwise the same scan, which is the point: one code path means the
+    /// browser cannot drift from the file-based analysis.
     pub fn new(
         spec: crate::wav::WavSpec,
         range_frames: u64,
         tracks: &[TrackParams],
         settings: &RenderSettings,
-    ) -> Result<MixLevelScan> {
+        want_stats: bool,
+    ) -> Result<MixScan> {
         let pass = RenderPass1::new(
             &RenderSource {
                 channels: spec.channels as usize,
@@ -786,9 +782,9 @@ impl MixLevelScan {
                 range_frames,
             },
             settings,
-            false,
+            want_stats,
         )?;
-        Ok(MixLevelScan {
+        Ok(MixScan {
             decoder: crate::wav::FrameDecoder::new(spec),
             scratch: Vec::new(),
             pass,
@@ -807,15 +803,36 @@ impl MixLevelScan {
         self.pass.frames_done()
     }
 
-    pub fn finish(self) -> MixLevel {
+    pub fn finish_level(self) -> MixLevel {
         let pass1 = self.pass.finish();
         MixLevel {
             peak: pass1.peak,
             integrated_lufs: pass1.source_lufs,
         }
     }
+
+    /// The mastering plan's input. Errs when the scan was opened without
+    /// `want_stats` — the spectral analysis cannot be reconstructed after the
+    /// fact, the range would have to be pushed again.
+    pub fn finish_stats(self) -> Result<crate::mastering::MasteringStats> {
+        self.pass
+            .finish()
+            .stats
+            .ok_or_else(|| EngineError::Encode("mastering analyzer missing".into()))
+    }
 }
 
+/// The whole render driven from outside, byte block by byte block.
+///
+/// This is what the browser runs: Dart slices the `data` chunk off the `Blob`
+/// and pushes it — twice, once per pass, because there is no synchronous seek
+/// to rewind with. Everything below is the same
+/// [`RenderPass1`]/[`RenderPass2`] the native file loop uses; only the source
+/// of the bytes differs.
+///
+/// The encoded output is not kept: [`push_pass2`](Self::push_pass2) returns
+/// each block as it is produced, and the patched header follows from
+/// [`finish`](Self::finish). The caller writes `head ++ blocks…`.
 pub struct StreamRender {
     channels: usize,
     sample_rate: u32,

@@ -115,6 +115,14 @@ const canPickFolders = true;
 /// folders instead of picking individual files.
 Future<List<PickedRecording>> pickRecordings() async => const [];
 
+/// Web-only: native builds pick a reference by path (SAF, iOS Files or a file
+/// dialog) and let the engine read it.
+Future<PickedReference?> pickReferenceAudio() async => null;
+
+/// Null on every native target — a reference is read from its path there, so
+/// nothing is ever held in memory for it.
+Uint8List? referenceBytesFor(String source) => null;
+
 /// Live playback runs through cpal, which every native target has.
 const canPlayAudio = true;
 
