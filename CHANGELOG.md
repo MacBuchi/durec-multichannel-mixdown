@@ -5,6 +5,23 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.17.0] – 2026-08-04
+
+### Added
+
+- **A level meter on every track.** A thin vertical bar next to each fader,
+  with the same scale and colours as the master meter, so "hot" means the same
+  thing in both places.
+- **Switchable between what arrives and what you send.** The small **pre** /
+  **post** button next to the loudness target flips all of them: *post* shows
+  what the track contributes to the mix (the default), *pre* shows what arrives
+  on it regardless of where its fader sits — that is the one for finding a
+  silent or an overloaded channel.
+- **A muted track keeps showing its level, greyed out.** Muting is exactly when
+  you want to see that there is signal there.
+- The bars follow the track's EQ, and hold a peak briefly so a short one is
+  visible at all.
+
 ## [0.16.0] – 2026-08-04
 
 ### Added
@@ -400,6 +417,7 @@ MP3 export.
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.17.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.17.0
 [0.16.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.16.0
 [0.15.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.15.0
 [0.14.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.14.0

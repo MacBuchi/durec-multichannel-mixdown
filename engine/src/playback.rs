@@ -49,6 +49,12 @@ struct SharedState {
     lufs_integrated: AtomicU32,
     true_peak: AtomicU32,
     correlation: AtomicU32,
+    /// Held per-track peaks, one atomic per source channel (#115).
+    ///
+    /// Meters travel through atomics rather than the params mutex so the
+    /// decode thread never blocks; a Vec of them keeps that property for 34
+    /// values. Allocated once at start, then only stored into and loaded.
+    track_peaks: Vec<AtomicU32>,
 }
 
 /// Snapshot of playback state for UI polling.
@@ -130,6 +136,7 @@ impl Player {
             position_frames: AtomicU64::new(start_frame),
             lufs_momentary: AtomicU32::new((-70.0f32).to_bits()),
             lufs_integrated: AtomicU32::new((-70.0f32).to_bits()),
+            track_peaks: (0..channels).map(|_| AtomicU32::new(0)).collect(),
             ..SharedState::default()
         });
         let params = Arc::new(Mutex::new(LiveParams {
@@ -234,6 +241,18 @@ impl Player {
             correlation: f32::from_bits(s.correlation.load(Ordering::Acquire)),
         }
     }
+
+    /// Held per-track peaks, linear, indexed by source channel (#115).
+    ///
+    /// Separate from [`snapshot`](Self::snapshot) so that stays `Copy` — the
+    /// only per-poll allocation is this Vec, at 34 floats and 30 Hz.
+    pub fn track_peaks(&self) -> Vec<f32> {
+        self.shared
+            .track_peaks
+            .iter()
+            .map(|a| f32::from_bits(a.load(Ordering::Acquire)))
+            .collect()
+    }
 }
 
 impl Drop for Player {
@@ -301,6 +320,7 @@ fn spawn_decode_thread(
                 stereo_f32.clear();
                 stereo_f32.extend_from_slice(stage.process(&input));
                 publish_meters(&shared, stage.meters());
+                publish_track_peaks(&shared, stage.track_peaks());
 
                 // Push into the ring, waiting while it is full.
                 let mut offset = 0;
@@ -369,6 +389,15 @@ fn build_stream(
             None,
         )
         .map_err(|e| EngineError::Encode(format!("audio stream: {e}")))
+}
+
+/// Store the held per-track peaks. The ballistics already happened in the
+/// stage, so this is a plain copy — the UI reads whatever was last written and
+/// never has to reset anything, which is what keeps a single writer enough.
+fn publish_track_peaks(shared: &SharedState, peaks: &[f32]) {
+    for (slot, &pk) in shared.track_peaks.iter().zip(peaks) {
+        slot.store(pk.to_bits(), Ordering::Release);
+    }
 }
 
 fn publish_meters(shared: &SharedState, m: crate::preview::Meters) {

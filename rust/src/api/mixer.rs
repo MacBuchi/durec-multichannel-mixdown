@@ -1024,6 +1024,16 @@ pub struct ApiPlayerState {
     /// Running true-peak max since start/seek (linear).
     pub true_peak: f32,
     pub correlation: f32,
+    /// Held peak of every SOURCE channel, linear, post-EQ and pre-fader
+    /// (#115). Index `track.index - 1`, so the length is the file's channel
+    /// count, not the track count.
+    ///
+    /// One array serves both meter modes: the post-fader reading is exactly
+    /// this value times the track's gain, so Dart derives it and switching
+    /// pre/post costs no engine call. Muted, soloed-away and out-of-mix
+    /// tracks are measured too — they are shown dimmed rather than blank —
+    /// but without their EQ, since the mix never builds a strip for them.
+    pub track_peaks: Vec<f32>,
 }
 
 /// Start (or restart) live playback of the mix at `start_frame`.
@@ -1133,6 +1143,7 @@ pub fn player_state() -> ApiPlayerState {
                     lufs_integrated: s.lufs_integrated,
                     true_peak: s.true_peak,
                     correlation: s.correlation,
+                    track_peaks: p.track_peaks(),
                 }
             }
             None => idle_player_state(),
@@ -1152,6 +1163,7 @@ fn idle_player_state() -> ApiPlayerState {
         lufs_integrated: -70.0,
         true_peak: 0.0,
         correlation: 0.0,
+        track_peaks: Vec::new(),
     }
 }
 
@@ -1368,6 +1380,16 @@ pub struct ApiPreviewState {
     pub lufs_integrated: f32,
     pub true_peak: f32,
     pub correlation: f32,
+    /// Held peak of every SOURCE channel, linear, post-EQ and pre-fader
+    /// (#115). Index `track.index - 1`, so the length is the file's channel
+    /// count, not the track count.
+    ///
+    /// One array serves both meter modes: the post-fader reading is exactly
+    /// this value times the track's gain, so Dart derives it and switching
+    /// pre/post costs no engine call. Muted, soloed-away and out-of-mix
+    /// tracks are measured too — they are shown dimmed rather than blank —
+    /// but without their EQ, since the mix never builds a strip for them.
+    pub track_peaks: Vec<f32>,
 }
 
 /// Open a browser player positioned at `start_frame`.
@@ -1470,6 +1492,7 @@ pub fn web_player_state(id: u32) -> Option<ApiPreviewState> {
         lufs_integrated: m.lufs_integrated,
         true_peak: m.true_peak,
         correlation: m.correlation,
+        track_peaks: player.track_peaks().to_vec(),
     })
 }
 

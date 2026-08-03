@@ -2069,6 +2069,7 @@ impl SseDecode for crate::api::mixer::ApiPlayerState {
         let mut var_lufsIntegrated = <f32>::sse_decode(deserializer);
         let mut var_truePeak = <f32>::sse_decode(deserializer);
         let mut var_correlation = <f32>::sse_decode(deserializer);
+        let mut var_trackPeaks = <Vec<f32>>::sse_decode(deserializer);
         return crate::api::mixer::ApiPlayerState {
             playing: var_playing,
             position_frames: var_positionFrames,
@@ -2078,6 +2079,7 @@ impl SseDecode for crate::api::mixer::ApiPlayerState {
             lufs_integrated: var_lufsIntegrated,
             true_peak: var_truePeak,
             correlation: var_correlation,
+            track_peaks: var_trackPeaks,
         };
     }
 }
@@ -2092,6 +2094,7 @@ impl SseDecode for crate::api::mixer::ApiPreviewState {
         let mut var_lufsIntegrated = <f32>::sse_decode(deserializer);
         let mut var_truePeak = <f32>::sse_decode(deserializer);
         let mut var_correlation = <f32>::sse_decode(deserializer);
+        let mut var_trackPeaks = <Vec<f32>>::sse_decode(deserializer);
         return crate::api::mixer::ApiPreviewState {
             position_frames: var_positionFrames,
             peak_l: var_peakL,
@@ -2100,6 +2103,7 @@ impl SseDecode for crate::api::mixer::ApiPreviewState {
             lufs_integrated: var_lufsIntegrated,
             true_peak: var_truePeak,
             correlation: var_correlation,
+            track_peaks: var_trackPeaks,
         };
     }
 }
@@ -3028,6 +3032,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiPlayerState {
             self.lufs_integrated.into_into_dart().into_dart(),
             self.true_peak.into_into_dart().into_dart(),
             self.correlation.into_into_dart().into_dart(),
+            self.track_peaks.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3054,6 +3059,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::mixer::ApiPreviewState {
             self.lufs_integrated.into_into_dart().into_dart(),
             self.true_peak.into_into_dart().into_dart(),
             self.correlation.into_into_dart().into_dart(),
+            self.track_peaks.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3546,6 +3552,7 @@ impl SseEncode for crate::api::mixer::ApiPlayerState {
         <f32>::sse_encode(self.lufs_integrated, serializer);
         <f32>::sse_encode(self.true_peak, serializer);
         <f32>::sse_encode(self.correlation, serializer);
+        <Vec<f32>>::sse_encode(self.track_peaks, serializer);
     }
 }
 
@@ -3559,6 +3566,7 @@ impl SseEncode for crate::api::mixer::ApiPreviewState {
         <f32>::sse_encode(self.lufs_integrated, serializer);
         <f32>::sse_encode(self.true_peak, serializer);
         <f32>::sse_encode(self.correlation, serializer);
+        <Vec<f32>>::sse_encode(self.track_peaks, serializer);
     }
 }
 

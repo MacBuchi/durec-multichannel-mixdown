@@ -2128,8 +2128,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ApiPlayerState dco_decode_api_player_state(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return ApiPlayerState(
       playing: dco_decode_bool(arr[0]),
       positionFrames: dco_decode_u_64(arr[1]),
@@ -2139,6 +2139,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lufsIntegrated: dco_decode_f_32(arr[5]),
       truePeak: dco_decode_f_32(arr[6]),
       correlation: dco_decode_f_32(arr[7]),
+      trackPeaks: dco_decode_list_prim_f_32_strict(arr[8]),
     );
   }
 
@@ -2146,8 +2147,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ApiPreviewState dco_decode_api_preview_state(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return ApiPreviewState(
       positionFrames: dco_decode_u_64(arr[0]),
       peakL: dco_decode_f_32(arr[1]),
@@ -2156,6 +2157,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lufsIntegrated: dco_decode_f_32(arr[4]),
       truePeak: dco_decode_f_32(arr[5]),
       correlation: dco_decode_f_32(arr[6]),
+      trackPeaks: dco_decode_list_prim_f_32_strict(arr[7]),
     );
   }
 
@@ -2789,6 +2791,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_lufsIntegrated = sse_decode_f_32(deserializer);
     var var_truePeak = sse_decode_f_32(deserializer);
     var var_correlation = sse_decode_f_32(deserializer);
+    var var_trackPeaks = sse_decode_list_prim_f_32_strict(deserializer);
     return ApiPlayerState(
       playing: var_playing,
       positionFrames: var_positionFrames,
@@ -2798,6 +2801,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lufsIntegrated: var_lufsIntegrated,
       truePeak: var_truePeak,
       correlation: var_correlation,
+      trackPeaks: var_trackPeaks,
     );
   }
 
@@ -2811,6 +2815,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_lufsIntegrated = sse_decode_f_32(deserializer);
     var var_truePeak = sse_decode_f_32(deserializer);
     var var_correlation = sse_decode_f_32(deserializer);
+    var var_trackPeaks = sse_decode_list_prim_f_32_strict(deserializer);
     return ApiPreviewState(
       positionFrames: var_positionFrames,
       peakL: var_peakL,
@@ -2819,6 +2824,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lufsIntegrated: var_lufsIntegrated,
       truePeak: var_truePeak,
       correlation: var_correlation,
+      trackPeaks: var_trackPeaks,
     );
   }
 
@@ -3571,6 +3577,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_32(self.lufsIntegrated, serializer);
     sse_encode_f_32(self.truePeak, serializer);
     sse_encode_f_32(self.correlation, serializer);
+    sse_encode_list_prim_f_32_strict(self.trackPeaks, serializer);
   }
 
   @protected
@@ -3586,6 +3593,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_32(self.lufsIntegrated, serializer);
     sse_encode_f_32(self.truePeak, serializer);
     sse_encode_f_32(self.correlation, serializer);
+    sse_encode_list_prim_f_32_strict(self.trackPeaks, serializer);
   }
 
   @protected

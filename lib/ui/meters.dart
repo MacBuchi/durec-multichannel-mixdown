@@ -60,3 +60,63 @@ class _MeterBar extends StatelessWidget {
     );
   }
 }
+
+/// One track's level, as a thin vertical bar next to its fader (#115).
+///
+/// Same −60…+3 dB scale and the same two colours as [StereoPeakMeter], so a
+/// track that reads "hot" here means the same thing it does on the bus.
+///
+/// Deliberately narrow and short: it shares a 48 dp row with the fader, the pan
+/// control and the waveform, which puts about 40 dp and 1.5 dB per pixel at its
+/// disposal. That is enough for what it is for — spotting a silent channel or a
+/// hot one among thirty-odd — and not enough for reading a level off it. The
+/// bus meter is there for that.
+class TrackLevelMeter extends StatelessWidget {
+  const TrackLevelMeter({
+    super.key,
+    required this.peak,
+    required this.audible,
+    this.height = 40,
+  });
+
+  /// Linear peak, already in the chosen mode (pre- or post-fader).
+  final double peak;
+
+  /// False when the track is muted, out of the mix, or soloed away. The bar
+  /// keeps its level and is drawn greyed instead of hidden: the point of
+  /// metering a muted track is seeing that there *is* signal on it.
+  final bool audible;
+
+  final double height;
+
+  static const _minDb = -60.0;
+  static const _maxDb = 3.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final db = _linToDb(peak);
+    final frac = ((db - _minDb) / (_maxDb - _minDb)).clamp(0.0, 1.0);
+    final colors = AppColors.of(context);
+    final fill = db > -0.1 ? AppColors.meterOver : colors.meterOk;
+    return SizedBox(
+      width: 5,
+      height: height,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(2.5),
+        ),
+        child: FractionallySizedBox(
+          alignment: Alignment.bottomCenter,
+          heightFactor: frac,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: audible ? fill : colors.faint,
+              borderRadius: BorderRadius.circular(2.5),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

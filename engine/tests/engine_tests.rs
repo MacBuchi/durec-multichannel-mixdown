@@ -3403,3 +3403,222 @@ fn byte_driven_render_matches_the_file_render_with_a_mastering_plan() {
         native_report.mastering_gain_db
     );
 }
+
+// ── per-track meters (#115) ─────────────────────────────────────────────────
+//
+// The measurement is post-EQ and pre-fader, one value per SOURCE channel, so
+// that a single array serves both meter modes: post-fader is exactly this
+// times the track's gain. These tests pin that identity, and the decision that
+// a muted track keeps reading — it is shown dimmed, not blank.
+
+/// A block of interleaved frames where channel `c` carries a constant.
+fn constant_block(levels: &[f64], frames: usize) -> Vec<f64> {
+    let mut out = Vec::with_capacity(levels.len() * frames);
+    for _ in 0..frames {
+        out.extend_from_slice(levels);
+    }
+    out
+}
+
+#[test]
+fn track_meters_read_pre_fader_so_post_fader_is_exactly_gain_times_it() {
+    let sr = 48_000;
+    // Three tracks at very different fader settings, same signal.
+    let tracks = vec![
+        track(1, 0.0, 0.0),
+        track(2, -12.0, 0.0),
+        track(3, -40.0, 0.0),
+    ];
+    let mut stage = durecmix_engine::preview::PreviewStage::new(
+        3,
+        sr,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: false,
+            ceiling_dbtp: -1.0,
+        },
+        None,
+    );
+
+    let block = constant_block(&[0.5, 0.5, 0.5], 512);
+    stage.process(&block);
+    let peaks = stage.track_peaks();
+
+    // Pre-fader: the fader must not show up at all.
+    for (i, &pk) in peaks.iter().enumerate() {
+        assert!(
+            (pk - 0.5).abs() < 1e-6,
+            "channel {i} reads {pk}, expected the input level 0.5 regardless \
+             of its fader"
+        );
+    }
+
+    // Post-fader is derived, not measured — this is the identity the UI relies
+    // on, and the reason the switch costs no engine call.
+    for t in &tracks {
+        let gain = 10f64.powf(t.gain_db / 20.0) as f32;
+        let post = peaks[t.index as usize - 1] * gain;
+        let expected = 0.5 * gain;
+        assert!(
+            (post - expected).abs() < 1e-6,
+            "post-fader for track {} is {post}, expected {expected}",
+            t.index
+        );
+    }
+}
+
+#[test]
+fn a_muted_track_keeps_reading_but_a_silent_channel_does_not() {
+    let sr = 48_000;
+    let mut muted = track(2, 0.0, 0.0);
+    muted.muted = true;
+    let mut out_of_mix = track(3, 0.0, 0.0);
+    out_of_mix.in_mix = false;
+    let tracks = vec![track(1, 0.0, 0.0), muted, out_of_mix];
+    let mut stage = durecmix_engine::preview::PreviewStage::new(
+        4,
+        sr,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: false,
+            ceiling_dbtp: -1.0,
+        },
+        None,
+    );
+
+    // Channel 4 has no track at all and carries silence.
+    let block = constant_block(&[0.4, 0.6, 0.8, 0.0], 512);
+    let mixed = stage.process(&block).to_vec();
+    let peaks = stage.track_peaks();
+
+    assert!((peaks[0] - 0.4).abs() < 1e-6, "audible track");
+    assert!(
+        (peaks[1] - 0.6).abs() < 1e-6,
+        "a muted track must still read — the meter is dimmed, not blank"
+    );
+    assert!(
+        (peaks[2] - 0.8).abs() < 1e-6,
+        "a track taken out of the mix must still read, for the same reason"
+    );
+    assert_eq!(peaks[3], 0.0, "a silent channel reads nothing");
+
+    // And none of that leaked into the audio: only track 1 is audible.
+    let expected = 0.4 * std::f64::consts::FRAC_1_SQRT_2; // centre pan, -3 dB
+    for fr in mixed.chunks_exact(2) {
+        assert!((fr[0] as f64 - expected).abs() < 1e-6, "muted audio leaked");
+    }
+}
+
+#[test]
+fn a_soloed_track_does_not_silence_the_other_meters() {
+    let sr = 48_000;
+    let mut soloed = track(1, 0.0, 0.0);
+    soloed.solo = true;
+    let tracks = vec![soloed, track(2, 0.0, 0.0)];
+    let mut stage = durecmix_engine::preview::PreviewStage::new(
+        2,
+        sr,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: false,
+            ceiling_dbtp: -1.0,
+        },
+        None,
+    );
+    stage.process(&constant_block(&[0.3, 0.7], 256));
+    let peaks = stage.track_peaks();
+    assert!((peaks[0] - 0.3).abs() < 1e-6);
+    assert!(
+        (peaks[1] - 0.7).abs() < 1e-6,
+        "solo mutes the audio, not the meter"
+    );
+}
+
+#[test]
+fn a_track_meter_follows_its_eq() {
+    // Pre-fader on a console means post-EQ, and that is what this reads: a
+    // 24 dB/oct high-pass well above the tone has to show up as a lower bar.
+    let sr = 48_000;
+    let mut eq_track = track(1, 0.0, 0.0);
+    eq_track.eq.hpf_enabled = true;
+    eq_track.eq.hpf_freq = 2_000.0;
+    eq_track.eq.hpf_slope = durecmix_engine::mix::HpfSlope::Db24;
+    let tracks = vec![eq_track, track(2, 0.0, 0.0)];
+    let mut stage = durecmix_engine::preview::PreviewStage::new(
+        2,
+        sr,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: false,
+            ceiling_dbtp: -1.0,
+        },
+        None,
+    );
+
+    // A 100 Hz tone on both channels; only channel 1 is filtered.
+    let mut input = Vec::new();
+    for i in 0..sr {
+        let v = (i as f64 / sr as f64 * 100.0 * std::f64::consts::TAU).sin() * 0.8;
+        input.push(v);
+        input.push(v);
+    }
+    for block in input.chunks(2 * 1024) {
+        stage.process(block);
+    }
+    let peaks = stage.track_peaks();
+    assert!(
+        (peaks[1] - 0.8).abs() < 0.01,
+        "unfiltered channel should read the tone, got {}",
+        peaks[1]
+    );
+    assert!(
+        peaks[0] < peaks[1] * 0.2,
+        "the high-passed channel should read far lower: {} vs {}",
+        peaks[0],
+        peaks[1]
+    );
+}
+
+#[test]
+fn a_track_meter_falls_slowly_and_rises_at_once() {
+    let sr = 48_000;
+    let tracks = vec![track(1, 0.0, 0.0)];
+    let mut stage = durecmix_engine::preview::PreviewStage::new(
+        1,
+        sr,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: false,
+            ceiling_dbtp: -1.0,
+        },
+        None,
+    );
+
+    // One loud block, then silence: the bar must not vanish immediately, or
+    // a short peak would never be visible between two 30 Hz polls.
+    stage.process(&constant_block(&[0.9], 480)); // 10 ms
+    assert!(
+        (stage.track_peaks()[0] - 0.9).abs() < 1e-6,
+        "attack is instant"
+    );
+
+    stage.process(&constant_block(&[0.0], 480));
+    let after_10ms = stage.track_peaks()[0];
+    assert!(
+        after_10ms > 0.5,
+        "still clearly visible 10 ms later, got {after_10ms}"
+    );
+
+    for _ in 0..100 {
+        stage.process(&constant_block(&[0.0], 480));
+    }
+    let after_a_second = stage.track_peaks()[0];
+    assert!(
+        after_a_second < 0.15,
+        "and gone after a second of silence, got {after_a_second}"
+    );
+
+    // A new peak takes over at once, without waiting for the release.
+    stage.process(&constant_block(&[0.7], 480));
+    assert!((stage.track_peaks()[0] - 0.7).abs() < 1e-6);
+}
