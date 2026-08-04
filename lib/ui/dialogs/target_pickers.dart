@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../io/platform_shim.dart';
 import '../../src/rust/api/mixer.dart' as rust;
 import '../../state/mixer_state.dart';
+import '../app_colors.dart';
 import 'custom_lufs_dialog.dart';
 
 /// Loudness-target chooser (phone overflow menu and the browser's export
@@ -49,13 +51,32 @@ Future<void> pickFormatDialog(BuildContext context, MixerState state) async {
         for (final f in availableFormats)
           SimpleDialogOption(
             onPressed: () => Navigator.of(context).pop(f),
-            child: Text(
-              formatLabels[f]!,
-              style: TextStyle(
-                fontWeight: f == state.format
-                    ? FontWeight.bold
-                    : FontWeight.normal,
-              ),
+            // The roomy chooser is where the MP3 caveat fits: the compact
+            // dropdowns and the browser's target chip have no line to spare,
+            // and a label like "MP3 320 (Shine)" would name the encoder
+            // without explaining anything.
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  formatLabels[f]!,
+                  style: TextStyle(
+                    fontWeight: f == state.format
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+                if (f == rust.ApiFormat.mp3 && mp3EncoderNote != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      mp3EncoderNote!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.of(context).dim,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
       ],

@@ -121,13 +121,26 @@ const formatLabels = {
   rust.ApiFormat.mp3: 'MP3 320',
 };
 
-/// The formats this build can actually produce — MP3 needs LAME, which the
-/// web engine does not have. Always list from here, never from
-/// `ApiFormat.values`, or the picker offers a target that fails on export.
+/// The formats this build can actually produce. Always list from here, never
+/// from `ApiFormat.values`, or the picker offers a target that fails on
+/// export. Every build currently encodes every format — the browser reaches
+/// MP3 through a different encoder rather than not at all ([canEncodeMp3]) —
+/// but the guard stays: it is what the next capability gap will need.
 final availableFormats = [
   for (final f in rust.ApiFormat.values)
     if (f != rust.ApiFormat.mp3 || canEncodeMp3) f,
 ];
+
+/// A format that arrived from somewhere else — a session written by the
+/// native app, an undo snapshot from a build with other capabilities —
+/// clamped to what this build can export.
+///
+/// Restoring one unchecked would put a target into the UI that the picker
+/// never offered and that fails only at export time. That path is dormant
+/// while every build can write every format, which is exactly why it needs a
+/// guard rather than a comment.
+rust.ApiFormat supportedFormat(rust.ApiFormat f) =>
+    availableFormats.contains(f) ? f : rust.ApiFormat.wav24;
 
 enum LoudnessChoice {
   none('none'),

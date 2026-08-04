@@ -41,6 +41,23 @@ jobs:
       - name: Engine compiles for wasm32 (PWA, no playback/mp3)
         run: cargo check -p durecmix-engine --no-default-features --target wasm32-unknown-unknown
 
+      # What the browser actually ships: the pure-Rust MP3 encoder. The check
+      # above proves the "no encoder at all" arm still builds, not this one.
+      - name: Engine compiles for wasm32 with the browser's MP3 encoder
+        run: cargo check -p durecmix-engine --no-default-features --features mp3-shine --target wasm32-unknown-unknown
+
+      # …and it has to be exercised, not just compiled. The suite runs on the
+      # host against the same encoder source the browser gets; `cargo test
+      # --workspace` above only ever sees LAME, because that is what the
+      # default features select.
+      - name: Engine tests pass with the browser's MP3 encoder
+        run: cargo test -p durecmix-engine --no-default-features --features mp3-shine
+
+      # Clippy likewise: `--workspace` runs under default features and would
+      # never look at `engine/src/mp3.rs`'s Shine half.
+      - name: Clippy on the browser's MP3 encoder
+        run: cargo clippy -p durecmix-engine --no-default-features --features mp3-shine --all-targets -- -D warnings
+
       # The bridge too, not just the engine: a helper gated behind
       # `cfg(not(wasm))` compiles fine natively and only fails when the Pages
       # workflow builds the wasm bundle — long after the PR went green.

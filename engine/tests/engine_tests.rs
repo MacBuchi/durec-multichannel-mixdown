@@ -1168,6 +1168,116 @@ fn mp3_export_produces_valid_stream() {
     );
 }
 
+/// The export has to survive being decoded again — and it has to do so on the
+/// **streaming** path, which is the one the browser takes.
+///
+/// Deliberately not gated on a particular encoder: under default features
+/// this exercises LAME, and in the `mp3-shine` CI job the very same
+/// assertions run against Shine (#111). A size-and-header check like
+/// [`mp3_export_produces_valid_stream`] would pass on a stream of garbage
+/// frames; decoding it back and comparing the level would not.
+#[test]
+fn mp3_export_decodes_back_to_the_signal_it_encoded() {
+    let sr = 44_100u32;
+    let seconds = 2usize;
+    let samples: Vec<i16> = (0..sr as usize * seconds)
+        .flat_map(|n| {
+            let v = (0.5 * (std::f64::consts::TAU * 440.0 * n as f64 / sr as f64).sin() * 32767.0)
+                as i16;
+            [v, v]
+        })
+        .collect();
+    let wav = wav16(2, sr, &samples, None);
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+
+    let tracks = vec![track(1, 0.0, -1.0), track(2, 0.0, 1.0)];
+    let settings = RenderSettings {
+        loudness: LoudnessMode::PeakDbfs(-1.0),
+        format: OutputFormat::Mp3,
+        ..RenderSettings::default()
+    };
+
+    // The browser's route: pass 1 over the bytes, then pass 2 in blocks.
+    let mut render = durecmix_engine::render::StreamRender::new(
+        spec,
+        (payload.len() / 4) as u64,
+        tracks,
+        settings,
+        None,
+    )
+    .unwrap();
+    for block in payload.chunks(8_192) {
+        render.push_pass1(block).unwrap();
+    }
+    render.start_pass2().unwrap();
+    let mut body: Vec<u8> = Vec::new();
+    for block in payload.chunks(8_192) {
+        body.extend_from_slice(&render.push_pass2(block).unwrap());
+    }
+    let out = render.finish().unwrap();
+    let mut mp3 = out.head;
+    mp3.extend_from_slice(&body);
+    mp3.extend_from_slice(&out.tail);
+
+    // Symphonia is a non-optional dependency and decodes MP3, so the proof
+    // needs no new dev-dependency.
+    let decoded =
+        durecmix_engine::reference::analyze_reference_bytes(mp3, Some("mp3"), |_| {}).unwrap();
+    assert_eq!(decoded.sample_rate, sr, "decoded at the wrong rate");
+    assert!(
+        (decoded.duration_seconds - seconds as f64).abs() < 0.1,
+        "decoded {} s, encoded {seconds} s",
+        decoded.duration_seconds
+    );
+    // −1 dBFS peak on a sine is ≈ −4 dB RMS; a stream that decoded to noise
+    // or silence could not land near it.
+    let rms_db = linear_to_db(decoded.mid_rms);
+    assert!(
+        (-8.0..-1.0).contains(&rms_db),
+        "decoded level {rms_db:.1} dB is nowhere near the encoded sine"
+    );
+}
+
+/// The two builds genuinely differ here, and the difference must surface
+/// **before** a render starts — in the browser the sink is only built after
+/// pass 1, so a late failure would waste a full scan of the source.
+#[test]
+fn an_unsupported_mp3_sample_rate_is_refused_up_front() {
+    let sr = 96_000u32;
+    let samples: Vec<i16> = vec![0; sr as usize / 10 * 2];
+    let wav = wav16(2, sr, &samples, None);
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let settings = RenderSettings {
+        format: OutputFormat::Mp3,
+        ..RenderSettings::default()
+    };
+    let started = durecmix_engine::render::StreamRender::new(
+        spec,
+        samples.len() as u64 / 2,
+        vec![track(1, 0.0, 0.0), track(2, 0.0, 0.0)],
+        settings,
+        None,
+    );
+
+    // LAME resamples whatever it is handed; Shine has no 96 kHz mode and says
+    // so instead of failing later or writing a wrongly-clocked file.
+    if cfg!(feature = "mp3") {
+        assert!(started.is_ok(), "LAME accepts 96 kHz and resamples");
+    } else {
+        let err = started.err().expect("Shine must refuse 96 kHz").to_string();
+        assert!(
+            err.contains("96000") && err.contains("FLAC"),
+            "the message must name the rate and a way out, got: {err}"
+        );
+    }
+}
+
 // ── session ─────────────────────────────────────────────────────────────────
 
 #[test]
@@ -1741,6 +1851,26 @@ fn f32_spectrum(spec: &[f32]) -> Vec<f64> {
     spec.iter().map(|&v| v as f64).collect()
 }
 
+/// How far a decoded MP3's RMS may sit from its source on white noise — the
+/// format's worst case, and the sharpest place where the two encoders differ.
+///
+/// LAME rolls off around 20 kHz and so loses a little real power; Shine has
+/// neither that filter nor a psychoacoustic model and instead *adds* about a
+/// decibel of quantisation noise (measured 1.08 dB with shine-rs 0.1.3).
+/// Per-encoder on purpose: one loose bound would stop guarding LAME, which is
+/// what every native export still uses.
+#[cfg(feature = "mp3")]
+const MP3_RMS_TOL_DB: f64 = 0.6;
+#[cfg(not(feature = "mp3"))]
+const MP3_RMS_TOL_DB: f64 = 1.5;
+
+/// Same story per third-octave-ish band below the rolloff (measured 1.11 dB
+/// at 100–200 Hz with Shine, against LAME's < 1.0 dB everywhere).
+#[cfg(feature = "mp3")]
+const MP3_BAND_TOL_DB: f64 = 1.0;
+#[cfg(not(feature = "mp3"))]
+const MP3_BAND_TOL_DB: f64 = 1.5;
+
 #[test]
 fn reference_decodes_wav_flac_mp3_consistently() {
     let sr = 44_100u32;
@@ -1773,10 +1903,10 @@ fn reference_decodes_wav_flac_mp3_consistently() {
 
     let p_mp3 =
         analyze_reference(&InputHandle::Path(mp3.to_str().unwrap().into()), |_| {}).expect("mp3");
-    // White noise is MP3's worst case: LAME's ~20 kHz cutoff removes real
-    // signal power here (real music has far less HF energy).
+    // White noise is MP3's worst case (real music has far less HF energy);
+    // how far the drift may go depends on the encoder — see MP3_RMS_TOL_DB.
     assert!(
-        (linear_to_db(p_mp3.mid_rms) - linear_to_db(p_wav.mid_rms)).abs() < 0.6,
+        (linear_to_db(p_mp3.mid_rms) - linear_to_db(p_wav.mid_rms)).abs() < MP3_RMS_TOL_DB,
         "mp3 RMS drifted: {} vs {}",
         p_mp3.mid_rms,
         p_wav.mid_rms
@@ -1791,7 +1921,7 @@ fn reference_decodes_wav_flac_mp3_consistently() {
         let hi = (f * 2.0).min(12_000.0);
         let err = band_db(&mp3_spec, sr, f, hi) - band_db(&wav_spec, sr, f, hi);
         assert!(
-            err.abs() < 1.0,
+            err.abs() < MP3_BAND_TOL_DB,
             "mp3 band {f:.0}-{hi:.0} Hz off by {err:.2} dB"
         );
         f = hi;

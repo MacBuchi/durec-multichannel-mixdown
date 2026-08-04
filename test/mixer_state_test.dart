@@ -287,4 +287,31 @@ void main() {
       state.dispose();
     });
   });
+
+  group('supportedFormat', () {
+    // Guards a path that is dormant today (every build writes every format)
+    // and would come back silently the day one does not: a session written
+    // elsewhere must not push a target into the UI that this build cannot
+    // export.
+    test('keeps a format this build can write', () {
+      for (final f in availableFormats) {
+        expect(supportedFormat(f), f);
+      }
+    });
+
+    test('falls back to WAV 24 for anything this build cannot write', () {
+      final unsupported = rust.ApiFormat.values
+          .where((f) => !availableFormats.contains(f))
+          .toList();
+      for (final f in unsupported) {
+        expect(supportedFormat(f), rust.ApiFormat.wav24);
+      }
+      // On a build that can write everything there is nothing to fall back
+      // from; the assertion above still pins the rule for the one that cannot.
+      expect(
+        unsupported.length + availableFormats.length,
+        rust.ApiFormat.values.length,
+      );
+    });
+  });
 }

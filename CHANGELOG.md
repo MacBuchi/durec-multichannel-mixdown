@@ -5,6 +5,28 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.19.0] – 2026-08-05
+
+### Added
+
+- **MP3 export works in the browser now.** It was the last thing the web
+  version could not do. The catch is worth knowing: the encoder the apps use
+  (LAME) is C and cannot be built for the browser at all, so the browser
+  encodes with Shine instead. Same 320 kbps, but a simpler encoder without a
+  psychoacoustic model — measured against white noise, the hardest case, it
+  lands about a decibel off where LAME stays within half of one. Good enough
+  to send someone a rough mix from the iPad; for a master, export from the
+  app or choose FLAC. The app says as much where you pick the format and
+  under Settings, rather than quietly handing you a different file.
+
+### Fixed
+
+- **An impossible export target now fails immediately.** Choosing MP3 for a
+  recording the browser's encoder cannot handle (anything but 32, 44.1 or
+  48 kHz) used to be discovered only after the whole recording had been
+  measured. It is refused before the work starts, and says which formats do
+  work.
+
 ## [0.18.3] – 2026-08-04
 
 ### Changed
@@ -469,6 +491,7 @@ MP3 export.
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.19.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.19.0
 [0.18.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.3
 [0.18.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.2
 [0.18.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.1

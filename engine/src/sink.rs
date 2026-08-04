@@ -1,10 +1,11 @@
 //! Output sinks for the render pass: WAV (hound), FLAC (flacenc,
-//! frame-by-frame so multi-hour takes never buffer in RAM), MP3 (LAME, CBR
-//! 320 kbps — parity with the Python tool's exports).
+//! frame-by-frame so multi-hour takes never buffer in RAM), MP3 (CBR
+//! 320 kbps — parity with the Python tool's exports; which encoder does the
+//! work is [`mp3`](crate::mp3)'s business, not this module's).
 //!
 //! All sinks consume interleaved stereo f64 blocks in [−1, 1] and own the
 //! final quantisation; TPDF dither is applied by the caller's `TpdfDither`
-//! on 16-bit integer targets only (FLAC/WAV — MP3 takes float input).
+//! on 16-bit integer targets only (FLAC/WAV — the MP3 path does its own).
 
 use std::io::{Seek, SeekFrom, Write};
 use std::sync::{Arc, Mutex};
@@ -16,6 +17,8 @@ use flacenc::source::Fill;
 
 use crate::dsp::dither::TpdfDither;
 use crate::error::{EngineError, Result};
+#[cfg(feature = "mp3-any")]
+use crate::mp3::Mp3Writer;
 use crate::render::OutputFormat;
 
 /// FLAC frame size (samples per channel per frame).
@@ -23,7 +26,7 @@ const FLAC_BLOCK: usize = 4096;
 /// FLAC spec minimum block size (short final blocks are zero-padded up to it).
 const FLAC_MIN_BLOCK: usize = 32;
 
-fn enc_err<E: std::fmt::Debug>(e: E) -> EngineError {
+pub(crate) fn enc_err<E: std::fmt::Debug>(e: E) -> EngineError {
     EngineError::Encode(format!("{e:?}"))
 }
 
@@ -191,7 +194,7 @@ pub enum StereoSink<W: Write + Seek> {
         format: OutputFormat,
     },
     Flac(FlacWriter<W>),
-    #[cfg(feature = "mp3")]
+    #[cfg(feature = "mp3-any")]
     Mp3(Mp3Writer<W>),
 }
 
@@ -208,6 +211,30 @@ impl StereoSink<std::io::BufWriter<std::fs::File>> {
             sample_rate,
         )
     }
+}
+
+/// Can this build write `format` at `sample_rate`?
+///
+/// Worth asking before a render starts, because the sink is built at the
+/// *end* of pass 1 — in the browser that is a full scan of the source, and
+/// finding out afterwards that the target was impossible wastes all of it.
+///
+/// The answer is not the same everywhere: LAME resamples rates it does not
+/// encode natively, Shine refuses them, so a 96 kHz take can export to MP3
+/// from the app but not from the browser.
+pub fn validate_format(format: OutputFormat, sample_rate: u32) -> Result<()> {
+    if format != OutputFormat::Mp3 {
+        return Ok(());
+    }
+    #[cfg(not(feature = "mp3-any"))]
+    {
+        let _ = sample_rate;
+        return Err(EngineError::Encode(
+            "MP3 export is not built into this target (no mp3 feature enabled)".into(),
+        ));
+    }
+    #[cfg(feature = "mp3-any")]
+    crate::mp3::validate(sample_rate)
 }
 
 impl<W: Write + Seek> StereoSink<W> {
@@ -246,11 +273,11 @@ impl<W: Write + Seek> StereoSink<W> {
                     bits,
                 )?))
             }
-            #[cfg(feature = "mp3")]
+            #[cfg(feature = "mp3-any")]
             OutputFormat::Mp3 => Ok(StereoSink::Mp3(Mp3Writer::create(file, sample_rate)?)),
-            #[cfg(not(feature = "mp3"))]
+            #[cfg(not(feature = "mp3-any"))]
             OutputFormat::Mp3 => Err(EngineError::Encode(
-                "MP3 export is not built into this target (mp3 feature disabled)".into(),
+                "MP3 export is not built into this target (no mp3 feature enabled)".into(),
             )),
         }
     }
@@ -290,7 +317,7 @@ impl<W: Write + Seek> StereoSink<W> {
                 Ok(())
             }
             StereoSink::Flac(f) => f.write_block(stereo, dither),
-            #[cfg(feature = "mp3")]
+            #[cfg(feature = "mp3-any")]
             StereoSink::Mp3(m) => m.write_block(stereo),
         }
     }
@@ -299,7 +326,7 @@ impl<W: Write + Seek> StereoSink<W> {
         match self {
             StereoSink::Wav { writer, .. } => writer.finalize().map_err(enc_err),
             StereoSink::Flac(f) => f.finalize(),
-            #[cfg(feature = "mp3")]
+            #[cfg(feature = "mp3-any")]
             StereoSink::Mp3(m) => m.finalize(),
         }
     }
@@ -419,73 +446,4 @@ fn write_flac_header<W: Write>(w: &mut W, info: &flacenc::component::StreamInfo)
     w.write_all(&[0x80, 0, 0, body.len() as u8])?;
     w.write_all(body)?;
     Ok(())
-}
-
-/// Streaming MP3 writer (LAME, CBR 320 kbps, best quality). LAME takes the
-/// float samples directly, so quantisation/dither do not apply here.
-#[cfg(feature = "mp3")]
-pub struct Mp3Writer<W: Write> {
-    file: W,
-    encoder: mp3lame_encoder::Encoder,
-    left: Vec<f64>,
-    right: Vec<f64>,
-    out: Vec<u8>,
-}
-
-#[cfg(feature = "mp3")]
-impl<W: Write> Mp3Writer<W> {
-    fn create(file: W, sample_rate: u32) -> Result<Mp3Writer<W>> {
-        let mut builder = mp3lame_encoder::Builder::new()
-            .ok_or_else(|| EngineError::Encode("lame init failed".into()))?;
-        builder.set_num_channels(2).map_err(enc_err)?;
-        builder.set_sample_rate(sample_rate).map_err(enc_err)?;
-        builder
-            .set_brate(mp3lame_encoder::Bitrate::Kbps320)
-            .map_err(enc_err)?;
-        builder
-            .set_quality(mp3lame_encoder::Quality::Best)
-            .map_err(enc_err)?;
-        let encoder = builder.build().map_err(enc_err)?;
-        Ok(Mp3Writer {
-            file,
-            encoder,
-            left: Vec::new(),
-            right: Vec::new(),
-            out: Vec::new(),
-        })
-    }
-
-    fn write_block(&mut self, stereo: &[f64]) -> Result<()> {
-        self.left.clear();
-        self.right.clear();
-        for fr in stereo.chunks_exact(2) {
-            self.left.push(fr[0].clamp(-1.0, 1.0));
-            self.right.push(fr[1].clamp(-1.0, 1.0));
-        }
-        let input = mp3lame_encoder::DualPcm {
-            left: self.left.as_slice(),
-            right: self.right.as_slice(),
-        };
-        self.out.clear();
-        // LAME writes unchecked when the buffer is empty — reserving the
-        // documented worst case is mandatory, not an optimisation.
-        self.out
-            .reserve(mp3lame_encoder::max_required_buffer_size(self.left.len()));
-        self.encoder
-            .encode_to_vec(input, &mut self.out)
-            .map_err(enc_err)?;
-        self.file.write_all(&self.out)?;
-        Ok(())
-    }
-
-    fn finalize(mut self) -> Result<()> {
-        self.out.clear();
-        self.out.reserve(7200); // documented minimum for the final flush
-        self.encoder
-            .flush_to_vec::<mp3lame_encoder::FlushNoGap>(&mut self.out)
-            .map_err(enc_err)?;
-        self.file.write_all(&self.out)?;
-        self.file.flush()?;
-        Ok(())
-    }
 }

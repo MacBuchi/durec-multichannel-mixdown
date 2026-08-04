@@ -19,6 +19,15 @@ durecmix-engine = { path = "../engine", default-features = false, features = [
   "mp3",
 ] }
 
+# The browser gets MP3 too, just from a different encoder (Shine, pure Rust).
+# Kept in a wasm-only block on purpose: in the shared [dependencies] block
+# above, Cargo's feature unification would compile Shine into every native
+# build as well.
+[target.'cfg(target_family = "wasm")'.dependencies]
+durecmix-engine = { path = "../engine", default-features = false, features = [
+  "mp3-shine",
+] }
+
 # ndk_context handshake for cpal's AAudio backend — see src/android.rs.
 [target.'cfg(target_os = "android")'.dependencies]
 jni-sys = "0.4"

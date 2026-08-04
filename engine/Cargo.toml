@@ -17,16 +17,25 @@ ebur128 = "0.1"
 rtrb = { version = "0.3", optional = true }
 flacenc = "0.5.1"
 mp3lame-encoder = { version = "0.2.4", optional = true }
+shine-rs = { version = "0.1.3", optional = true, default-features = false }
 realfft = "3"
 symphonia = { version = "0.6", features = ["mp3"] }
 
 [features]
-# Native builds keep today's full engine. The wasm32 PWA spike builds with
-# --no-default-features: cpal needs a per-platform audio backend and LAME
-# is C that doesn't cross-compile to wasm32-unknown-unknown (issue #93).
+# Native builds keep today's full engine. The wasm32 PWA builds without
+# `playback` (cpal needs a per-platform audio backend) and swaps the MP3
+# encoder: LAME is C that doesn't cross-compile to wasm32-unknown-unknown
+# (issue #93).
 default = ["playback", "mp3"]
 playback = ["dep:cpal", "dep:rtrb"]
-mp3 = ["dep:mp3lame-encoder"]
+mp3 = ["mp3-any", "dep:mp3lame-encoder"]
+# Pure-Rust MP3 for wasm, where LAME's C sources cannot go. Shine has no
+# psychoacoustic model, so this is the browser's encoder only — `src/mp3.rs`
+# prefers LAME whenever both are enabled, and the UI names the difference.
+mp3-shine = ["mp3-any", "dep:shine-rs"]
+# Marker: some MP3 encoder is compiled in. Lets `sink.rs` keep asking one
+# question instead of listing every encoder at each of its four cfg sites.
+mp3-any = []
 
 [[example]]
 name = "play_demo"

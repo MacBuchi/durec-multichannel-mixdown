@@ -133,6 +133,9 @@ const canExportAudio = true;
 /// LAME is compiled in on every native target (Cargo feature `mp3`).
 const canEncodeMp3 = true;
 
+/// Nothing to explain: native builds use the encoder the format name implies.
+const String? mp3EncoderNote = null;
+
 /// The reference track is read from a path (or a SAF fd), which every native
 /// target provides.
 const canMasterToReference = true;

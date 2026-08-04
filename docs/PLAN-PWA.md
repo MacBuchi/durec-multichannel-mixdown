@@ -8,13 +8,15 @@ beweist.
 
 ## Spike-Ergebnis (2026-07-25, S0)
 
-**Die Engine kompiliert für `wasm32-unknown-unknown`.** Zwei neue
+**Die Engine kompiliert für `wasm32-unknown-unknown`.** Neue
 Cargo-Features in `engine/`:
 
-| Feature    | Inhalt                      | Warum gegated                                    |
-| ---------- | --------------------------- | ------------------------------------------------ |
-| `playback` | cpal + rtrb (`playback.rs`) | cpal braucht pro Plattform ein Audio-Backend     |
-| `mp3`      | mp3lame-encoder (LAME)      | C-Quellen bauen nicht für wasm32-unknown-unknown |
+| Feature     | Inhalt                      | Warum gegated                                    |
+| ----------- | --------------------------- | ------------------------------------------------ |
+| `playback`  | cpal + rtrb (`playback.rs`) | cpal braucht pro Plattform ein Audio-Backend     |
+| `mp3`       | mp3lame-encoder (LAME)      | C-Quellen bauen nicht für wasm32-unknown-unknown |
+| `mp3-shine` | shine-rs (Shine)            | der Web-Encoder: pures Rust, baut für wasm32     |
+| `mp3-any`   | —                           | Marker: irgendein MP3-Encoder ist einkompiliert  |
 
 `default = ["playback", "mp3"]` — native Builds sind byte-identisch zu
 vorher (79 Tests, clippy, fmt grün). Alles andere ist pures Rust und baut
@@ -35,8 +37,21 @@ ist S2-Arbeit, kein Kompilier-Blocker.
 - **Export:** kein Schreibpfad in Safari → OPFS schreiben, dann Download
   anbieten. WAV-Ausgaben sind groß (~1,5 GB bei 90 min) — Web-Export
   startet mit FLAC, WAV mit Warnung.
-- **MP3:** auf Web vorerst deaktiviert (Feature `mp3` aus). Später
-  optional: LAME-emscripten-Build oder Pure-Rust-Encoder.
+- **MP3:** gelöst seit v0.19.0, aber mit einem anderen Encoder. LAME bleibt
+  nativ; im Browser läuft **Shine** (`shine-rs`, pures Rust, LGPL-2.0). Preis:
+  Shine hat kein psychoakustisches Modell, nimmt i16 statt Fließkomma und
+  kennt nur 32/44,1/48 kHz. Gemessen an weißem Rauschen (der Worst Case)
+  liegt Shine ~1,1 dB über der Quelle, wo LAME unter 0,6 dB bleibt — die
+  Testtoleranzen sind deshalb encoderabhängig, nicht aufgeweicht. An einem
+  echten 34-Spur-Take gemessen: 0,5 dB lauter als LAME, und eine mono
+  summierte Mischung kommt nicht perfekt mono zurück (LAME −∞ dB Seite,
+  Shine −34 dB) — Shine kodiert L und R unabhängig, ein M/S-Zweig existiert
+  dort gar nicht (`mode_ext` ist fest 0, „Joint Stereo" wäre nur ein
+  Header-Flag). Die
+  Asymmetrie steht in der Oberfläche (`mp3EncoderNote`), nicht nur hier.
+  Verworfen: WebCodecs (kann in keinem Browser MP3 *enkodieren*, nur AAC und
+  Opus) und ein LAME-emscripten-Build (zweites Wasm-Modul plus emscripten in
+  der Pages-CI, für ein verlustbehaftetes Format).
 - **Playback:** Web Audio + AudioWorklet. cpal hat ein
   wasm-bindgen-Backend — in S4 evaluieren, aber nicht darauf bauen
   (ScriptProcessor-basiert, Latenz/Deprecation unklar).
@@ -139,10 +154,12 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
     `head ++ Rümpfe ++ tail` als `Blob` zusammen. Blob-Teile liegen
     **außerhalb** des JS-Heaps (der Browser lagert auf Platte aus), sonst
     bräuchte ein 90-Minuten-WAV ~1,5 GB Speicher.
-  - **MP3 fehlt im Web** (LAME ist C, baut nicht für wasm32). Die
-    Format-Auswahl kommt deshalb aus `availableFormats`, nie aus
-    `ApiFormat.values` — sonst bietet der Picker ein Ziel an, das beim
-    Export mit einem Encoder-Fehler endet.
+  - **MP3 gibt es im Web seit v0.19.0**, über Shine statt LAME (siehe
+    Blocker-Abschnitt). Die Format-Auswahl kommt trotzdem weiter aus
+    `availableFormats`, nie aus `ApiFormat.values` — sonst bietet der Picker
+    eines Tages wieder ein Ziel an, das beim Export mit einem Encoder-Fehler
+    endet. Aus demselben Grund laufen wiederhergestellte Formate (Session,
+    Undo-Schnappschuss) durch `supportedFormat`.
   - **Noch eine dart2js-Falle:** `x.clamp(1, 1 << 62)` wirft im Browser
     „Invalid argument: 1", weil `1 << 62` dort zu 0 wird. 64-Bit-Konstanten
     und -Shifts gibt es in dart2js nicht — vgl. den FNV-Hash in S1.
@@ -499,7 +516,8 @@ Datei heruntergeladen.
 
 ## Nicht-Ziele
 
-- MP3-Export im Browser (bis ein tragfähiger Encoder-Weg feststeht).
+- Bitgleiche MP3s zwischen Browser und App — es sind zwei Encoder, bewusst
+  (siehe Blocker-Abschnitt).
 - Referenz-Mastering-Profile über Netz (bleibt lokal wie überall sonst).
 - Feedback-Token im Web-Build (öffentliches Artefakt, Browser-Fallback
   reicht).
