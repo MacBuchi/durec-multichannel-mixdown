@@ -2692,7 +2692,7 @@ fn web_player_matches_the_rendered_output() {
         (1..=1000).contains(&tail_frames),
         "unexpected tail of {tail_frames} frames — is that really the limiter lookahead?"
     );
-    // The first 10 ms are the preview's start ramp (#131) — the one
+    // The stream opens with the preview's start ramp (#131) — the one
     // sanctioned difference, pinned by its own test below. From the ramp's
     // last sample on, identity holds bit for bit.
     let ramp = ramp_samples(spec.sample_rate);
@@ -2793,16 +2793,17 @@ fn rewind_to_keeps_the_filter_state_that_seek_throws_away() {
 }
 
 /// Starting or seeking drops the needle mid-waveform, and that first sample
-/// is a step — audible as a click even on a clean mix (#131). A 10 ms
-/// raised-cosine ramp eases playback in instead: armed on start and re-armed
-/// by seek's reset, and deliberately NOT by `rewind_to`, which re-mixes a
+/// is a step — audible as a click even on a clean mix (#131). A raised-
+/// cosine ramp eases playback in instead: armed on start and re-armed by
+/// seek's reset, and deliberately NOT by `rewind_to`, which re-mixes a
 /// continuous stretch mid-stream where a dip would be its own artefact.
 #[test]
 fn the_start_ramp_eases_in_after_start_and_seek_but_not_after_rewind() {
     let sr = 48_000u32;
     // Constant positive signal and no limiter: away from the ramp the output
-    // is a constant too, so the envelope is directly readable.
-    let frames = 2_000usize;
+    // is a constant too, so the envelope is directly readable. Sized from
+    // the ramp itself so tuning START_RAMP_MS cannot outgrow the take.
+    let frames = ramp_samples(sr) / 2 + 1_000;
     let samples: Vec<i16> = std::iter::repeat_n([16_384i16, 16_384i16], frames)
         .flatten()
         .collect();
@@ -3587,8 +3588,14 @@ fn a_muted_track_keeps_reading_but_a_silent_channel_does_not() {
     );
     assert_eq!(peaks[3], 0.0, "a silent channel reads nothing");
 
-    // And none of that leaked into the audio: only track 1 is audible. The
-    // first block sits inside the start ramp (#131), so listen to a second.
+    // And none of that leaked into the audio: only track 1 is audible.
+    // Everything up to the start ramp's end (#131) is still fading in, so
+    // feed blocks until it is over and listen to the next one.
+    let mut done = 512;
+    while done < ramp_samples(sr) / 2 {
+        stage.process(&block);
+        done += 512;
+    }
     let mixed = stage.process(&block).to_vec();
     let expected = 0.4 * std::f64::consts::FRAC_1_SQRT_2; // centre pan, -3 dB
     for fr in mixed.chunks_exact(2) {
@@ -3754,10 +3761,14 @@ fn a_two_hundred_channel_take_mixes_and_meters_correctly() {
         );
     }
 
-    // And the audio only carries the unmuted quarter, at centre pan. The
-    // first two blocks sit inside the start ramp (#131), so listen to a
-    // third.
-    stage.process(&block);
+    // And the audio only carries the unmuted quarter, at centre pan.
+    // Everything up to the start ramp's end (#131) is still fading in, so
+    // feed blocks until it is over and listen to the next one.
+    let mut done = 256;
+    while done < ramp_samples(sr) / 2 {
+        stage.process(&block);
+        done += 256;
+    }
     let out = stage.process(&block).to_vec();
     let expected: f64 = levels
         .iter()

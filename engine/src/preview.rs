@@ -82,9 +82,10 @@ const TRACK_METER_RELEASE_DB_PER_S: f64 = 20.0;
 /// Starting or seeking drops the needle mid-waveform, and that first sample
 /// is a step — audible as a click even when the mix itself is clean. A short
 /// S-ramp (raised cosine) takes it out: zero slope at both ends, so neither
-/// the level nor its derivative jumps. 10 ms is long enough to kill the
-/// click yet far too short to be heard as a fade-in.
-pub const START_RAMP_MS: f64 = 10.0;
+/// the level nor its derivative jumps. 10 ms already killed the click; the
+/// user tuned it to 50 ms by ear on the device — still reads as "playback
+/// starts", not as a fade-in.
+pub const START_RAMP_MS: f64 = 50.0;
 
 fn build_limiter(m: &MasterParams, sample_rate: u32) -> Option<TruePeakLimiter> {
     m.limiter_enabled.then(|| {
