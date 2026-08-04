@@ -2609,6 +2609,11 @@ fn byte_driven_render_matches_the_file_render() {
 
 // ── preview (browser player) ────────────────────────────────────────────────
 
+/// Interleaved stereo samples covered by the start ramp (#131) at `rate`.
+fn ramp_samples(rate: u32) -> usize {
+    (rate as f64 * durecmix_engine::preview::START_RAMP_MS / 1000.0) as usize * 2
+}
+
 /// What the preview plays must be what the export writes.
 ///
 /// The preview chain is render pass 2 without the normalisation gain, so a
@@ -2687,9 +2692,14 @@ fn web_player_matches_the_rendered_output() {
         (1..=1000).contains(&tail_frames),
         "unexpected tail of {tail_frames} frames — is that really the limiter lookahead?"
     );
+    // The first 10 ms are the preview's start ramp (#131) — the one
+    // sanctioned difference, pinned by its own test below. From the ramp's
+    // last sample on, identity holds bit for bit.
+    let ramp = ramp_samples(spec.sample_rate);
     let worst = played
         .iter()
         .zip(&rendered)
+        .skip(ramp)
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
     assert_eq!(worst, 0.0, "preview and render differ by up to {worst}");
@@ -2780,6 +2790,79 @@ fn rewind_to_keeps_the_filter_state_that_seek_throws_away() {
         "the two paths must converge once the chain has settled (worst {worst_settled})"
     );
     assert_eq!(rewinding.position_frames(), (second.len() / 4) as u64);
+}
+
+/// Starting or seeking drops the needle mid-waveform, and that first sample
+/// is a step — audible as a click even on a clean mix (#131). A 10 ms
+/// raised-cosine ramp eases playback in instead: armed on start and re-armed
+/// by seek's reset, and deliberately NOT by `rewind_to`, which re-mixes a
+/// continuous stretch mid-stream where a dip would be its own artefact.
+#[test]
+fn the_start_ramp_eases_in_after_start_and_seek_but_not_after_rewind() {
+    let sr = 48_000u32;
+    // Constant positive signal and no limiter: away from the ramp the output
+    // is a constant too, so the envelope is directly readable.
+    let frames = 2_000usize;
+    let samples: Vec<i16> = std::iter::repeat_n([16_384i16, 16_384i16], frames)
+        .flatten()
+        .collect();
+    let wav = wav16(2, sr, &samples, None);
+    let chunks = wav::scan_chunks(&wav, 0, wav.len() as u64).unwrap().chunks;
+    let fmt = chunks.iter().find(|c| c.id == "fmt ").unwrap();
+    let data = chunks.iter().find(|c| c.id == "data").unwrap();
+    let spec = wav::spec_from_fmt_chunk(&wav[fmt.offset as usize..][..fmt.size as usize]).unwrap();
+    let payload = &wav[data.offset as usize..][..data.size as usize];
+
+    let tracks = vec![track(1, 0.0, 0.0), track(2, 0.0, 0.0)];
+    let master = durecmix_engine::chain::MasterParams {
+        limiter_enabled: false,
+        ceiling_dbtp: -1.0,
+    };
+    let new_player = || WebPlayer::new(spec, &tracks, master, None, 0);
+
+    let mut player = new_player();
+    let out = player.process(payload).unwrap().to_vec();
+    let ramp = ramp_samples(sr);
+    let steady = out[ramp];
+    assert!(
+        steady > 0.2,
+        "sanity: the mix should carry signal ({steady})"
+    );
+
+    // g(0) is exactly zero, g(N/2) exactly one half, and from N on the
+    // stream is the un-ramped one bit for bit.
+    assert_eq!(out[0], 0.0, "sample zero must be silent");
+    let mid = out[ramp / 2];
+    assert!(
+        (mid - steady * 0.5).abs() < 1e-6,
+        "ramp midpoint reads {mid}, expected half of {steady}"
+    );
+    for (i, fr) in out.chunks_exact(2).take(ramp / 2).enumerate().skip(1) {
+        let prev = out[(i - 1) * 2];
+        assert!(
+            fr[0] >= prev,
+            "the ramp must rise monotonically (sample {i})"
+        );
+    }
+    assert!(
+        out[ramp..].iter().all(|&s| s == steady),
+        "past the ramp the output must be steady"
+    );
+
+    // Seek re-arms the ramp — that is the click the user heard (#131).
+    player.seek(0);
+    let after_seek = player.process(payload).unwrap().to_vec();
+    assert_eq!(after_seek[0], 0.0, "a seek must ramp back in");
+
+    // rewind_to keeps going mid-stream: no ramp, first sample already steady.
+    let mut rewinding = new_player();
+    rewinding.process(payload).unwrap();
+    rewinding.rewind_to(0);
+    let after_rewind = rewinding.process(payload).unwrap().to_vec();
+    assert_eq!(
+        after_rewind[0], steady,
+        "rewind_to must not ramp — it continues a running stream"
+    );
 }
 
 /// The browser render must match the native one **with the filters on** too.
@@ -3066,9 +3149,11 @@ fn preview_matches_a_normalised_render_once_it_gets_the_gain() {
             rendered.len() > played.len(),
             "{loudness:?}: no limiter tail"
         );
+        // Skip the start ramp (#131), the one sanctioned difference.
         let worst = played
             .iter()
             .zip(&rendered)
+            .skip(ramp_samples(spec.sample_rate))
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert_eq!(
@@ -3488,7 +3573,7 @@ fn a_muted_track_keeps_reading_but_a_silent_channel_does_not() {
 
     // Channel 4 has no track at all and carries silence.
     let block = constant_block(&[0.4, 0.6, 0.8, 0.0], 512);
-    let mixed = stage.process(&block).to_vec();
+    stage.process(&block);
     let peaks = stage.track_peaks();
 
     assert!((peaks[0] - 0.4).abs() < 1e-6, "audible track");
@@ -3502,7 +3587,9 @@ fn a_muted_track_keeps_reading_but_a_silent_channel_does_not() {
     );
     assert_eq!(peaks[3], 0.0, "a silent channel reads nothing");
 
-    // And none of that leaked into the audio: only track 1 is audible.
+    // And none of that leaked into the audio: only track 1 is audible. The
+    // first block sits inside the start ramp (#131), so listen to a second.
+    let mixed = stage.process(&block).to_vec();
     let expected = 0.4 * std::f64::consts::FRAC_1_SQRT_2; // centre pan, -3 dB
     for fr in mixed.chunks_exact(2) {
         assert!((fr[0] as f64 - expected).abs() < 1e-6, "muted audio leaked");
@@ -3654,7 +3741,7 @@ fn a_two_hundred_channel_take_mixes_and_meters_correctly() {
     // distinguishable in the meters.
     let levels: Vec<f64> = (0..channels).map(|c| (c + 1) as f64 / 1000.0).collect();
     let block = constant_block(&levels, 256);
-    let out = stage.process(&block).to_vec();
+    stage.process(&block);
     let peaks = stage.track_peaks();
 
     assert_eq!(peaks.len(), channels, "one meter per source channel");
@@ -3667,7 +3754,11 @@ fn a_two_hundred_channel_take_mixes_and_meters_correctly() {
         );
     }
 
-    // And the audio only carries the unmuted quarter, at centre pan.
+    // And the audio only carries the unmuted quarter, at centre pan. The
+    // first two blocks sit inside the start ramp (#131), so listen to a
+    // third.
+    stage.process(&block);
+    let out = stage.process(&block).to_vec();
     let expected: f64 = levels
         .iter()
         .enumerate()

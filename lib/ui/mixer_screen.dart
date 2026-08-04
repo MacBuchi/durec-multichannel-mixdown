@@ -47,6 +47,12 @@ class _MixerScreenState extends State<MixerScreen> {
 
   WavBrowser? _browser;
 
+  /// Position under the finger while the seek slider is being dragged, or
+  /// null when it is not. Playback keeps running where it was; the single
+  /// seek happens on release (#131) — seeking on every drag tick restarted
+  /// the browser's pump dozens of times per gesture, which was audible.
+  double? _scrubSeconds;
+
   /// Default open flow: the in-app WAV browser (Android + desktop). iOS
   /// keeps the system picker until folder access lands there.
   Future<void> _openFile() =>
@@ -981,16 +987,22 @@ class _MixerScreenState extends State<MixerScreen> {
       ),
       const SizedBox(width: 4),
       Text(
-        fmtTime(state.playback.positionSeconds),
+        // While scrubbing, the label follows the finger — the readout is how
+        // the user aims before committing the jump.
+        fmtTime(_scrubSeconds ?? state.playback.positionSeconds),
         style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
       ),
       Expanded(
         child: Slider(
-          value: state.playback.positionSeconds
+          value: (_scrubSeconds ?? state.playback.positionSeconds)
               .clamp(0, rec.durationSeconds)
               .toDouble(),
           max: rec.durationSeconds,
-          onChanged: state.playback.seek,
+          onChanged: (v) => setState(() => _scrubSeconds = v),
+          onChangeEnd: (v) {
+            state.playback.seek(v);
+            setState(() => _scrubSeconds = null);
+          },
         ),
       ),
       Text(

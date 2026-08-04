@@ -63,6 +63,10 @@ pub struct PreviewStage {
     /// the UI multiplies by the fader to get the post-fader reading, so this
     /// serves both modes from one measurement.
     track_peaks: Vec<f32>,
+    /// Frames of the start ramp already played; ramping while `< ramp_len`.
+    /// Re-armed by [`reset`](Self::reset), i.e. on every start and seek.
+    ramp_pos: u64,
+    ramp_len: u64,
 }
 
 /// Peak-meter release, in dB per second.
@@ -72,6 +76,15 @@ pub struct PreviewStage {
 /// long enough to be seen. Chosen at the lively end of the IEC range: at 34
 /// bars the alternative is a wall of flicker.
 const TRACK_METER_RELEASE_DB_PER_S: f64 = 20.0;
+
+/// Length of the start ramp (#131), in milliseconds.
+///
+/// Starting or seeking drops the needle mid-waveform, and that first sample
+/// is a step — audible as a click even when the mix itself is clean. A short
+/// S-ramp (raised cosine) takes it out: zero slope at both ends, so neither
+/// the level nor its derivative jumps. 10 ms is long enough to kill the
+/// click yet far too short to be heard as a fade-in.
+pub const START_RAMP_MS: f64 = 10.0;
 
 fn build_limiter(m: &MasterParams, sample_rate: u32) -> Option<TruePeakLimiter> {
     m.limiter_enabled.then(|| {
@@ -128,6 +141,8 @@ impl PreviewStage {
             out: Vec::new(),
             meters: Meters::default(),
             track_peaks: vec![0.0; channels],
+            ramp_pos: 0,
+            ramp_len: (sample_rate as f64 * START_RAMP_MS / 1000.0) as u64,
         }
     }
 
@@ -166,8 +181,8 @@ impl PreviewStage {
         self.chain.process(input, &mut self.stereo);
         // Same ordering as render pass 2: mix → normalisation gain → matching
         // FIRs → true-peak limiter (which catches the mastering gain). The
-        // render's fade sits between mix and gain; a live preview has no
-        // fades, so there is nothing to place there.
+        // render's fade sits between mix and gain; the preview's only
+        // envelope is the start ramp at the very end of this function.
         let gain = self.effective_norm_gain();
         if gain != 1.0 {
             for s in &mut self.stereo {
@@ -191,7 +206,29 @@ impl PreviewStage {
             None => block,
         };
         self.out.clear();
-        self.out.extend(block.iter().map(|&s| s as f32));
+        if self.ramp_pos < self.ramp_len {
+            // Start ramp (#131), applied to the finished stream rather than
+            // the limiter's input: filters and limiter carry memory, so a
+            // ramp upstream would leave the output differing from an
+            // un-ramped chain long after the ramp itself. Multiplied in
+            // here, the stream is bit-identical to the un-ramped chain from
+            // the ramp's last sample on — the preview-equals-render
+            // invariant stays checkable — and a gain that only attenuates
+            // cannot lift anything over the limiter's ceiling.
+            for fr in block.chunks_exact(2) {
+                let g = if self.ramp_pos < self.ramp_len {
+                    let x = self.ramp_pos as f64 / self.ramp_len as f64;
+                    0.5 - 0.5 * (std::f64::consts::PI * x).cos()
+                } else {
+                    1.0
+                };
+                self.ramp_pos += 1;
+                self.out.push((fr[0] * g) as f32);
+                self.out.push((fr[1] * g) as f32);
+            }
+        } else {
+            self.out.extend(block.iter().map(|&s| s as f32));
+        }
         self.measure();
         self.hold_track_peaks(input.len() / self.channels.max(1));
         &self.out
@@ -302,6 +339,10 @@ impl PreviewStage {
         // Held peaks describe the stretch just left behind; after a seek they
         // would sit there as bars for signal that is no longer playing.
         self.track_peaks.fill(0.0);
+        // The signal jumps: ramp back in (#131). rewind_to() deliberately
+        // stays un-ramped — it re-mixes a continuous stretch, and a dip in
+        // the middle of it would be its own artefact.
+        self.ramp_pos = 0;
     }
 }
 
