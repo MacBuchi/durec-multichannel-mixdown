@@ -24,3 +24,7 @@ body:
         - Windows
         - Android
         - iOS
+        # The app fills this from `currentPlatform()`; a value with no option
+        # here is dropped without a word, which is what happened to every
+        # report filed from the browser since v0.13.0.
+        - Web

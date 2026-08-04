@@ -1,6 +1,7 @@
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
 import 'range_scan.dart';
+import 'debug_log.dart';
 
 /// Playing the preview at the level the export will have (#113).
 ///
@@ -131,7 +132,8 @@ class PreviewLevelController {
           _owner.notify();
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('mix level scan', e, st);
       _owner.error = e.toString();
     } finally {
       measuring = false;

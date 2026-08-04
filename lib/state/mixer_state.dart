@@ -14,6 +14,7 @@ import 'playback_controller.dart';
 import 'range_probe.dart';
 import 'session_paths.dart';
 import 'stereo_pairs.dart';
+import 'debug_log.dart';
 
 export 'export_controller.dart';
 export 'mastering_controller.dart';
@@ -78,6 +79,10 @@ class MixerState extends ChangeNotifier {
   bool get isSafSource =>
       recording != null && Saf.isContentUri(recording!.path);
 
+  /// Just the file name, for log lines: which take failed to open is worth
+  /// knowing, the directory it sits in is not (and would be redacted anyway).
+  static String _logName(String source) => source.split('/').last;
+
   /// A fresh read fd for SAF sources; null on path-based platforms.
   Future<int?> inputFdFor(String source) async =>
       Saf.isContentUri(source) ? Saf.openFd(source) : null;
@@ -137,7 +142,8 @@ class MixerState extends ChangeNotifier {
         // multi-export) doesn't stall on a fresh analysis.
         unawaited(mastering.ensureProfile().catchError((_) => null));
       }
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('open ${_logName(source)}', e, st);
       opening = false;
       error = e.toString();
       notifyListeners();
@@ -443,7 +449,8 @@ class MixerState extends ChangeNotifier {
         tracks: tracks.map((t) => t.toApi()).toList(),
         master: master,
       );
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('session save', e, st);
       error = 'Session save failed: $e';
       notifyListeners();
     }

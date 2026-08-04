@@ -32,3 +32,17 @@ body:
         - Windows
         - Android
         - iOS
+        # The app fills this from `currentPlatform()`; a value with no option
+        # here is dropped without a word, which is what happened to every
+        # report filed from the browser since v0.13.0.
+        - Web
+  - type: textarea
+    id: log
+    attributes:
+      label: Recent log
+      description: >
+        Filled in by the app when it files a report: the last log entries,
+        with user names stripped out of paths. Leave as is.
+      render: text
+    validations:
+      required: false
