@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../io/platform_shim.dart';
+import '../state/debug_log.dart';
 import '../state/feedback.dart';
 import '../state/update_check.dart';
 import 'app_colors.dart';
@@ -390,6 +391,17 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                 border: const OutlineInputBorder(),
               ),
             ),
+            // Say it rather than let the user find it in the issue: the report
+            // carries the app's recent log. User names are stripped out of
+            // paths on the way in, nothing else about your files is included.
+            if (_type == FeedbackType.bug && DebugLog.hasEntries) ...[
+              const SizedBox(height: 8),
+              Text(
+                'The last log entries are attached, so the problem can be '
+                'traced. Paths are shortened to leave your user name out.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
       ),

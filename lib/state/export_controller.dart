@@ -6,6 +6,7 @@ import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
 import 'range_render.dart';
+import 'debug_log.dart';
 
 /// Single-file export and the batch queue (several loudness/format targets
 /// of the current mix into one folder). Owned and composed by [MixerState],
@@ -118,7 +119,8 @@ class ExportController {
         _owner.notify();
       }
       await _owner.saveSession();
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('export', e, st);
       _owner.error = e.toString();
     } finally {
       if (Saf.isAvailable) unawaited(Saf.exportStopped());
@@ -173,7 +175,8 @@ class ExportController {
       // and no half-written file either — the blob parts are simply dropped
       // and `complete()` never runs, so no download is offered.
       lastCancelled = true;
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('export', e, st);
       _owner.error = e.toString();
     }
     rendering = false;

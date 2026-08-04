@@ -6,6 +6,7 @@ import '../io/saf.dart';
 import '../src/rust/api/mixer.dart' as rust;
 import 'app_settings.dart';
 import 'range_probe.dart';
+import 'debug_log.dart';
 
 /// One .wav file in the browsed folder.
 class WavEntry {
@@ -113,8 +114,9 @@ class WavBrowser extends ChangeNotifier {
         ..lastFolder = target
         ..save();
       _probeAll(generation);
-    } catch (e) {
+    } catch (e, st) {
       if (generation != _generation) return;
+      DebugLog.error('list folder', e, st);
       loading = false;
       error = e.toString();
       notifyListeners();

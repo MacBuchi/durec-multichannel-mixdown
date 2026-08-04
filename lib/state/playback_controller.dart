@@ -3,6 +3,7 @@ import 'dart:async';
 import '../src/rust/api/mixer.dart' as rust;
 import 'mixer_state.dart';
 import 'web_playback.dart';
+import 'debug_log.dart';
 
 /// Live playback: start/stop/seek plus the 30 Hz meter poll. Owned and
 /// composed by [MixerState], which stays the single rebuild root — all
@@ -78,7 +79,8 @@ class PlaybackController {
       );
       playing = true;
       _startPolling();
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('playback start', e, st);
       _owner.error = e.toString();
     }
     _owner.notify();
@@ -98,6 +100,7 @@ class PlaybackController {
           : null,
       onTick: _pollWeb,
       onError: (e) {
+        DebugLog.error('browser playback', e);
         _owner.error = e.toString();
         _web = null;
         playing = false;
@@ -109,7 +112,8 @@ class PlaybackController {
       await web.start((positionSeconds * _owner.sampleRate).round());
       _web = web;
       playing = true;
-    } catch (e) {
+    } catch (e, st) {
+      DebugLog.error('browser playback start', e, st);
       _owner.error = e.toString();
       await web.stop();
     }

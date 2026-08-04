@@ -10,6 +10,7 @@ import 'range_probe.dart';
 import 'range_render.dart';
 import 'session_paths.dart';
 import 'wav_browser.dart';
+import 'debug_log.dart';
 
 /// What the multi-file export applies to every rendered take: the current
 /// mixer's track values (mapped by track NAME onto each file) and the
@@ -258,7 +259,8 @@ class MultiExportRunner extends ChangeNotifier {
         st.phase = EntryPhase.done;
         st.output = outTarget;
         outputs.add(outTarget);
-      } catch (e) {
+      } catch (e, trace) {
+        DebugLog.error('multi export ${entry.name}', e, trace);
         st
           ..phase = EntryPhase.failed
           ..error = e.toString();

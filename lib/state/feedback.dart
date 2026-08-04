@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../io/platform_shim.dart';
+import 'debug_log.dart';
 import 'update_check.dart' show repoSlug;
 
 enum FeedbackType { feature, bug }
@@ -23,23 +24,36 @@ String issueTitle(FeedbackType type, String message) {
 /// Mirrors the section structure GitHub renders for the issue-form
 /// templates (.github/ISSUE_TEMPLATE), so API-filed and browser-filed
 /// issues look identical.
+///
+/// [log] is the tail of [DebugLog] on a bug report — the difference between
+/// "export failed" and knowing which call threw where. Left out when empty,
+/// so a report never carries a heading with nothing under it.
 String issueBody({
   required String message,
   required String version,
   required String platform,
+  String log = '',
 }) =>
     '### Description\n\n${message.trim()}\n\n'
     '### App version\n\n$version\n\n'
     '### Platform\n\n$platform\n\n'
+    '${log.isEmpty ? '' : '### Recent log\n\n```\n$log\n```\n\n'}'
     '_Automatically filed from the app._';
 
 /// Pre-filled issue-form URL (the no-token path): GitHub fills YAML-form
 /// fields from query params whose names match the field ids.
+/// The URL carries a **much shorter** log than the API path: a pre-filled
+/// form is a GET, and browsers start dropping query strings well before
+/// GitHub's own limit. What survives is the tail — the part next to the
+/// failure.
+const urlLogChars = 1200;
+
 Uri issueFormUrl(
   FeedbackType type, {
   required String message,
   required String version,
   required String platform,
+  String log = '',
 }) {
   final template = type == FeedbackType.bug
       ? 'bug_report.yml'
@@ -50,6 +64,10 @@ Uri issueFormUrl(
     'description': message.trim(),
     'app-version': version,
     'platform': platform,
+    if (log.isNotEmpty)
+      'log': log.length <= urlLogChars
+          ? log
+          : log.substring(log.length - urlLogChars),
   });
 }
 
@@ -67,6 +85,10 @@ String currentPlatform() {
 Future<bool> submitFeedback(FeedbackType type, String message) async {
   final version = (await PackageInfo.fromPlatform()).version;
   final platform = currentPlatform();
+  // Only bug reports: a feature request has nothing to diagnose, and the log
+  // would just make it unreadable. The PII rule is satisfied by construction —
+  // `DebugLog` redacts on the way in, and the user pressed send.
+  final log = type == FeedbackType.bug ? DebugLog.recent() : '';
 
   // No network in the web build, so a build token is unusable there: posting
   // would throw `UnsupportedError` and the dialog blamed the connection
@@ -79,6 +101,7 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
         message: message,
         version: version,
         platform: platform,
+        log: log,
       ),
       mode: LaunchMode.externalApplication,
     );
@@ -94,7 +117,12 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
     },
     body: jsonEncode({
       'title': issueTitle(type, message),
-      'body': issueBody(message: message, version: version, platform: platform),
+      'body': issueBody(
+        message: message,
+        version: version,
+        platform: platform,
+        log: log,
+      ),
       'labels': [type == FeedbackType.bug ? 'bug' : 'enhancement'],
     }),
   );

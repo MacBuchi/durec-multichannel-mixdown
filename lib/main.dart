@@ -1,11 +1,14 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry, debugPrint, kIsWeb;
+    show FlutterError, LicenseEntryWithLineBreaks, LicenseRegistry, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:durecmix/io/platform_shim.dart' show initPlatformStorage;
 import 'package:durecmix/src/rust/api/simple.dart' as rust_simple;
 import 'package:durecmix/src/rust/frb_generated.dart';
 import 'package:durecmix/state/app_settings.dart';
+import 'package:durecmix/state/debug_log.dart';
 import 'package:durecmix/state/mixer_scope.dart';
 import 'package:durecmix/state/mixer_state.dart';
 import 'package:durecmix/ui/app_colors.dart';
@@ -37,12 +40,29 @@ void registerRustLicenses() {
 bool _rustLicensesRegistered = false;
 
 Future<void> main() async {
+  // First thing in main, before anything can fail: an app that ships past the
+  // stores gets no crash reports handed to it, so an unhandled error that is
+  // not written down here is gone. Both hooks are needed — `FlutterError`
+  // catches the framework's own, `PlatformDispatcher` everything else,
+  // including errors from futures nobody awaited.
+  FlutterError.onError = (details) {
+    DebugLog.error('flutter', details.exception, details.stack);
+    // Keep the console behaviour of a debug run: the red screen and the
+    // framework's own dump are useful and must not disappear.
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    DebugLog.error('uncaught', error, stack);
+    return true; // handled — do not take the isolate down with it
+  };
+
   await RustLib.init();
   if (kIsWeb) {
     // Boot beacon for the PWA track (docs/PLAN-PWA.md S1): proves in the
-    // browser console that the wasm engine answers through the bridge —
-    // headless CI/screenshot runs grep for exactly this line.
-    debugPrint('DURECMIX_WEB_BOOT ${rust_simple.greet(name: 'wasm engine')}');
+    // browser console that the wasm engine answers through the bridge.
+    DebugLog.info(
+      'DURECMIX_WEB_BOOT ${rust_simple.greet(name: 'wasm engine')}',
+    );
   }
   // Fills the app container from browser storage on the web (a no-op with a
   // real filesystem). Must come before the first read of it — the settings

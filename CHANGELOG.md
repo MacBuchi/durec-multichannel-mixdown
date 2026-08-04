@@ -5,6 +5,24 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.18.0] – 2026-08-04
+
+### Added
+
+- **A bug report now brings the evidence with it.** When something goes wrong,
+  the app writes down what happened; reporting a bug attaches those last
+  entries, so a problem can be traced instead of guessed at. Paths are
+  shortened so your user name is not part of it, and it only happens on a bug
+  report, never on a feature request — the dialog says so before you send.
+- **Nothing goes unnoticed any more.** Unexpected errors anywhere in the app are
+  recorded from now on, including the ones that used to disappear silently.
+
+### Fixed
+
+- **Reports filed from the browser had no platform.** The form offered macOS,
+  Windows, Android and iOS — a report from the web version quietly arrived with
+  that field empty. It has said "Web" since this release.
+
 ## [0.17.0] – 2026-08-04
 
 ### Added
@@ -417,6 +435,7 @@ MP3 export.
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.18.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.0
 [0.17.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.17.0
 [0.16.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.16.0
 [0.15.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.15.0
