@@ -5,6 +5,16 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.18.1] – 2026-08-04
+
+### Changed
+
+- **Ready for recordings with a few hundred tracks.** Some interfaces record
+  far more than the 34 channels this app was built against, and a multisample
+  recording can reach several hundred. Two places did work that grew with the
+  square of the track count — invisible at 34, the dominant cost at 200. Mixing
+  now stays comfortable there, and moving a fader stays instant.
+
 ## [0.18.0] – 2026-08-04
 
 ### Added
@@ -435,6 +445,7 @@ MP3 export.
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.18.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.1
 [0.18.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.0
 [0.17.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.17.0
 [0.16.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.16.0

@@ -203,9 +203,17 @@ impl MixChain {
                 }
             })
             .collect();
-        let unstripped = (0..num_channels)
-            .filter(|ch| !strips.iter().any(|s| s.channel == *ch))
-            .collect();
+        // Marked, not searched: `any()` per channel is O(channels × strips),
+        // which at a 200-track multisample take is 40 000 comparisons on every
+        // fader move. Channel counts come from the interface — 34 is this
+        // user's recordings, not a limit.
+        let mut has_strip = vec![false; num_channels];
+        for s in &strips {
+            if s.channel < num_channels {
+                has_strip[s.channel] = true;
+            }
+        }
+        let unstripped = (0..num_channels).filter(|ch| !has_strip[*ch]).collect();
         Self {
             strips,
             num_channels,
@@ -243,9 +251,21 @@ impl MixChain {
     /// Carry filter state over from the previous chain when only parameters
     /// changed (matched by source channel), so live tweaks don't click.
     pub fn adopt_state_from(&mut self, old: &MixChain) {
+        // Indexed rather than searched, for the same reason as `unstripped`
+        // above: a linear find per strip is quadratic in the track count, and
+        // this runs on every parameter change while a fader is being dragged.
+        let mut by_channel = vec![usize::MAX; old.num_channels];
+        for (i, p) in old.strips.iter().enumerate() {
+            if p.channel < by_channel.len() {
+                by_channel[p.channel] = i;
+            }
+        }
         for s in &mut self.strips {
-            if let Some(prev) = old.strips.iter().find(|p| p.channel == s.channel) {
-                s.eq.adopt_state_from(&prev.eq);
+            let Some(&i) = by_channel.get(s.channel) else {
+                continue;
+            };
+            if i != usize::MAX {
+                s.eq.adopt_state_from(&old.strips[i].eq);
             }
         }
     }
@@ -302,12 +322,22 @@ impl MixChain {
             }
         }
         if metering {
+            // One pass over the block, not one per channel. A frame is
+            // contiguous, so reading it once and updating every silent
+            // channel's maximum costs one cache line; the other way round —
+            // a full strided walk per channel — is a cache miss per sample,
+            // and a 200-track take where most tracks are muted would pay it
+            // 150 times over.
             for &ch in unstripped.iter() {
-                let mut pk = 0.0f32;
-                for frame in input.chunks_exact(n_ch) {
-                    pk = pk.max(frame[ch].abs() as f32);
+                peaks[ch] = 0.0;
+            }
+            for frame in input.chunks_exact(n_ch) {
+                for &ch in unstripped.iter() {
+                    let v = frame[ch].abs() as f32;
+                    if v > peaks[ch] {
+                        peaks[ch] = v;
+                    }
                 }
-                peaks[ch] = pk;
             }
         }
     }

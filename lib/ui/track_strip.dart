@@ -106,8 +106,8 @@ class TrackStrip extends StatelessWidget {
     final peaks = state.playback.trackPeaks;
     final channel = track.index - 1;
     final pre = channel >= 0 && channel < peaks.length ? peaks[channel] : 0.0;
-    final anySolo = state.tracks.any((t) => t.solo);
-    final audible = track.inMix && !track.muted && (!anySolo || track.solo);
+    final audible =
+        track.inMix && !track.muted && (!state.anySolo || track.solo);
     return ValueListenableBuilder<TrackMeterMode>(
       valueListenable: AppSettings.trackMeterMode,
       builder: (context, mode, _) => TrackLevelMeter(

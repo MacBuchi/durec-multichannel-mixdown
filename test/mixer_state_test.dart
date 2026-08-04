@@ -265,4 +265,26 @@ void main() {
       expect(trimmed.trimEndFrame, BigInt.from(96000));
     });
   });
+
+  group('anySolo', () {
+    // Cached per notify cycle so 200 strips do not each scan the track list.
+    // The cache hangs on `notifyListeners`, not on `notify`, because
+    // `updateTrack` — the method that actually changes solo — calls the former
+    // directly; getting that wrong would leave every other meter greyed out
+    // for good.
+    test('follows solo through updateTrack', () {
+      final state = MixerState();
+      final a = _track(1, 'Kick');
+      final b = _track(2, 'Snare');
+      state.tracks = [a, b];
+      expect(state.anySolo, isFalse);
+
+      state.updateTrack(a, (t) => t.solo = true);
+      expect(state.anySolo, isTrue, reason: 'the cache must not be stale');
+
+      state.updateTrack(a, (t) => t.solo = false);
+      expect(state.anySolo, isFalse);
+      state.dispose();
+    });
+  });
 }
