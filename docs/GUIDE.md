@@ -38,24 +38,32 @@ picker instead of the in-app browser.
 2. **Reference mastering** — match the export to reference songs
    ([section 7](#7-reference-mastering)). Blue = active, amber = the
    mastered preview is stale.
-3. **Loudness target** — applied on export only; the preview always plays
-   the raw mix ([section 6](#6-loudness-targets--output-formats)).
-4. **Output format** — WAV 16/24/32-float, FLAC 16/24, MP3 320.
-5. **Export** the stereo mixdown ([section 8](#8-exporting)).
-6. **Batch export** — render several loudness/format targets in one go
+3. **Loudness target** — applied on export
+   ([section 6](#6-loudness-targets--output-formats)).
+4. **Preview at export level** — play the mix at the level the exported file
+   will have ([section 4](#preview-at-export-level)).
+5. **Track meters: pre or post** — switches every strip's level meter between
+   what arrives on the track and what it contributes to the mix
+   ([section 3](#3-track-strips--eq)).
+6. **Output format** — WAV 16/24/32-float, FLAC 16/24, MP3 320.
+7. **Export** the stereo mixdown ([section 8](#8-exporting)).
+8. **Batch export** — render several loudness/format targets in one go
    (desktop).
-7. **A/B mix snapshots** — tap an empty slot to store the current mix, tap a
+9. **A/B mix snapshots** — tap an empty slot to store the current mix, tap a
    filled slot to recall it; long-press (or right-click) overwrites.
-8. **Link stereo pairs** — tracks named `…·L`/`…·R` mirror gain, mute, solo
-   and EQ, with inverted pans. The link chip on a paired strip unlinks just
-   that pair; relinking copies the tapped side to its partner.
-9. **Choose the recordings folder.**
-10. **Track strip** — one per recorded channel ([section 3](#3-track-strips--eq)).
-11. **Play / stop** the live preview ([section 4](#4-playback--metering)).
-12. **Trim-in / trim-out** at the playhead; long-press clears
+10. **Link stereo pairs** — tracks named `…·L`/`…·R` mirror gain, mute, solo
+    and EQ, with inverted pans. The link chip on a paired strip unlinks just
+    that pair; relinking copies the tapped side to its partner.
+11. **Choose the recordings folder.**
+12. **Track strip** — one per recorded channel ([section 3](#3-track-strips--eq)).
+13. **Level meter** of that track — greyed out while the track is muted, taken
+    out of the mix, or soloed away, so you can still see that signal is there.
+14. **Play / stop** the live preview ([section 4](#4-playback--metering)).
+15. **Trim-in / trim-out** at the playhead; long-press clears
     ([section 5](#5-trimming)).
-13. **About** — installed version, update status, project links and
-    feedback ([section 10](#10-feedback--updates)).
+16. **Settings** — appearance, storage, and the way into About: installed
+    version, update status, project links and feedback
+    ([section 11](#11-feedback--updates)).
 
 A fresh session starts with **every** recorded track in the mix. Note that
 DUREC also records the monitor and cue buses it was configured to record (in
@@ -68,7 +76,7 @@ their names. The choice is saved per take.
 ## 3. Track strips & EQ
 
 Each strip carries (left to right): track number and name, the toggle chips,
-pan, fader, and the waveform.
+pan, fader, the level meter, and the waveform.
 
 - **ø** — polarity invert (instead of any destructive auto-"phase fix").
 - **M / S** — mute / solo.
@@ -82,6 +90,27 @@ pan, fader, and the waveform.
    low shelf, mid peak, high shelf (RBJ biquads — identical in preview and
    export).
 3. The **EQ chip** toggles the panel; it lights up while any band is active.
+
+### The level meter
+
+The thin bar next to each fader uses the same scale and colours as the master
+meter, so "hot" means the same thing in both places. The **pre** / **post**
+button in the header switches all of them at once:
+
+- **post** (the default) shows what the track *contributes to the mix* — the
+  question you are asking while mixing. Pull a fader down and its bar follows.
+- **pre** shows what *arrives* on the track, whatever its fader does. This is
+  the one for finding a channel that is silent, overloaded, or not what you
+  expected it to be.
+
+A muted track — or one taken out of the mix, or soloed away — keeps showing its
+level, greyed out. That is deliberate: muting is exactly when you want to see
+that there *is* something on the track. Because such a track is not being
+processed at all, its greyed bar ignores its EQ.
+
+The bars follow the track's EQ otherwise, and hold a peak briefly so a short
+one is visible at all. They are only useful for spotting a silent or a hot
+channel among thirty-odd — read actual levels off the master meter.
 
 Every change is saved automatically (debounced) into a per-take session
 file, so reopening a recording restores the exact mix.
@@ -127,7 +156,7 @@ values and the output path.
 
 ## 5. Trimming
 
-The trim buttons (mixer badge 12) set trim-in/trim-out at the current
+The trim buttons (mixer badge 15) set trim-in/trim-out at the current
 playhead; long-press clears a point. Exports render only the trimmed range
 and apply 80 ms fades at trim boundaries. Trim and fades are per-take and
 deliberately **not** carried into batch or multi-file exports.
@@ -174,10 +203,10 @@ works in single, batch and multi-file exports alike.
 
 ## 8. Exporting
 
-- **Export** (mixer badge 5) renders the current take: two streamed passes,
+- **Export** (mixer badge 7) renders the current take: two streamed passes,
   so multi-GB recordings never load into RAM — phones included. A report
   (LUFS-I, dBTP, LRA, gain or mastering match) appears above the transport.
-- **Batch export** (badge 6, desktop): queue several loudness/format
+- **Batch export** (badge 8, desktop): queue several loudness/format
   combinations of the *current* take and render them into one folder,
   auto-named like `Take_-14LUFS_120BPM_2026-07-19.wav`.
 
@@ -207,7 +236,31 @@ Framework file descriptors — the multi-GB file is never copied. Grant the
 folder once; the app keeps the permission. Exports can be shared from the
 result snackbar. iOS opens files in place via the system picker.
 
-## 10. Feedback & updates
+## 10. In the browser
+
+DurecMix also runs as a web page — nothing to install, and on a tablet too.
+Open the recording, mix, listen, master and export exactly as in the app; the
+same audio engine does the work, and the exported file is bit-for-bit the one
+the installed app would have written.
+
+Four things work differently, all because of what a browser is allowed to do:
+
+- **The recording has to be chosen again after a reload.** A browser may not
+  hold on to a file you picked, so there is no way to keep it across a visit.
+  Your *mix* does survive — pick the same recording again and it is exactly
+  where you left it, because mixes are stored under the file's name.
+- **There is no folder to export into.** Each finished mixdown arrives as its
+  own download instead. With several takes that means several downloads; on
+  iPhone and iPad, Safari asks once per file.
+- **MP3 export is app-only.** Use FLAC in the browser — it is lossless and
+  plays everywhere.
+- **A private window stores nothing at all.** Then a reload really does lose
+  the mix. Settings says which of the two you are getting, under **Storage**.
+
+Everything else — the WAV browser, EQ, reference mastering, the mastered
+preview, trimming, batch and multi-file export — behaves as described above.
+
+## 11. Feedback & updates
 
 Two slim banners can appear above the mixer (each dismissible with ✕ for the
 session):
@@ -228,7 +281,7 @@ whether you're up to date, with links to the GitHub project and this guide,
 plus the same feedback shortcut. **What's new** opens the version history —
 every release and what it changed, straight from the project's changelog.
 
-## 11. Where things live
+## 12. Where things live
 
 | Data | Location |
 |---|---|
@@ -236,6 +289,9 @@ every release and what it changed, straight from the project's changelog.
 | Waveform/BPM analysis cache | app container, `analysis/` |
 | Reference profiles (mastering) | app container, `reference_profiles/` |
 | Exports | wherever you save them; multi-file exports in `Mixdown/` next to the takes |
+
+In the browser there is no app container: the same four kinds of data live in
+the browser's own storage for that page, and exports become downloads.
 
 Sessions are keyed by file identity, so they survive renaming the folder or
 re-plugging the stick. Nothing ever writes next to your recordings except

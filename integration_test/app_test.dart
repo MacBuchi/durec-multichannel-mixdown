@@ -763,6 +763,24 @@ Future<void> _captureDocScreenshots(
     tester.view.padding = FakeViewPadding.zero; // see the pin at the top
     tester.view.viewInsets = FakeViewPadding.zero;
     tester.view.viewInsets = FakeViewPadding.zero;
+    // Fixed track levels so the meters (#115) actually show something in the
+    // docs. Set rather than played: a running preview would make every bar
+    // height depend on when the shot was taken, and the screenshots are
+    // supposed to be reproducible.
+    // Spread over ~25 dB rather than a realistic mix: on the −60…+3 dB scale
+    // everything above −10 dB sits in the top third, so similar levels would
+    // draw eight nearly identical bars and the reader could not tell it is a
+    // meter at all.
+    state.playback.trackPeaks = Float32List.fromList(const [
+      0.89,
+      0.45,
+      0.63,
+      0.20,
+      0.18,
+      0.09,
+      0.08,
+      0.32,
+    ]);
     await tester.pumpAndSettle();
     await shot('mixer', [
       (
@@ -777,6 +795,14 @@ Future<void> _captureDocScreenshots(
         'Loudness target (applied on export)',
         find.byType(DropdownButton<LoudnessChoice>),
       ),
+      (
+        'Preview at export level — play the mix at the level the file will have',
+        find.byIcon(Icons.headphones),
+      ),
+      (
+        'Track meters: pre- or post-fader',
+        find.widgetWithText(TextButton, 'post'),
+      ),
       ('Output format', find.byType(DropdownButton<rust.ApiFormat>)),
       ('Export the stereo mixdown', find.text('Export')),
       (
@@ -790,8 +816,12 @@ Future<void> _captureDocScreenshots(
       ('Link stereo pairs (·L/·R)', find.byIcon(Icons.link).first),
       ('Choose the recordings folder', find.byIcon(Icons.folder_open)),
       (
-        'Track strip: fader, pan, ø/M/S/mix toggles, EQ, waveform',
+        'Track strip: fader, pan, ø/M/S/mix toggles, EQ, level meter, waveform',
         find.byType(TrackStrip).first,
+      ),
+      (
+        'Level of this track (greyed while muted)',
+        find.byType(TrackLevelMeter).first,
       ),
       ('Play / stop the live preview', find.byIcon(Icons.play_arrow)),
       (
