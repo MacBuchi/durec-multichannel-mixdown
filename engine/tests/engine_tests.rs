@@ -3622,3 +3622,63 @@ fn a_track_meter_falls_slowly_and_rises_at_once() {
     stage.process(&constant_block(&[0.7], 480));
     assert!((stage.track_peaks()[0] - 0.7).abs() < 1e-6);
 }
+
+#[test]
+fn a_two_hundred_channel_take_mixes_and_meters_correctly() {
+    // 34 is this user's recordings, not a limit: interfaces go higher, and a
+    // multisample recording reaches a few hundred. Nothing may scale with the
+    // channel count in a way that only shows up there — which is also why the
+    // chain marks and indexes instead of searching per channel.
+    let channels = 200usize;
+    let sr = 48_000;
+    let mut tracks: Vec<TrackParams> = (1..=channels).map(|i| track(i as u32, 0.0, 0.0)).collect();
+    // The realistic shape: most of a multisample take is not in the mix.
+    for (i, t) in tracks.iter_mut().enumerate() {
+        if i % 4 != 0 {
+            t.muted = true;
+        }
+    }
+
+    let mut stage = durecmix_engine::preview::PreviewStage::new(
+        channels,
+        sr,
+        &tracks,
+        durecmix_engine::chain::MasterParams {
+            limiter_enabled: false,
+            ceiling_dbtp: -1.0,
+        },
+        None,
+    );
+
+    // Channel c carries the constant (c + 1) / 1000, so every channel is
+    // distinguishable in the meters.
+    let levels: Vec<f64> = (0..channels).map(|c| (c + 1) as f64 / 1000.0).collect();
+    let block = constant_block(&levels, 256);
+    let out = stage.process(&block).to_vec();
+    let peaks = stage.track_peaks();
+
+    assert_eq!(peaks.len(), channels, "one meter per source channel");
+    for (c, &expected) in levels.iter().enumerate() {
+        assert!(
+            (peaks[c] as f64 - expected).abs() < 1e-6,
+            "channel {c} reads {} instead of {expected} — muted tracks are \
+             metered too, and every channel must be reachable",
+            peaks[c]
+        );
+    }
+
+    // And the audio only carries the unmuted quarter, at centre pan.
+    let expected: f64 = levels
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| i % 4 == 0)
+        .map(|(_, v)| v * std::f64::consts::FRAC_1_SQRT_2)
+        .sum();
+    for fr in out.chunks_exact(2) {
+        assert!(
+            (fr[0] as f64 - expected).abs() < 1e-4,
+            "mixed {} instead of {expected}",
+            fr[0]
+        );
+    }
+}

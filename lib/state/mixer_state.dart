@@ -91,6 +91,26 @@ class MixerState extends ChangeNotifier {
   /// carrying their own listeners so the mixer keeps one rebuild root.
   void notify() => notifyListeners();
 
+  /// Overridden rather than clearing the cache in [notify]: half the mutators
+  /// call `notifyListeners()` directly, `updateTrack` — the one that actually
+  /// changes solo — among them. Hanging the invalidation on the method every
+  /// path ends in is the only version that cannot be forgotten.
+  @override
+  void notifyListeners() {
+    _anySolo = null;
+    super.notifyListeners();
+  }
+
+  bool? _anySolo;
+
+  /// Whether any track is soloed — which decides whether every *other* track
+  /// is audible, and therefore whether its meter is drawn greyed (#115).
+  ///
+  /// Cached until the next [notify] because every visible strip asks: scanning
+  /// the track list per strip is fine at 34 tracks and a needless multiple of
+  /// that at the few hundred a multisample recording carries.
+  bool get anySolo => _anySolo ??= tracks.any((t) => t.solo);
+
   /// True while a recording is being opened (drives the loading animation).
   bool opening = false;
 
