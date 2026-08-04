@@ -5,6 +5,21 @@ All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.18.2] – 2026-08-04
+
+### Fixed
+
+- **Scrubbing the timeline is smooth now.** Dragging the position slider used
+  to jump playback on every tick of the gesture — dozens of restarts per
+  drag, audible as a stutter of noises. The slider and the time readout now
+  follow the finger while the mix keeps playing where it was, and the single
+  jump happens when you let go.
+- **Play and seek no longer click.** Starting playback drops the needle
+  mid-waveform, and that first sample is a step you could hear even on a
+  clean mix. A 10 ms ramp now eases playback in — far too short to hear as a
+  fade-in, long enough to take the click out. Exports are untouched: the ramp
+  exists only in the live preview.
+
 ## [0.18.1] – 2026-08-04
 
 ### Changed
@@ -445,6 +460,7 @@ MP3 export.
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.18.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.2
 [0.18.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.1
 [0.18.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.0
 [0.17.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.17.0
