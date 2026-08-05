@@ -205,10 +205,22 @@ const canPlayAudio = true;
 /// download (PLAN-PWA S3).
 const canExportAudio = true;
 
-/// LAME is C and does not build for wasm32-unknown-unknown, so the `mp3`
-/// Cargo feature is off in the web engine — offering MP3 would hand the user
-/// an encoder error instead of a file (docs/PLAN-PWA.md).
-const canEncodeMp3 = false;
+/// MP3 works here, but not through LAME: LAME is C and does not build for
+/// wasm32-unknown-unknown, so the web engine encodes with Shine instead
+/// (Cargo feature `mp3-shine`, see `engine/src/mp3.rs`). Same 320 kbps CBR,
+/// different encoder — named to the user via [mp3EncoderNote] rather than
+/// quietly substituted.
+const canEncodeMp3 = true;
+
+/// Why the browser's MP3 is not the app's MP3. `null` where there is nothing
+/// to explain, which is why the type stays nullable here: both halves of the
+/// conditional import have to declare it the same way, and callers branch on
+/// the null.
+// ignore: unnecessary_nullable_for_final_variable_declarations
+const String? mp3EncoderNote =
+    'In the browser, MP3 is encoded by Shine instead of LAME — same 320 kbps, '
+    'but a simpler encoder without a psychoacoustic model. Fine for sharing a '
+    'rough mix; for a master, export from the app or choose FLAC.';
 
 /// Reference mastering works here since v0.15.0: the reference is analyzed
 /// from bytes ([pickReferenceAudio]) and the mix from byte ranges, and

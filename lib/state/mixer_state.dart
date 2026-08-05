@@ -322,7 +322,7 @@ class MixerState extends ChangeNotifier {
     tracks = snap.tracks.map(TrackUi.fromApi).toList();
     loudness = snap.loudness;
     customLufs = snap.customLufs;
-    format = snap.format;
+    format = supportedFormat(snap.format);
     // A snapshot can carry a different loudness target, so the gain follows
     // it — the measurement itself is stale either way (_afterMixEdit).
     previewLevel.recomputeGain();
@@ -415,7 +415,7 @@ class MixerState extends ChangeNotifier {
   }
 
   void _restoreMaster(rust.ApiMaster m) {
-    format = m.format;
+    format = supportedFormat(m.format);
     mastering.restoreFromMaster(m);
     final sr = recording?.sampleRate ?? 48000;
     final start = m.trimStartFrame.toInt();

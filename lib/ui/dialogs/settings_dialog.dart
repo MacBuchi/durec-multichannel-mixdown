@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../io/platform_shim.dart';
 import '../../state/app_settings.dart';
 import 'about_dialog.dart';
 
@@ -114,6 +115,18 @@ Future<void> showSettingsDialog(
                 'as clicks; the mixing speed sets how much audio stays '
                 'buffered when you move a fader, and every dropout raises '
                 'that buffer a little.',
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+            ],
+            if (mp3EncoderNote != null) ...[
+              const Divider(height: 24),
+              Text(
+                'MP3 encoder',
+                style: Theme.of(dialogContext).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                mp3EncoderNote!,
                 style: Theme.of(dialogContext).textTheme.bodySmall,
               ),
             ],

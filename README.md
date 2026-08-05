@@ -47,7 +47,7 @@ Screenshots are rendered reproducibly from a synthetic fixture through the real 
 - **Reference mastering** — match loudness, tonal balance (matching EQ) and stereo width to reference songs (WAV/FLAC/MP3/OGG); several references average into a genre target curve; audible in the live preview on demand. Clean-room Matchering-style algorithm, validated against Matchering 2.0 (−23.5 dB null-test depth)
 - **Master** — true-peak lookahead limiter (8× oversampled detection, −1 dBTP), loudness targets −14/−16/−23/custom LUFS or peak −1 dBFS, TPDF dither on 16-bit
 - **Live preview** — cpal playback (~0.2 s latency), peak / LUFS-M / LUFS-I / true-peak / correlation meters, per-channel waveforms, height-stable transport bar with tap-for-details export report
-- **Export** — WAV 16/24/32f, FLAC 16/24 (streamed), MP3 320 (LAME); trim in/out with 80 ms fades; loudness report (LUFS-I · dBTP · LRA · gain/mastering match); BPM detection; auto-naming like `Take_16LUFS_143BPM_20260712_183000.flac`
+- **Export** — WAV 16/24/32f, FLAC 16/24 (streamed), MP3 320 (LAME in the apps, Shine in the browser); trim in/out with 80 ms fades; loudness report (LUFS-I · dBTP · LRA · gain/mastering match); BPM detection; auto-naming like `Take_16LUFS_143BPM_20260712_183000.flac`
 - **Batch & multi-file export** — several loudness/format targets of one take in one go (desktop), or the current mix applied to many ticked takes into a `Mixdown/` folder with per-row progress and an Android share sheet
 - **Feedback & updates** — an in-app banner files a feature request or bug straight to GitHub as a pre-filled, labelled issue (browser-form fallback when no token is baked in); an update banner offers the newer release (in-app APK install on Android, release page on desktop)
 - **Sessions** — every mix auto-saves to the app container and restores on reopen; caches make take-switching and repeated reference use instant
@@ -128,8 +128,10 @@ validated against Matchering 2.0 with a −23.5 dB null-test depth. Credit and
 thanks to the Matchering project for the original idea.
 
 Bundled third-party components keep their own licenses: [Symphonia](https://github.com/pdeljanov/Symphonia)
-(MPL-2.0) and LAME via [mp3lame-encoder](https://crates.io/crates/mp3lame-encoder)
-(LGPL-2.1) are used unmodified; realfft/rustfft, ebur128, flacenc, hound, cpal
+(MPL-2.0), LAME via [mp3lame-encoder](https://crates.io/crates/mp3lame-encoder)
+(LGPL-2.1) in the native builds and Shine via
+[shine-rs](https://crates.io/crates/shine-rs) (LGPL-2.0) in the browser build
+are used unmodified; realfft/rustfft, ebur128, flacenc, hound, cpal
 and flutter_rust_bridge are MIT/Apache-2.0.
 
 ## Workflow

@@ -688,6 +688,7 @@ pub fn render_io(
 ) -> Result<RenderReport> {
     let mut reader = input.open()?;
     let spec = reader.spec();
+    crate::sink::validate_format(settings.format, spec.sample_rate)?;
     let channels = spec.channels as usize;
     let num_frames = reader.num_frames();
     let start = settings.trim_start_frame.min(num_frames);
@@ -871,6 +872,10 @@ impl StreamRender {
     ) -> Result<StreamRender> {
         let channels = spec.channels as usize;
         let sample_rate = spec.sample_rate;
+        // Before pass 1, not after: the sink is only built in `start_pass2`,
+        // and the browser would otherwise scan the whole source before
+        // admitting it cannot write the target.
+        crate::sink::validate_format(settings.format, sample_rate)?;
         let pass1 = RenderPass1::new(
             &RenderSource {
                 channels,

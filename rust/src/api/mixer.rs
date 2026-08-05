@@ -29,6 +29,17 @@ use durecmix_engine::session::Session;
 use durecmix_engine::sink::OutputHandle;
 use durecmix_engine::wav::{self, InputHandle};
 
+// The web UI offers MP3, so the wasm engine has to carry an encoder. If the
+// feature ever falls out of `rust/Cargo.toml`, the shim would keep offering
+// the format and the truth would only surface as an export error on a user's
+// device. This turns that into a build failure, caught by the wasm check the
+// CI already runs — no extra step.
+#[cfg(target_family = "wasm")]
+const _: () = assert!(
+    durecmix_engine::MP3_ENCODER.is_some(),
+    "the wasm build carries no MP3 encoder — enable feature mp3-shine in rust/Cargo.toml"
+);
+
 /// Prefer the raw fd when the platform provided one (Android SAF), else the
 /// path. The path is still passed for display/session purposes.
 fn input_handle(path: &str, fd: Option<i32>) -> InputHandle {
