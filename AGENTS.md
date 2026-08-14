@@ -113,6 +113,43 @@ User docs live in `docs/GUIDE.md` (annotated walkthrough) and README. Screenshot
 
 **Android in-app install requires FOUR manifest/Gradle pieces that must stay together — see issue #56, currently incomplete:** `INTERNET` and `REQUEST_INSTALL_PACKAGES` permissions; a `<provider>` for `androidx.core.content.FileProvider` with authority **exactly** `${applicationId}.ota_update_provider`; `android/app/src/main/res/xml/filepaths.xml` containing `<files-path name="ota_update" path="ota_update/"/>` (the plugin writes the APK to internal `files/ota_update/`); and a `<queries>` entry for `VIEW`/`https` so the browser fallback survives Android 11+ package visibility. Core library desugaring is already enabled in `build.gradle.kts` — it is required by the plugin. **Without the FileProvider the app dies with a native `IllegalArgumentException` right after the download completes** — the failure never appears in a debug run, only on a user's first real update (PilzBuddy hit exactly this: MacBuchi/pilzbuddy#21). Guard these with a manifest regression test (see Testing) and verify on a real device before shipping an update-related change.
 
+## The Play Store build (`docs/PLAN-PLAYSTORE.md`)
+
+Android ships through **two** channels now, and they differ in exactly one
+thing: whether the app may install its own updates. `--dart-define=PLAY_STORE=true`
+is the single switch for both halves — Gradle swaps `src/main/AndroidManifest.xml`
+for `AndroidManifest-play.xml`, and Dart gets `isPlayStoreBuild`, `canSelfUpdate`
+and `canCheckForUpdates` in the shim.
+
+- **One flag, not two.** Two separate switches is precisely how you get a build
+  that strips the permission and still offers "Update now" — or the reverse,
+  which is a rejected upload. Gradle prints which manifest it picked, because
+  the failure is otherwise silent until a review weeks later.
+- **Removing our own `REQUEST_INSTALL_PACKAGES` does nothing.** The ota_update
+  plugin declares it — plus `INSTALL_PACKAGES` (signature-level!),
+  `WRITE_EXTERNAL_STORAGE`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` — in
+  *its* manifest, so the merger adds them to any build with the plugin on the
+  classpath. They must be removed with `tools:node="remove"`, and
+  `READ_EXTERNAL_STORAGE` comes along implicitly (no source in the blame
+  report) and has to go too.
+- **Prove it on the build output, not the sources.** `aapt2 dump xmltree` cannot
+  read an AAB (protobuf manifest, "could not identify format of APK"); read
+  `build/app/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml`
+  instead. `test/android_manifest_test.dart` holds the two manifests against
+  each other so a permission added to one but not the other fails a test rather
+  than a release.
+- **`versionCode` is derived from the semver** (0.19.0 → 19000), not from
+  pubspec's `+N` — that has been `+1` since M0 and nothing bumps it. Android
+  tolerates reinstalling the same version code, so the GitHub APK never
+  noticed; Play rejects a reused one, so the **second** release would be the
+  one that fails.
+- **No feedback token in a Play build.** `_token` is a compile-time constant
+  and sits extractable in the shipped bundle, so `submitFeedback` takes the
+  browser-form route there regardless of what the workflow injects.
+- **XML comments may not contain `--`.** Writing the dart-define into a comment
+  makes the merger fail with a bare "Error parsing" and no line number; a test
+  pins it.
+
 ## Release signing (Android)
 
 Release APKs are signed with a **stable keystore** so downloaded APKs update an existing installation (before v0.7.2 every CI run used a fresh debug key → signature mismatch, uninstall required). The keystore lives on the user's machine at `~/durecmix-keys/` (keystore + PASSWORDS.txt — **must be backed up; losing it permanently breaks updates**) and in the repo secrets `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD`. `android/key.properties` (gitignored) activates it locally; without it builds fall back to debug signing (PR CI, `flutter run --release`). The release workflow hard-fails if the secrets are missing. `applicationId`/`namespace` is `de.macbuchi.durecmix` (renamed from com.example in v0.7.2 — same forced reinstall); the **macOS** bundle id deliberately stays `com.example.durecmix` (a change would orphan the sandbox container with the user's sessions). iOS moved to `de.macbuchi.durecmix` in 2026-07 because Apple App IDs are globally unique and `com.example.*` is long taken — see below.

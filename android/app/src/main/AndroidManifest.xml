@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The direct-distribution manifest (GitHub release APK). Its Play Store
+         twin is AndroidManifest-play.xml — everything added here has to be
+         added there too, and test/android_manifest_test.dart fails when they
+         drift apart. build.gradle.kts picks between them. -->
     <!-- Declared here rather than inherited from a plugin manifest: the update
          check and the APK download both need it, and dropping ota_update must
          not silently take all networking with it. -->

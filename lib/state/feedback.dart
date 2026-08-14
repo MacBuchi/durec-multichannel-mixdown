@@ -94,7 +94,13 @@ Future<bool> submitFeedback(FeedbackType type, String message) async {
   // would throw `UnsupportedError` and the dialog blamed the connection
   // ("Sending failed. Are you online?"). The pre-filled browser form is the
   // route that actually works, and in a browser it costs the user nothing.
-  if (_token.isEmpty || !hasNetwork) {
+  //
+  // A Play build takes the same route for a different reason: `_token` is a
+  // compile-time constant and therefore sits extractable in the shipped
+  // bundle. A GitHub APK is downloaded by people who could read the repo's
+  // secrets policy anyway; a store listing is handed to strangers, so the
+  // token stays out of it even if the workflow injects one.
+  if (_token.isEmpty || !hasNetwork || isPlayStoreBuild) {
     final ok = await launchUrl(
       issueFormUrl(
         type,

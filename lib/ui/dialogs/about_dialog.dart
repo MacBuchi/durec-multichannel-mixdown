@@ -37,7 +37,14 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
             // and the error is swallowed — which looked exactly like "no
             // update found". Saying "You're up to date" there is a claim the
             // app never verified, so it says nothing instead.
-            if (hasNetwork)
+            //
+            // Same reasoning for a Play build, where the check is off by
+            // policy rather than by capability: Play owns the update channel
+            // there, so this dialog has nothing to report either. The banner
+            // and this line are two separate callers of the same check —
+            // gating only one of them is how the app ends up claiming to be
+            // up to date on the strength of a check it never ran.
+            if (hasNetwork && canCheckForUpdates)
               FutureBuilder<UpdateInfo?>(
                 future: UpdateCheck.check(),
                 builder: (context, snap) {
@@ -104,6 +111,19 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
                 Navigator.of(dialogContext).pop();
                 showFeedbackDialog(context);
               },
+            ),
+            const Divider(height: 20),
+            // Naming a hardware brand to state what the app reads is
+            // referential use (§ 23 Abs. 1 Nr. 3 MarkenG, Art. 14 Abs. 1
+            // lit. c UMV) — permitted as long as it is honest and suggests no
+            // commercial connection. This line is the "suggests no connection"
+            // half, and it belongs in the app rather than only in the store
+            // listing, because the app also travels as an APK and a PWA.
+            Text(
+              'RME and DUREC are trademarks of their respective owners. '
+              'This app is not affiliated with, endorsed by or sponsored by '
+              'Audio AG / RME.',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
             ),
           ],
         ),
