@@ -1,6 +1,6 @@
 /// The app's one logger, and the ring buffer a bug report is built from.
 ///
-/// Why this exists: DurecMix ships past the stores, so there are no Play
+/// Why this exists: Mixstack ships past the stores, so there are no Play
 /// Vitals and no crash clusters — an error on the user's device is invisible
 /// unless the app can hand it over. Until v0.18.0 there was neither a global
 /// handler nor a log, and it cost real diagnosis: when the app disappeared on

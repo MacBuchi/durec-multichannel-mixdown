@@ -1,19 +1,27 @@
 <p align="center">
-  <img src="assets/icon/icon_macos.png" alt="DurecMix logo" width="160">
+  <img src="assets/icon/icon_macos.png" alt="Mixstack logo" width="160">
 </p>
 
-# DurecMix
+# Mixstack
 
-Cross-platform, fully offline downmixer for multichannel WAV recordings from the **RME DUREC** recorder — the successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer), rebuilt with a Flutter UI and a Rust DSP engine.
+Cross-platform, fully offline mixdown of **multichannel WAV recordings** — the successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer), rebuilt with a Flutter UI and a Rust DSP engine.
 
-**Targets:** macOS · Windows · Android · iOS
+**Targets:** macOS · Windows · Android · iOS · browser (PWA)
 **Docs:** the **[User Guide](docs/GUIDE.md)** walks through every screen with annotated screenshots.
 
 ---
 
 ## What it does
 
-Open a DUREC take straight off the USB stick, balance the tracks (fader, pan, polarity, solo/mute, per-track EQ), listen to a live preview with real loudness meters — then export a stereo mixdown with an EBU R128 loudness target and a true-peak limiter. Or let **reference mastering** match your mix to how your favourite songs sound. Multi-GB recordings stream in blocks and never load into RAM, so all of it works on a phone too.
+Open a take straight off the USB stick, balance the tracks (fader, pan, polarity, solo/mute, per-track EQ), listen to a live preview with real loudness meters — then export a stereo mixdown with an EBU R128 loudness target and a true-peak limiter. Or let **reference mastering** match your mix to how your favourite songs sound. Multi-GB recordings stream in blocks and never load into RAM, so all of it works on a phone too.
+
+## What it reads
+
+Any interleaved multichannel WAV: **RIFF, RF64 and BW64**, PCM integer or IEEE float, `WAVE_FORMAT_EXTENSIBLE`, at any channel count — from two tracks to several hundred. Where a recorder embeds an **iXML** chunk, the track names and their interleave order come from it; without one the tracks are simply numbered.
+
+That covers recordings from the **RME DUREC** (the recorder this was originally built for, and what it is still tested against daily), and equally from field recorders by Zoom, Sound Devices or Tascam, or a multitrack export out of any DAW.
+
+> RME and DUREC are trademarks of their respective owners. Mixstack is not affiliated with, endorsed by or sponsored by Audio AG / RME.
 
 ## Screenshots
 
@@ -60,7 +68,7 @@ Binaries for macOS, Windows and Android are attached to each [GitHub Release](..
 
 The original Python tool ran on desktop only, loaded entire recordings into RAM, and took a few audio-engineering shortcuts:
 
-| | MultiChannelWavMixer (Python) | DurecMix |
+| | MultiChannelWavMixer (Python) | Mixstack |
 |---|---|---|
 | Platforms | macOS, Windows | macOS, Windows, Android, iOS |
 | Pan law | linear (−6 dB centre error) | **constant-power (−3 dB centre)** |
@@ -114,7 +122,7 @@ rust_builder/    cargokit glue that builds the Rust crate inside flutter build
 
 ## Acknowledgements & licenses
 
-DurecMix itself is licensed under the [MIT License](LICENSE).
+Mixstack itself is licensed under the [MIT License](LICENSE).
 
 **Reference mastering** is an independent **clean-room** implementation
 inspired by [Matchering 2.0](https://github.com/sergree/matchering) by Sergey

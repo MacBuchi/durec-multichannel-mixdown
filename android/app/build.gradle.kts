@@ -36,10 +36,10 @@ val isPlayBuild = dartDefines.contains("PLAY_STORE=true") ||
 
 // Printed because the failure mode is silent: a Play build that quietly picked
 // the direct manifest only surfaces weeks later as a review rejection.
-println("DurecMix Android manifest: " + if (isPlayBuild) "PLAY (no self-update)" else "DIRECT (GitHub APK)")
+println("Mixstack Android manifest: " + if (isPlayBuild) "PLAY (no self-update)" else "DIRECT (GitHub APK)")
 
 android {
-    namespace = "de.macbuchi.durecmix"
+    namespace = "de.macbuchi.mixstack"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -65,7 +65,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "de.macbuchi.durecmix"
+        applicationId = "de.macbuchi.mixstack"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // cpal live playback uses AAudio, which needs API 26+ (libaaudio is

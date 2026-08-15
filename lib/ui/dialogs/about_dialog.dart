@@ -9,14 +9,14 @@ import 'changelog_dialog.dart';
 
 /// About dialog: installed version + update status, project links, and a
 /// shortcut into the feedback flow.
-Future<void> showAboutDurecMixDialog(BuildContext context) {
+Future<void> showAboutMixstackDialog(BuildContext context) {
   Future<void> openUrl(String url) =>
       launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 
   return showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('About DurecMix'),
+      title: const Text('About Mixstack'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -97,7 +97,7 @@ Future<void> showAboutDurecMixDialog(BuildContext context) {
                 Navigator.of(dialogContext).pop();
                 showLicensePage(
                   context: context,
-                  applicationName: 'DurecMix',
+                  applicationName: 'Mixstack',
                   applicationVersion: version,
                 );
               },

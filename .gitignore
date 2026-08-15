@@ -47,7 +47,7 @@ app.*.map.json
 # Rust workspace build output
 /target/
 
-# DurecMix session files created during local testing
+# Mixstack session files created during local testing
 *.durecmix.json
 
 # Local signing secrets (see secrets/README.md) — never tracked

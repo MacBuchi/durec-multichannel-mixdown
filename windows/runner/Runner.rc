@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "durecmix" "\0"
+            VALUE "FileDescription", "Mixstack" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "durecmix" "\0"
+            VALUE "InternalName", "Mixstack" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "durecmix.exe" "\0"
-            VALUE "ProductName", "durecmix" "\0"
+            VALUE "OriginalFilename", "mixstack.exe" "\0"
+            VALUE "ProductName", "Mixstack" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

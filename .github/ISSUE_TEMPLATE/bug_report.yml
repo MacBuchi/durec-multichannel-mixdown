@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in DurecMix does not work as expected
+description: Something in Mixstack does not work as expected
 title: "Bug report: "
 labels: [bug]
 body:

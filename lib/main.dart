@@ -23,7 +23,7 @@ import 'package:durecmix/ui/mixer_screen.dart';
 /// page is opened, so the 300+ KiB asset never touches a normal start.
 ///
 /// Registered from the widget rather than from `main`, because the
-/// integration test pumps [DurecMixApp] directly and never runs `main` — a
+/// integration test pumps [MixstackApp] directly and never runs `main` — a
 /// registration there would be invisible to exactly the test meant to prove
 /// it. Guarded because the registry appends, and a second call would list
 /// every crate twice.
@@ -32,7 +32,7 @@ void registerRustLicenses() {
   _rustLicensesRegistered = true;
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(const [
-      'DurecMix Rust engine',
+      'Mixstack Rust engine',
     ], await rootBundle.loadString('assets/licenses/rust-third-party.txt'));
   });
 }
@@ -70,21 +70,21 @@ Future<void> main() async {
   await initPlatformStorage();
   // Before the first frame, so the stored theme never flashes past.
   await AppSettings.load();
-  runApp(const DurecMixApp());
+  runApp(const MixstackApp());
 }
 
-class DurecMixApp extends StatefulWidget {
-  const DurecMixApp({super.key, this.state});
+class MixstackApp extends StatefulWidget {
+  const MixstackApp({super.key, this.state});
 
   /// Test seam: inject a [MixerState] (the caller then owns and disposes
   /// it). The app creates and owns its own state when null.
   final MixerState? state;
 
   @override
-  State<DurecMixApp> createState() => _DurecMixAppState();
+  State<MixstackApp> createState() => _MixstackAppState();
 }
 
-class _DurecMixAppState extends State<DurecMixApp> {
+class _MixstackAppState extends State<MixstackApp> {
   late final MixerState _state = widget.state ?? MixerState();
 
   @override
@@ -122,7 +122,7 @@ class _DurecMixAppState extends State<DurecMixApp> {
       child: ValueListenableBuilder<ThemeMode>(
         valueListenable: AppSettings.themeMode,
         builder: (context, themeMode, _) => MaterialApp(
-          title: 'DurecMix',
+          title: 'Mixstack',
           debugShowCheckedModeBanner: false,
           theme: _theme(Brightness.light, AppColors.light),
           darkTheme: _theme(Brightness.dark, AppColors.dark),

@@ -88,7 +88,7 @@ void main() {
     await tester.pumpWidget(
       RepaintBoundary(
         key: _shotKey,
-        child: DurecMixApp(state: state),
+        child: MixstackApp(state: state),
       ),
     );
     await tester.pumpAndSettle();
@@ -167,7 +167,7 @@ void main() {
     );
 
     // About sits at the bottom of Settings and still shows version + links.
-    await tester.tap(find.text('About DurecMix'));
+    await tester.tap(find.text('About Mixstack'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Version'), findsWidgets);
     expect(find.text('GitHub project'), findsOneWidget);
@@ -179,7 +179,7 @@ void main() {
     // No pumpAndSettle here: the page shows a CircularProgressIndicator
     // while the registry is collected, and a spinner never settles. Poll
     // for the entry instead, with a bound so a real regression still fails.
-    final rustEntry = find.text('DurecMix Rust engine');
+    final rustEntry = find.text('Mixstack Rust engine');
     for (var i = 0; i < 100 && rustEntry.evaluate().isEmpty; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }

@@ -1,11 +1,11 @@
 {
-    "name": "DurecMix",
-    "short_name": "DurecMix",
+    "name": "Mixstack",
+    "short_name": "Mixstack",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#10141C",
     "theme_color": "#10141C",
-    "description": "Offline downmixer for RME DUREC multichannel recordings.",
+    "description": "Mix multichannel WAV recordings down to stereo — fully offline.",
     "orientation": "any",
     "prefer_related_applications": false,
     "icons": [

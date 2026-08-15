@@ -37,7 +37,17 @@ Veröffentlichung unveränderlich.** Eine IP-Beschwerde bei Google führt in der
 Regel erst zum Takedown und danach zur Klärung; ein Rename bedeutet dann einen
 neuen Store-Eintrag, und Bewertungen wie Installationszahlen sind weg.
 
-**Entscheidung: generischer Name, RME/DUREC nur noch beschreibend.**
+**Entscheidung: generischer Name, RME/DUREC nur noch beschreibend.** Umgesetzt
+in v0.20.0 — die App heißt **Mixstack**, die Package-ID ist
+`de.macbuchi.mixstack`. Websuche nach dem Namen: kein Audio-Produkt, keine
+Firma. Verworfen wurden dabei „Wavesum" (Wavesum Oy, finnische
+Audio-Softwarefirma), „Mixbus" (Harrison-DAW), „Summit" (Summit Audio) und
+„MultiMix" (Alesis-Mischpultserie).
+
+⚠️ **„Downmix" wäre der falsche Begriff gewesen.** Er bezeichnet im Audio-Umfeld
+das Zusammenfalten eines fertigen Surround-Mixes auf Stereo (5.1 → 2.0). Diese
+App *mischt* einzelne aufgenommene Spuren mit Fader, Pan und EQ zu einem Master
+— das heißt **Mixdown**. README, pubspec und Store-Text sagen das jetzt richtig.
 
 Das ist auch die technisch ehrlichere Beschreibung. [engine/src/wav.rs](../engine/src/wav.rs)
 liest RIFF/RF64/BW64 mit PCM-Int, IEEE-Float und `WAVE_FORMAT_EXTENSIBLE` bei
@@ -244,10 +254,31 @@ setzt `targetSdk = 36`); die Frist am 31.08.2026 ist damit erledigt.
 
 ## 5. Offen
 
-* [ ] App-Name festlegen und Register-Recherche dazu (§1)
-* [ ] `applicationId`/`namespace`, `android:label`, `web/manifest.json`,
-  pubspec-`description`, README und Docs auf den neuen Namen ziehen
+* [x] App-Name festlegen — **Mixstack**, `de.macbuchi.mixstack` (v0.20.0)
+* [x] `applicationId`/`namespace`, `android:label`, `web/manifest.json`,
+  pubspec-`description`, README, Docs und UI-Strings gezogen
+* [ ] **Registerprüfung „Mixstack" und „DUREC"** bei DPMA und TMview (§1) —
+  der einzige Schritt, den kein Werkzeug hier abnehmen kann
 * [ ] Store-Assets: Icon 512×512, Feature-Graphic 1024×500, Screenshots
   (die generierten aus `tool/make_screenshots.sh` sind verwendbar)
 * [ ] Datenschutzerklärung schreiben und hosten (GitHub Pages liegt schon vor)
 * [ ] Closed Testing starten
+* [ ] Nach dem Release: die alte APK-Installation auf dem Pixel deinstallieren,
+  bevor die neue kommt — andere `applicationId`, also kein Update-Pfad
+
+### Was bewusst den alten Namen behält
+
+Umbenannt wurde, was öffentlich sichtbar oder im Store dauerhaft ist. Nicht
+angefasst, jeweils mit Grund:
+
+| Bleibt | Warum |
+| --- | --- |
+| Dart-Paket `durecmix` | steht in jedem Import, nach außen unsichtbar, markenrechtlich ohne Bedeutung |
+| Rust-Crates `durecmix-engine`, `rust_lib_durecmix` | interne Namen; `System.loadLibrary` und `--out-name` hängen daran |
+| `.durecmix.json` als Session-Suffix | eine Änderung verwaist jeden gespeicherten Mix |
+| IndexedDB-Name `durecmix` (Web) | dieselbe Falle für die PWA-Nutzer |
+| MethodChannels `durecmix/saf`, `durecmix/files` | müssen mit Kotlin/Swift übereinstimmen; reine Churn-Gefahr |
+| `DURECMIX_FEEDBACK_TOKEN` | Name eines GitHub-Secrets, Änderung bräuchte einen Handgriff im Repo |
+| macOS-Bundle-ID `com.example.durecmix` | verwaist sonst den Sandbox-Container mit den Sessions |
+| iOS-Bundle-ID `de.macbuchi.durecmix` | hängt am Free Provisioning, für Play irrelevant |
+| Repo `durec-multichannel-mixdown` | eigene Entscheidung; alle Release- und Issue-Links hängen daran |

@@ -135,11 +135,11 @@ Future<void> showSettingsDialog(
               contentPadding: EdgeInsets.zero,
               dense: true,
               leading: const Icon(Icons.info_outline),
-              title: const Text('About DurecMix'),
+              title: const Text('About Mixstack'),
               subtitle: const Text('Version, update status, links, feedback'),
               onTap: () {
                 Navigator.of(dialogContext).pop();
-                showAboutDurecMixDialog(context);
+                showAboutMixstackDialog(context);
               },
             ),
           ],

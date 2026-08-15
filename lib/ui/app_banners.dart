@@ -157,7 +157,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   void _startAndroidInstall() {
     setState(() => _phase = _UpdatePhase.downloading);
     try {
-      _subscription = installApk(widget.info.apkUrl!, 'durecmix-update.apk')
+      _subscription = installApk(widget.info.apkUrl!, 'mixstack-update.apk')
           .listen(
             (event) {
               if (!mounted) return;
@@ -228,7 +228,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
               ),
               _UpdatePhase.installing => const Text(
                 'Download finished — Android now asks whether to update '
-                'DurecMix. Just confirm!',
+                'Mixstack. Just confirm!',
               ),
               _UpdatePhase.error => const Text(
                 'The direct download failed. You can load the update via '

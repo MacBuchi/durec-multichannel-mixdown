@@ -1,9 +1,36 @@
 # Changelog
 
-All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
+All notable changes to Mixstack. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 `pubspec.yaml`; every version bump merged to `main` automatically tags,
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
+
+## [0.20.0] – 2026-08-15
+
+### Changed
+
+- **The app is now called Mixstack.** It was DurecMix, and that name claimed
+  more than it should have: DUREC is RME's name for their recorder, not ours
+  to build a product name from — and it was never accurate either, because
+  the engine reads any interleaved multichannel WAV (RIFF, RF64, BW64, at any
+  channel count), whether it came off an RME interface, a Zoom or Sound
+  Devices field recorder, or a multitrack export from a DAW. The recorder is
+  still named where it belongs, in the description of what the app opens.
+- ⚠️ **On Android this needs one manual reinstall, and it takes your saved
+  mixes with it.** Android ties an app's storage to its package id, and that
+  id had to change with the name. Uninstall the old version, install the new
+  one — takes and their WAV files are untouched, but the mixes stored inside
+  the app are gone and have to be set up again. Export anything you want to
+  keep before updating. macOS, Windows, iOS and the browser are unaffected:
+  they update normally and keep everything.
+
+### Added
+
+- **Groundwork for a Play Store release.** The store version leaves out the
+  in-app APK update — Google Play distributes and updates apps itself, and
+  its rules reserve the "install packages" permission for file managers and
+  browsers. Nothing changes for the version you download from GitHub: it
+  keeps updating itself exactly as before.
 
 ## [0.19.0] – 2026-08-05
 
@@ -190,7 +217,7 @@ MP3 export.
 
 ### Added
 
-- **DurecMix now runs in a browser.** Open a recording from the DUREC stick,
+- **Mixstack now runs in a browser.** Open a recording from the DUREC stick,
   see all its tracks, mix, listen, and export a stereo file — no install, on
   a tablet too. The same audio engine as the app does the work, and the
   exported file is bit-for-bit what the installed app would have produced.
@@ -491,6 +518,7 @@ MP3 export.
 - **Live playback** with meters (peak, LUFS, correlation), streaming
   waveforms and the full mixer UI.
 
+[0.20.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.0
 [0.19.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.19.0
 [0.18.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.3
 [0.18.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.2

@@ -1,8 +1,10 @@
-# Agent Instructions — DurecMix
+# Agent Instructions — Mixstack
 
-Cross-platform (macOS/Windows/Android/iOS), fully offline downmixer for RME DUREC multichannel WAV recordings. Successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer) (Python, stays untouched). The approved rework plan with the full audio-engineering gap analysis lives in `docs/PLAN.md` — read it before large changes.
+Cross-platform (macOS/Windows/Android/iOS/web), fully offline mixdown of multichannel WAV recordings. Successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer) (Python, stays untouched). The approved rework plan with the full audio-engineering gap analysis lives in `docs/PLAN.md` — read it before large changes.
 
-Cross-project guidelines (architecture, state, testing, CI, signing, in-app update/feedback) live in the DocuHub at `/Volumes/MacStore/Programming/ProgrammingGuidelineDocuHub/`. This file covers what DurecMix does differently or additionally.
+**Renamed from DurecMix in v0.20.0** (`docs/PLAN-PLAYSTORE.md` §1 carries the reasoning). The engine reads any interleaved RIFF/RF64/BW64 at any channel count, so the name no longer claims one vendor's recorder. RME and DUREC may still be **named descriptively** — "for recordings from the RME DUREC" is referential use under § 23 Abs. 1 Nr. 3 MarkenG / Art. 14 Abs. 1 lit. c UMV — but never as part of the product name, an identifier or a store title. What deliberately kept the old name: the Dart package `durecmix` (invisible, in every import), the Rust crates `durecmix-engine`/`rust_lib_durecmix`, the `.durecmix.json` session suffix and the web IndexedDB name (both would orphan saved mixes), the `durecmix/saf` and `durecmix/files` method channels, `DURECMIX_FEEDBACK_TOKEN` (a GitHub secret name), the macOS bundle id, and the repository itself.
+
+Cross-project guidelines (architecture, state, testing, CI, signing, in-app update/feedback) live in the DocuHub at `/Volumes/MacStore/Programming/ProgrammingGuidelineDocuHub/`. This file covers what Mixstack does differently or additionally.
 
 ## Architecture rules
 
@@ -97,7 +99,7 @@ Natively the values travel as a `Vec<AtomicU32>` so the decode thread still neve
 
 `lib/state/debug_log.dart` is the app's **one** logger plus a 200-entry ring buffer; `main.dart` installs `FlutterError.onError` and `PlatformDispatcher.instance.onError` before anything else can fail. Until v0.18.0 there was none of this, and it cost a real diagnosis: when the app vanished on the iPad after eight minutes, nothing distinguished a system kill from a crash.
 
-- **There is no crash service and there should not be one.** DurecMix has no backend at all, which is a documented strength — so the sink is the bug report the user files anyway: `submitFeedback` attaches `DebugLog.recent()` to a **bug** report (never a feature request). That is the DocuHub's route A in its backend-free form.
+- **There is no crash service and there should not be one.** Mixstack has no backend at all, which is a documented strength — so the sink is the bug report the user files anyway: `submitFeedback` attaches `DebugLog.recent()` to a **bug** report (never a feature request). That is the DocuHub's route A in its backend-free form.
 - **Everything that travels goes through `redactPaths`.** The repo is public and the PII rule is explicit: stack traces and log lines may be sent, paths carrying a user name may not. The name segment deliberately runs to the next separator *including spaces* — a Windows home is the display name (`C:\Users\Jane Doe\…`), and stopping at the space published half of it. A test pins that.
 - **Log where an error already reaches the UI**, not everywhere: the sites that set `error =` are exactly the diagnosable ones. `DebugLog.info` is for milestones, not per-frame — the ring is 200 deep and a report wants the span around the failure.
 - **`recent()` truncates from the front.** The entries next to the failure are the ones worth keeping; a report that drops them to make room for start-up is useless.

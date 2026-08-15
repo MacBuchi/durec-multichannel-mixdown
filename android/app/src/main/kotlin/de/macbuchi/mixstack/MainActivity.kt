@@ -1,4 +1,4 @@
-package de.macbuchi.durecmix
+package de.macbuchi.mixstack
 
 import android.app.Activity
 import android.content.Context

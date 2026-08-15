@@ -12,7 +12,7 @@ Goal: rework it as a fully **offline** app for **macOS, Windows, Android, iOS** 
 - Feature depth: **Pro downmix suite** (EQ/HPF, meters, true-peak limiter, dither, FLAC)
 - **Windows stays** a target
 
-Suggested new repo name: `DurecMix` (working title — user may rename).
+Suggested new repo name: `Mixstack` (working title — user may rename).
 
 ---
 
