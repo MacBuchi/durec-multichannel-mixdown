@@ -55,7 +55,7 @@ void main() {
     // animation keeps the frame queue non-empty, so pumpAndSettle() below
     // would spin until its timeout. The logo still renders, just still.
     AnimatedLogo.enabled = false;
-    tempDir = await Directory.systemTemp.createTemp('durecmix_test');
+    tempDir = await Directory.systemTemp.createTemp('mixstack_test');
     fixturePath = '${tempDir.path}/fixture_4ch.wav';
     File(fixturePath).writeAsBytesSync(_buildFixtureWav());
   });
@@ -692,7 +692,7 @@ Future<void> _captureDocScreenshots(
   AppSettings.themeMode.value = ThemeMode.dark;
   await tester.pumpAndSettle();
 
-  final shotsDir = Directory.systemTemp.createTempSync('durecmix_shots');
+  final shotsDir = Directory.systemTemp.createTempSync('mixstack_shots');
 
   Future<void> waitForAnalysis() async {
     while (state.analyzing) {

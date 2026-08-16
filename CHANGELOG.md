@@ -16,21 +16,19 @@ releases and ships the artifacts. The app bundles this file and shows it under
   channel count), whether it came off an RME interface, a Zoom or Sound
   Devices field recorder, or a multitrack export from a DAW. The recorder is
   still named where it belongs, in the description of what the app opens.
-- ⚠️ **On Android this needs one manual reinstall, and it takes your saved
+- ⚠️ **If you already have the app on Android, this one takes your saved
   mixes with it.** Android ties an app's storage to its package id, and that
-  id had to change with the name. Uninstall the old version, install the new
-  one — takes and their WAV files are untouched, but the mixes stored inside
-  the app are gone and have to be set up again. Export anything you want to
-  keep before updating. macOS, Windows, iOS and the browser are unaffected:
-  they update normally and keep everything.
+  id had to change with the name — so the new version installs alongside the
+  old one instead of replacing it. Your takes and their WAV files are
+  untouched, but the mixes stored inside the app do not come along and have
+  to be set up again. Export anything you want to keep first, then remove the
+  old version. A fresh install is unaffected, and so are macOS, Windows, iOS
+  and the browser: they keep everything.
 
 ### Added
 
-- **Groundwork for a Play Store release.** The store version leaves out the
-  in-app APK update — Google Play distributes and updates apps itself, and
-  its rules reserve the "install packages" permission for file managers and
-  browsers. Nothing changes for the version you download from GitHub: it
-  keeps updating itself exactly as before.
+- **Groundwork for a store release.** Nothing about using the app changes —
+  the store edition simply receives its updates through the store.
 
 ## [0.19.0] – 2026-08-05
 

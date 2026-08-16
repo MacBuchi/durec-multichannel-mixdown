@@ -58,7 +58,7 @@ void main() {
   });
 
   test('a real folder still gets its Mixdown subfolder', () async {
-    final dir = await Directory.systemTemp.createTemp('durecmix-batch');
+    final dir = await Directory.systemTemp.createTemp('mixstack-batch');
     addTearDown(() => dir.delete(recursive: true));
 
     final runner = MultiExportRunner();
