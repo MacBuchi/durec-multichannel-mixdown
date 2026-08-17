@@ -105,6 +105,35 @@ Natively the values travel as a `Vec<AtomicU32>` so the decode thread still neve
 - **`recent()` truncates from the front.** The entries next to the failure are the ones worth keeping; a report that drops them to make room for start-up is useless.
 - ⚠️ **The pre-filled browser form is a GET.** Its log is capped far shorter than the API path's (`urlLogChars`), because browsers drop long query strings well before GitHub's own limit — and a field id that the issue form does not declare is dropped **without a word**. Both the `log` field and the `Web` platform option had to be added to `.github/ISSUE_TEMPLATE/bug_report.yml`; every report filed from the browser since v0.13.0 had silently lost its platform for exactly that reason.
 
+## The Android emulator (screenshots, on-device tests)
+
+The SDK is **not** at `~/Library/Android/sdk` — Homebrew put it at
+`/opt/homebrew/share/android-commandlinetools`. `adb` and `emulator` are not on
+PATH; export `ANDROID_HOME` and prepend `$ANDROID_HOME/emulator` and
+`$ANDROID_HOME/platform-tools` first, or nothing below works. The AVD
+`Pixel_7_Pro_API36` exists (arm64-v8a, android-36.1, google_apis) and is the
+right profile; start your own instance on a non-default port
+(`-port 5560`) so the user's is never commandeered.
+
+- ⚠️ **Never `-no-window`.** The app installs, `MainActivity` launches, and the
+  activity exits immediately — logcat says only `Activity top resumed state
+  loss timeout … isExiting`, with no crash and no Dart output, and the test
+  hangs until the script's 20-minute poll gives up. With a window it launches
+  and stays. Measured 2026-08-17.
+- **A run must not be attached to a tool call that can be reaped.** The device
+  branch of `make_screenshots.sh` backgrounds `flutter test` and polls its log;
+  when the enclosing shell dies the script is cut off mid-poll and reports
+  neither success nor failure. Detach with `nohup … & disown` and poll the log
+  file instead.
+- **Still unresolved as of 2026-08-17:** even with a window and detached, the
+  Android screenshot run never reaches `SCREENSHOT_DIR` — the harness hangs
+  after `Installing …`, and the first attempt failed outright with `Failed to
+  start Dart Development Service`. `--no-dds` did not help. The macOS run is
+  unaffected. Whoever picks this up next: check whether a plain
+  `flutter run -d emulator-5560` attaches at all before touching the script.
+- The AVD carries other projects' apps (PilzBuddy was installed on it), so it
+  is shared state — do not assume a clean device.
+
 ## Documentation & screenshots
 
 User docs live in `docs/GUIDE.md` (annotated walkthrough) and README. Screenshots are generated, never hand-made: `tool/make_screenshots.sh` (desktop) and `tool/make_screenshots.sh -d <emulator-id>` (Android phone shots; boots nothing itself — start an emulator first, never commandeer one the user is working on). The integration test's SCREENSHOTS mode renders every screen from the doc fixture and dumps per-control marker rects from the live widget tree; `tool/annotate_screenshots.py` (pillow) draws the numbered callouts, and its stdout legends feed the numbered lists in GUIDE.md — regenerate both together after UI changes. Local Android debug builds skip the x86 ABIs via `CARGOKIT_NO_EMULATOR_ABIS` (cargokit patch; LAME's configure breaks cross-compiling i686 on Apple Silicon). Housekeeping treats `docs/`, `*.md`, `.github/`, `engine/examples`, `engine/tests`, `integration_test/`, `tool/` as non-shipping.
