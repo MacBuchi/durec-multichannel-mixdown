@@ -215,7 +215,7 @@ session):
 
 - **💡 Request a feature or report a bug** — opens a short dialog (Feature or
   Bug, plus a text field). Submitting files a GitHub issue directly in the
-  [project repo](https://github.com/MacBuchi/durec-multichannel-mixdown/issues),
+  [project repo](https://github.com/MacBuchi/mixstack/issues),
   pre-tagged and pre-filled with your app version and platform. On builds
   without the issue token it opens the pre-filled issue form in your browser
   instead — same result, one extra click.

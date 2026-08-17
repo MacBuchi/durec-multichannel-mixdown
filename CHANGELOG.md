@@ -5,6 +5,16 @@ All notable changes to Mixstack. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.20.3] – 2026-08-18
+
+### Fixed
+
+- **The links inside the app point at the right place again.** The project
+  moved to a new address to match the app's name. Links to the project itself
+  keep working from anywhere, but the browser version and the privacy notice
+  moved with it — if you had the browser version bookmarked, it now lives at
+  https://macbuchi.github.io/mixstack/
+
 ## [0.20.2] – 2026-08-17
 
 ### Changed
@@ -544,55 +554,56 @@ MP3 export.
 - **Listen while you mix**, with meters for level, loudness and how well the
   two sides of the stereo image agree — plus a waveform on every track.
 
-[0.20.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.2
-[0.20.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.1
-[0.20.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.0
-[0.19.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.19.0
-[0.18.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.3
-[0.18.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.2
-[0.18.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.1
-[0.18.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.0
-[0.17.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.17.0
-[0.16.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.16.0
-[0.15.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.15.0
-[0.14.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.14.0
-[0.13.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.3
-[0.13.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.2
-[0.13.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.1
-[0.13.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.13.0
-[0.12.16]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.16
-[0.12.15]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.15
-[0.12.14]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.14
-[0.12.13]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.13
-[0.12.12]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.12
-[0.12.11]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.11
-[0.12.10]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.10
-[0.12.9]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.9
-[0.12.8]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.8
-[0.12.7]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.7
-[0.12.6]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.6
-[0.12.5]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.5
-[0.12.4]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.4
-[0.12.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.3
-[0.12.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.2
-[0.12.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.1
-[0.12.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.12.0
-[0.11.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.11.1
-[0.11.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.11.0
-[0.10.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.10.0
-[0.9.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.9.0
-[0.8.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.8.2
-[0.8.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.8.1
-[0.8.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.8.0
-[0.7.4]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.7.4
-[0.7.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.7.3
-[0.7.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.7.2
-[0.7.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.7.1
-[0.7.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.7.0
-[0.6.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.6.2
-[0.6.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.6.1
-[0.6.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.6.0
-[0.5.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.5.1
-[0.5.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.5.0
-[0.4.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.4.0
-[0.3.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.3.0
+[0.20.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.3
+[0.20.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.2
+[0.20.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.1
+[0.20.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.0
+[0.19.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.19.0
+[0.18.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.18.3
+[0.18.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.18.2
+[0.18.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.18.1
+[0.18.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.18.0
+[0.17.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.17.0
+[0.16.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.16.0
+[0.15.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.15.0
+[0.14.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.14.0
+[0.13.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.13.3
+[0.13.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.13.2
+[0.13.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.13.1
+[0.13.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.13.0
+[0.12.16]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.16
+[0.12.15]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.15
+[0.12.14]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.14
+[0.12.13]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.13
+[0.12.12]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.12
+[0.12.11]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.11
+[0.12.10]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.10
+[0.12.9]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.9
+[0.12.8]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.8
+[0.12.7]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.7
+[0.12.6]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.6
+[0.12.5]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.5
+[0.12.4]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.4
+[0.12.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.3
+[0.12.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.2
+[0.12.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.1
+[0.12.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.12.0
+[0.11.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.11.1
+[0.11.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.11.0
+[0.10.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.10.0
+[0.9.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.9.0
+[0.8.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.8.2
+[0.8.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.8.1
+[0.8.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.8.0
+[0.7.4]: https://github.com/MacBuchi/mixstack/releases/tag/v0.7.4
+[0.7.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.7.3
+[0.7.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.7.2
+[0.7.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.7.1
+[0.7.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.7.0
+[0.6.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.6.2
+[0.6.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.6.1
+[0.6.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.6.0
+[0.5.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.5.1
+[0.5.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.5.0
+[0.4.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.4.0
+[0.3.0]: https://github.com/MacBuchi/mixstack/releases/tag/v0.3.0
