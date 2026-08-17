@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datenschutzerklärung — Mixstack</title>
+<style>
+  :root {
+    --ground: #F5F7FA;
+    --surface: #FFFFFF;
+    --sunk: #ECF0F5;
+    --ink: #131A24;
+    --muted: #4F5B6B;
+    --faint: #78838F;
+    --rule: #DAE1E9;
+    --teal: #16607F;
+    --warn: #9A4419;
+    --warn-soft: #F8E8DF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #10141C;
+      --surface: #18202B;
+      --sunk: #141A23;
+      --ink: #E6ECF2;
+      --muted: #9EA9B7;
+      --faint: #7E8895;
+      --rule: #2A3341;
+      --teal: #6BC3E8;
+      --warn: #DE9163;
+      --warn-soft: #2A1C14;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65; font-size: 17px;
+  }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+  h1 { font-size: 2rem; line-height: 1.15; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.25rem; margin: 2.75rem 0 .75rem; letter-spacing: -.01em; }
+  h3 { font-size: 1rem; margin: 1.75rem 0 .5rem; }
+  p, li { color: var(--muted); }
+  p { margin: 0 0 1rem; }
+  strong { color: var(--ink); }
+  a { color: var(--teal); }
+  .stand { color: var(--faint); font-size: .9rem; margin-bottom: 2rem; }
+  .box {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 3px solid var(--teal); border-radius: 0 8px 8px 0;
+    padding: 1rem 1.15rem; margin: 1.25rem 0;
+  }
+  .box.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .box p:last-child { margin-bottom: 0; }
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); margin: 1.25rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: .65rem .85rem; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--muted); }
+  tbody tr:last-child td { border-bottom: none; }
+  th { background: var(--sunk); color: var(--ink); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+  ul { margin: 0 0 1rem; padding-left: 1.2rem; }
+  li { margin-bottom: .4rem; }
+  code { background: var(--sunk); border: 1px solid var(--rule); border-radius: 4px; padding: .05em .35em; font-size: .88em; }
+  footer { margin-top: 4rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); color: var(--faint); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Datenschutzerklärung</h1>
+<p class="stand">Mixstack · Stand: 17. August 2026</p>
+
+<h2>Verantwortlicher</h2>
+<p>
+  Marcus Bucher<br>
+  E-Mail: <a href="mailto:macbuchi.apps@gmail.com">macbuchi.apps@gmail.com</a>
+</p>
+<p>
+  Mixstack ist ein privates Projekt ohne Gewinnabsicht: keine Werbung, keine
+  In-App-Käufe, keine Bezahlfunktionen.
+</p>
+
+<h2>Der kurze Überblick</h2>
+<p>
+  Mixstack mischt vielkanalige WAV-Aufnahmen zu einer Stereodatei. Die
+  gesamte Verarbeitung — Lesen, Mischen, Mastern, Exportieren — passiert auf
+  deinem Gerät. Es gibt keinen Server, kein Konto, keine Anmeldung, keine
+  Werbung, kein Tracking und keine Analyse-SDKs.
+</p>
+<div class="box">
+  <p>
+    <strong>Die Fassung aus dem Google Play Store stellt überhaupt keine
+    Netzwerkverbindung her.</strong> Sie enthält weder eine Update-Prüfung
+    noch eine direkte Übermittlung von Rückmeldungen. Alles Weitere auf
+    dieser Seite über Netzwerkverbindungen betrifft die übrigen Fassungen.
+  </p>
+</div>
+
+<h2>Deine Aufnahmen</h2>
+<p>
+  <strong>Deine Audiodateien verlassen dein Gerät nicht.</strong> Mixstack
+  liest sie dort, wo du sie ausgewählt hast, und schreibt den fertigen Mix
+  dorthin, wo du ihn hin haben willst. Nichts davon wird hochgeladen,
+  ausgewertet oder weitergegeben — es gibt keine Stelle, an die das gehen
+  könnte.
+</p>
+<p>
+  Deine Mischeinstellungen je Aufnahme (Fader, Panorama, EQ, Trim und so
+  weiter) werden im Speicherbereich der App abgelegt, damit sie beim nächsten
+  Öffnen wieder da sind. Auch das bleibt auf dem Gerät. Im Browser übernimmt
+  das die lokale Datenbank des Browsers (IndexedDB); die Aufnahme selbst kann
+  ein Browser nicht behalten, sie wird nach einem Neuladen erneut ausgewählt.
+</p>
+
+<h2>Wann die App ins Netz geht</h2>
+<p>
+  In den Fassungen außerhalb des Play Stores gibt es genau zwei Anlässe, und
+  beide sind unten einzeln beschrieben. Sonst arbeitet die App offline.
+</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Anlass</th><th>Was übertragen wird</th><th>An wen</th><th>Grundlage</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Prüfung auf eine neue Version</td>
+      <td>Eine Abfrage der Versionsliste. Personenbezogen ist dabei allein die
+          IP-Adresse, die jede Internetverbindung technisch mitführt.</td>
+      <td>GitHub</td>
+      <td>Art. 6 Abs. 1 lit. f DSGVO — berechtigtes Interesse daran, dass eine
+          aktuelle Fassung genutzt wird</td>
+    </tr>
+    <tr>
+      <td>Rückmeldung senden (nur wenn du sie schreibst und abschickst)</td>
+      <td>Dein Text, die App-Version, die Plattform; bei einem Fehlerbericht
+          zusätzlich die letzten Protokollzeilen der App</td>
+      <td>GitHub</td>
+      <td>Art. 6 Abs. 1 lit. a DSGVO — deine Einwilligung durch das Absenden</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="box warn">
+  <p>
+    <strong>Eine Rückmeldung wird öffentlich.</strong> Sie landet als Eintrag
+    im offenen Fehlerverzeichnis des Projekts auf GitHub und ist damit für
+    jeden lesbar und über Suchmaschinen auffindbar. Schreib dort nichts
+    hinein, was nicht öffentlich stehen soll — insbesondere keine Namen,
+    keine Adressen und nichts über Dritte.
+  </p>
+</div>
+<p>
+  Bei einem Fehlerbericht hängen die letzten Protokollzeilen der App an. Sie
+  sollen zeigen, was schiefgegangen ist. <strong>Dateipfade werden dabei um
+  den Benutzernamen gekürzt</strong>, damit dieser nicht mitgeht; Dateinamen
+  deiner Aufnahmen können darin allerdings vorkommen. Die App sagt dir vor dem
+  Absenden, dass das Protokoll anhängt. Bei einem Verbesserungsvorschlag wird
+  überhaupt kein Protokoll angehängt.
+</p>
+<p>
+  In der Play-Store-Fassung und im Browser wird eine Rückmeldung nicht von der
+  App übertragen: Es öffnet sich ein vorausgefülltes Formular in deinem
+  Browser, das <em>du</em> selbst absendest — oder eben nicht.
+</p>
+
+<h2>Was ausdrücklich nicht erhoben wird</h2>
+<ul>
+  <li><strong>Keine Analyse, keine Statistik, kein Absturzdienst.</strong>
+      Mixstack enthält keine Bibliotheken von Google Analytics, Firebase,
+      Crashlytics, Sentry oder Vergleichbarem.</li>
+  <li><strong>Keine Werbe-IDs</strong> und keine Weitergabe zu Werbezwecken.</li>
+  <li><strong>Kein Standort</strong>, keine Kontakte, kein Kalender, kein
+      Mikrofon. Die App fordert diese Berechtigungen nicht an.</li>
+  <li><strong>Kein Konto</strong>, keine Anmeldung, keine E-Mail-Adresse.</li>
+  <li><strong>Kein Profil über dich.</strong> Es gibt keinen Server, auf dem
+      eines entstehen könnte.</li>
+</ul>
+
+<h2>Welche Berechtigungen die App braucht</h2>
+<p>
+  Auf Android fordert Mixstack nur an, was es zum Arbeiten braucht:
+</p>
+<ul>
+  <li><strong>Zugriff auf die von dir gewählten Dateien und Ordner.</strong>
+      Du wählst sie über die Dateiauswahl des Systems aus; die App bekommt
+      Zugriff genau darauf und auf nichts sonst.</li>
+  <li><strong>Vordergrunddienst und Mitteilungen.</strong> Ein Export
+      mehrerer Gigabyte dauert Minuten. Der Dienst hält ihn am Leben, wenn du
+      die App in den Hintergrund schiebst, und die Mitteilung zeigt den
+      Fortschritt.</li>
+  <li><strong>Internetzugriff</strong> — in der Play-Store-Fassung ungenutzt,
+      siehe oben.</li>
+</ul>
+
+<h2>Wer sonst beteiligt ist</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Stelle</th><th>Wofür</th><th>Was dort anfällt</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GitHub, Inc. (Microsoft)</td>
+      <td>Versionsprüfung, Rückmeldungen als öffentliche Einträge, und die
+          Auslieferung der Browser-Fassung über GitHub&nbsp;Pages</td>
+      <td>Zugriffsprotokolle mit IP-Adresse, wie bei jedem Webserver.
+          <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">Datenschutzerklärung von GitHub</a></td>
+    </tr>
+    <tr>
+      <td>Google Ireland Ltd.</td>
+      <td>Verteilung und Aktualisierung der App über den Play Store</td>
+      <td>Was Google im Rahmen des Stores selbst erhebt. Darauf hat der
+          Entwickler keinen Einfluss und keinen Zugriff auf personenbezogene
+          Daten daraus.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<p>
+  Auf den Rechner-Fassungen (macOS, Windows) ist keine dieser Stellen
+  beteiligt, solange keine Rückmeldung gesendet wird.
+</p>
+
+<h2>Speicherdauer</h2>
+<ul>
+  <li><strong>Auf deinem Gerät:</strong> so lange, bis du die App
+      deinstallierst oder die Daten löschst. Im Browser: bis du die
+      Browserdaten für diese Seite löschst.</li>
+  <li><strong>Eine abgesendete Rückmeldung</strong> bleibt öffentlich stehen,
+      bis sie gelöscht wird. Schreib mir, wenn eine verschwinden soll.</li>
+</ul>
+
+<h2>Deine Rechte</h2>
+<p>
+  Dir stehen nach der DSGVO Auskunft (Art. 15), Berichtigung (Art. 16),
+  Löschung (Art. 17), Einschränkung (Art. 18), Datenübertragbarkeit (Art. 20)
+  und Widerspruch (Art. 21) zu. Eine erteilte Einwilligung kannst du
+  jederzeit für die Zukunft widerrufen. Außerdem kannst du dich bei einer
+  Datenschutz-Aufsichtsbehörde beschweren.
+</p>
+<div class="box">
+  <p>
+    <strong>In der Praxis ist wenig zu tun:</strong> Es gibt keine
+    Nutzerkonten und keine Datenbank über dich. Was auf deinem Gerät liegt,
+    löschst du selbst — durch Deinstallieren der App oder Leeren der
+    Browserdaten. Bleibt allein eine abgesendete Rückmeldung; für deren
+    Löschung genügt eine Mail an die Adresse oben.
+  </p>
+</div>
+
+<h2>Kinder</h2>
+<p>
+  Mixstack richtet sich nicht an Kinder und erhebt wissentlich keine Daten
+  von ihnen.
+</p>
+
+<h2>Änderungen</h2>
+<p>
+  Ändert sich, was die App erhebt oder wohin sie verbindet, wird diese Seite
+  mit derselben Änderung aktualisiert. Das Datum oben nennt den Stand.
+</p>
+
+<footer>
+  <p><a href="./">Zurück zu Mixstack</a></p>
+</footer>
+
+</main>
+</body>
+</html>

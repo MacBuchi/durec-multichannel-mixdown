@@ -39,7 +39,7 @@ else
   done
   [ -n "$DEVDIR" ] || { echo "no SCREENSHOT_DIR in test output"; tail -20 "$LOG"; exit 1; }
   PULLED=$(mktemp -d)
-  adb -s "$DEVICE" shell "run-as de.macbuchi.durecmix sh -c 'cd $DEVDIR && tar cf - .'" | tar xf - -C "$PULLED"
+  adb -s "$DEVICE" shell "run-as de.macbuchi.mixstack sh -c 'cd $DEVDIR && tar cf - .'" | tar xf - -C "$PULLED"
   wait "$TESTPID" || { echo "test failed"; tail -20 "$LOG"; exit 1; }
   SHOTS="$PULLED"
 fi

@@ -143,6 +143,26 @@ const canMasterToReference = true;
 /// Native builds reach the GitHub releases API over HTTP.
 const hasNetwork = true;
 
+/// Set by the `play` product flavour (`--dart-define=PLAY_STORE=true`).
+///
+/// Google Play distributes and updates the app itself, and its Device and
+/// Network Abuse policy forbids an app from installing its own updates —
+/// `REQUEST_INSTALL_PACKAGES` is reserved for apps whose *core* purpose is
+/// installing packages (browsers, file managers, MDM). A downmixer that ships
+/// the installer path gets rejected, so the `play` flavour strips the
+/// permission from the merged manifest and this flag closes the code paths
+/// that would otherwise reach for it.
+const isPlayStoreBuild = bool.fromEnvironment('PLAY_STORE');
+
+/// In-app APK download + handover to the system installer. Android only, and
+/// never in a Play build — see [isPlayStoreBuild].
+bool get canSelfUpdate => isAndroidPlatform && !isPlayStoreBuild;
+
+/// Whether to poll GitHub for a newer release at all. A Play build must not:
+/// Play is the update channel there, and a banner pointing at an off-store
+/// download is both wrong and policy-adjacent.
+const canCheckForUpdates = !isPlayStoreBuild;
+
 /// Native builds render straight to the chosen file, so the streamed
 /// download path is never taken here.
 RenderOutput createDownloadOutput(String filename) =>

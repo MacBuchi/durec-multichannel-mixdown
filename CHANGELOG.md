@@ -1,9 +1,34 @@
 # Changelog
 
-All notable changes to DurecMix. Version scheme: `MAJOR.MINOR.PATCH`, kept in
+All notable changes to Mixstack. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 `pubspec.yaml`; every version bump merged to `main` automatically tags,
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
+
+## [0.20.0] – 2026-08-15
+
+### Changed
+
+- **The app is now called Mixstack.** It was DurecMix, and that name claimed
+  more than it should have: DUREC is RME's name for their recorder, not ours
+  to build a product name from — and it was never accurate either, because
+  the engine reads any interleaved multichannel WAV (RIFF, RF64, BW64, at any
+  channel count), whether it came off an RME interface, a Zoom or Sound
+  Devices field recorder, or a multitrack export from a DAW. The recorder is
+  still named where it belongs, in the description of what the app opens.
+- ⚠️ **If you already have the app on Android, this one takes your saved
+  mixes with it.** Android ties an app's storage to its package id, and that
+  id had to change with the name — so the new version installs alongside the
+  old one instead of replacing it. Your takes and their WAV files are
+  untouched, but the mixes stored inside the app do not come along and have
+  to be set up again. Export anything you want to keep first, then remove the
+  old version. A fresh install is unaffected, and so are macOS, Windows, iOS
+  and the browser: they keep everything.
+
+### Added
+
+- **Groundwork for a store release.** Nothing about using the app changes —
+  the store edition simply receives its updates through the store.
 
 ## [0.19.0] – 2026-08-05
 
@@ -190,7 +215,7 @@ MP3 export.
 
 ### Added
 
-- **DurecMix now runs in a browser.** Open a recording from the DUREC stick,
+- **Mixstack now runs in a browser.** Open a recording from the DUREC stick,
   see all its tracks, mix, listen, and export a stereo file — no install, on
   a tablet too. The same audio engine as the app does the work, and the
   exported file is bit-for-bit what the installed app would have produced.
@@ -232,48 +257,46 @@ MP3 export.
 
 ### Fixed
 
-- **Android playback works again on the modern audio stack.** The app now
-  hands the Android context to the audio engine at startup, which the AAudio
-  backend of cpal 0.18 requires — missing it was the crash behind
-  0.12.10–0.12.12. An on-device playback regression test guards this.
-
-### Changed
-
-- Audio backend back on cpal 0.18 (0.12.13 had reverted to 0.16).
+- **Playing a mix on Android works again — properly this time.** Versions
+  0.12.10 to 0.12.12 crashed the moment you pressed play, because the audio
+  part of the app was never told which Android it was running on. It is told
+  now, and a test that runs on a real phone makes sure it stays that way. The
+  quick workaround from 0.12.13 is gone; the app is back on the current audio
+  system.
 
 ## [0.12.13] – 2026-07-22
 
 ### Fixed
 
-- **Play works again on Android:** reverted the audio backend to cpal 0.16 —
-  since 0.12.10 every play tap crashed the app.
+- **Pressing play no longer crashes the app on Android.** Since 0.12.10 it
+  did, every time. This is the quick fix — the real one follows in 0.12.14.
 
 ## [0.12.12] – 2026-07-21
 
 ### Changed
 
-- Internal: the whole codebase is reformatted (tall style) and CI enforces it.
-  No user-facing change.
+- Housekeeping only — nothing you can see or notice.
 
 ## [0.12.11] – 2026-07-21
 
 ### Fixed
 
-- **Mastering reference files decode again** after the 0.12.10 dependency
-  update: the reference decoder migrated to Symphonia 0.6.
+- **Reference songs can be read again.** The update in 0.12.10 had broken
+  it, so mastering to a reference refused to start.
 
 ## [0.12.10] – 2026-07-21
 
 ### Changed
 
-- Dependency updates (cpal 0.18, quick-xml) and Dependabot enabled. **This
-  release broke Android playback** — fixed in 0.12.13/0.12.14.
+- Updated the building blocks the app is made of. ⚠️ **This release broke
+  playback on Android** — repaired in 0.12.13 and properly in 0.12.14.
 
 ## [0.12.9] – 2026-07-20
 
 ### Added
 
-- **Open-source licenses in the About dialog,** Rust crates included.
+- **The licences of everything the app is built from** are now readable
+  inside the app, under About.
 
 ## [0.12.8] – 2026-07-20
 
@@ -305,26 +328,26 @@ MP3 export.
 
 ### Fixed
 
-- **Android in-app update installs again:** the app crashed right after the
-  update download because a FileProvider declaration was missing.
+- **Updating on Android no longer fails at the last moment.** The app closed
+  itself right at the end of an update instead of finishing it.
 
 ## [0.12.3] – 2026-07-20
 
 ### Fixed
 
-- **Update check and feedback work on macOS:** the sandbox now allows
-  outbound network.
+- **On macOS the app can reach the internet again**, so checking for a newer
+  version and sending a wish or a bug report actually go through.
 
 ### Added
 
-- MIT license and acknowledgements (Matchering clean-room reimplementation,
-  third-party notices).
+- The project's licence and its acknowledgements — including where the
+  reference-mastering idea comes from.
 
 ## [0.12.2] – 2026-07-20
 
 ### Changed
 
-- Internal code-health cleanup (issues #45–#51).
+- Housekeeping only — nothing you can see or notice.
 
 ## [0.12.1] – 2026-07-19
 
@@ -344,8 +367,8 @@ MP3 export.
 
 ### Added
 
-- **User guide** with annotated screenshots, generated by a reproducible
-  pipeline.
+- **A user guide** that walks through every screen, with numbered
+  screenshots.
 
 ## [0.11.0] – 2026-07-19
 
@@ -369,35 +392,39 @@ MP3 export.
 
 ### Added
 
-- **Reference mastering:** match the export to a reference track
-  (WAV/FLAC/MP3/OGG) in loudness, tonality and stereo width — a clean-room
-  Rust reimplementation of the Matchering approach.
+- **Reference mastering.** Point the app at a song you like — any WAV, FLAC,
+  MP3 or OGG — and your export is matched to it: how loud it is, how bright or
+  warm it sounds, and how wide the stereo image sits.
 
 ### Fixed
 
-- **FLAC exports pass strict decoders:** STREAMINFO declared a wrong minimum
-  block size, so some decoders refused the files.
+- **Exported FLAC files are accepted everywhere now.** They carried a wrong
+  entry in their header, and stricter players refused to open them.
 
 ## [0.8.2] – 2026-07-18
 
 ### Fixed
 
-- UX-walkthrough fixes: analysis cache, visible export target, probe resume,
-  collision-safe output names.
+- Four annoyances from a walk through the app: switching between takes no
+  longer re-analyses what was already analysed, the loudness and format you
+  are about to export to are visible instead of hidden in a menu, the file
+  list carries on scanning after an export, and a second export no longer
+  silently overwrites the first.
 
 ## [0.8.1] – 2026-07-17
 
 ### Added
 
-- Browser selection mode and editable output names.
+- **Picking several takes is its own mode now**, so the file list reads as a
+  list again — and you can rename each file before exporting it.
 
 ## [0.8.0] – 2026-07-17
 
 ### Added
 
-- **Multi-file export:** tick several takes in the browser and render them
-  all with the current mix into a Mixdown/ folder — with the system share
-  sheet on Android.
+- **Export several takes in one go.** Tick them in the file list and the
+  current mix is applied to each one, all landing in a `Mixdown` folder. On
+  Android you can hand the results straight to another app afterwards.
 
 ## [0.7.4] – 2026-07-16
 
@@ -415,9 +442,10 @@ MP3 export.
 
 ### Fixed
 
-- **Stable Android release signing:** downloaded APKs update the existing
-  installation instead of failing with a signature mismatch. Final app id
-  de.macbuchi.durecmix — this release required a one-time reinstall.
+- **Updating on Android works from here on.** Until now every update refused
+  to install over the existing copy, and the app had to be removed first.
+  Getting to this version still needs that once — after it, updates simply
+  replace what is there.
 
 ## [0.7.1] – 2026-07-16
 
@@ -443,54 +471,67 @@ MP3 export.
 
 ### Fixed
 
-- A/B snapshot overwrite is always possible.
+- The A and B mix snapshots can always be overwritten, not only sometimes.
 
 ## [0.6.0] – 2026-07-12
 
 ### Added
 
-- **Batch export queue** (desktop): several targets/formats in one run.
-- **iOS Files picker** with in-place security-scoped access.
-- **Phone layout:** overflow-menu app bar and two-row transport.
-- **Background export:** Android foreground service, iOS background task.
-- Per-pair unlink for stereo-pair linking.
+- **Several exports in one run** on the desktop — different loudness targets
+  and formats queued up, one after the other.
+- **Opening recordings on iOS** through the Files app, read where they lie
+  rather than copied first.
+- **A layout made for phones:** the controls that do not fit move into a menu,
+  and the transport sits on two rows.
+- **Exporting continues when you leave the app**, with the progress shown as
+  a notification.
+- Linked stereo pairs can be unlinked one pair at a time.
 
 ### Changed
 
-- Releases are tagged and published automatically on version bump.
+- New versions are published automatically, so a fix reaches you as soon as
+  it is finished.
 
 ## [0.5.1] – 2026-07-12
 
 ### Added
 
-- **A/B mix snapshots:** store and recall two mixes from the app bar.
-- **Stereo-pair linking** (default on) and monitor-feed auto-exclusion on
-  fresh sessions.
+- **Two mixes side by side.** Store one as A and one as B and flip between
+  them to compare.
+- **Stereo pairs move together** — a fader, a mute or an EQ on one side
+  applies to both, and the panorama mirrors.
 
 ## [0.5.0] – 2026-07-12
 
 ### Added
 
-- **Android SAF support:** open, analyze, play and export directly via file
-  descriptors — no copying of multi-GB files.
+- **Recordings open straight off a USB stick on Android**, without being
+  copied first. A take of several gigabytes would otherwise have to be
+  duplicated onto the phone before anything could happen.
 
 ## [0.4.0] – 2026-07-12
 
 ### Added
 
-- **FLAC and MP3 export** (streaming).
-- **Trim in/out with fades, BPM detection** and export filename templating.
+- **Export as FLAC or MP3**, not only WAV.
+- **Trim the start and the end**, with a short fade so the cut is not audible.
+- **The tempo is detected** and can go into the file name, along with the take
+  name, the loudness target and the date.
 
 ## [0.3.0] – 2026-07-12
 
 ### Added
 
-- **First release. Engine core:** streaming WAV/RF64/BW64 reader, iXML track
-  names, constant-power pan, mix bus (solo/mute/polarity/in-mix), two-pass
-  peak-normalised render.
-- **Live playback** with meters (peak, LUFS, correlation), streaming
-  waveforms and the full mixer UI.
+- **The first version.** Open a multichannel WAV recording, see every track
+  with the name the recorder gave it, and mix: fader, panorama, polarity,
+  solo, mute, and a switch for whether a track belongs in the mix at all. The
+  recording is read in pieces instead of being loaded whole, so a take of
+  several gigabytes opens without filling the memory. The result is written
+  as a stereo WAV, levelled so the loudest peak sits just under the maximum.
+- **Listen while you mix**, with meters for level, loudness and how well the
+  two sides of the stereo image agree — plus a waveform on every track.
 
+[0.20.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.0
 [0.19.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.19.0
 [0.18.3]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.3
 [0.18.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.18.2

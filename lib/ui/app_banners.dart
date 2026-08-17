@@ -27,11 +27,15 @@ class _AppBannersState extends State<AppBanners> {
   @override
   void initState() {
     super.initState();
-    unawaited(
-      UpdateCheck.check().then((info) {
-        if (mounted && info != null) setState(() => _update = info);
-      }),
-    );
+    // A Play build is updated by Play — polling GitHub there would offer the
+    // user a download the store already handles (see [canCheckForUpdates]).
+    if (canCheckForUpdates) {
+      unawaited(
+        UpdateCheck.check().then((info) {
+          if (mounted && info != null) setState(() => _update = info);
+        }),
+      );
+    }
   }
 
   Future<void> _openUpdateDialog(UpdateInfo info) {
@@ -142,7 +146,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   double _progress = 0;
   StreamSubscription<ApkInstallEvent>? _subscription;
 
-  bool get _inAppInstall => isAndroidPlatform && widget.info.apkUrl != null;
+  bool get _inAppInstall => canSelfUpdate && widget.info.apkUrl != null;
 
   @override
   void dispose() {
@@ -153,7 +157,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   void _startAndroidInstall() {
     setState(() => _phase = _UpdatePhase.downloading);
     try {
-      _subscription = installApk(widget.info.apkUrl!, 'durecmix-update.apk')
+      _subscription = installApk(widget.info.apkUrl!, 'mixstack-update.apk')
           .listen(
             (event) {
               if (!mounted) return;
@@ -224,7 +228,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
               ),
               _UpdatePhase.installing => const Text(
                 'Download finished — Android now asks whether to update '
-                'DurecMix. Just confirm!',
+                'Mixstack. Just confirm!',
               ),
               _UpdatePhase.error => const Text(
                 'The direct download failed. You can load the update via '

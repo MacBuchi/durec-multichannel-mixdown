@@ -76,18 +76,18 @@ jobs:
           - name: macOS
             os: macos-14
             build: flutter build macos --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
-            package: ditto -c -k --keepParent build/macos/Build/Products/Release/durecmix.app durecmix-${{ needs.version.outputs.tag }}-macos.zip
-            artifact: durecmix-${{ needs.version.outputs.tag }}-macos.zip
+            package: ditto -c -k --keepParent build/macos/Build/Products/Release/Mixstack.app mixstack-${{ needs.version.outputs.tag }}-macos.zip
+            artifact: mixstack-${{ needs.version.outputs.tag }}-macos.zip
           - name: Windows
             os: windows-latest
             build: flutter build windows --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
-            package: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath durecmix-${{ needs.version.outputs.tag }}-windows.zip
-            artifact: durecmix-${{ needs.version.outputs.tag }}-windows.zip
+            package: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath mixstack-${{ needs.version.outputs.tag }}-windows.zip
+            artifact: mixstack-${{ needs.version.outputs.tag }}-windows.zip
           - name: Android
             os: ubuntu-latest
             build: flutter build apk --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
-            package: cp build/app/outputs/flutter-apk/app-release.apk durecmix-${{ needs.version.outputs.tag }}-android.apk
-            artifact: durecmix-${{ needs.version.outputs.tag }}-android.apk
+            package: cp build/app/outputs/flutter-apk/app-release.apk mixstack-${{ needs.version.outputs.tag }}-android.apk
+            artifact: mixstack-${{ needs.version.outputs.tag }}-android.apk
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -156,5 +156,5 @@ jobs:
           tag_name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
           files: |
-            durecmix-*.zip
-            durecmix-*.apk
+            mixstack-*.zip
+            mixstack-*.apk

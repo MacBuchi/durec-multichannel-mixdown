@@ -27,7 +27,7 @@ class AppSettings {
   /// Live theme selection: the app listens, the settings dialog writes.
   ///
   /// Static and eagerly initialised because the widget tree is built
-  /// synchronously (`DurecMixApp` takes no settings argument) while [load]
+  /// synchronously (`MixstackApp` takes no settings argument) while [load]
   /// is async — the app starts on the system default and [load] applies the
   /// stored choice before the first frame in `main`.
   static final ValueNotifier<ThemeMode> themeMode = ValueNotifier(

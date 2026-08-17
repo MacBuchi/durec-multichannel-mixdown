@@ -1,0 +1,95 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- The Play Store manifest. Identical to AndroidManifest.xml except that
+         the in-app APK update is gone — Google Play distributes and updates
+         the app itself, and its Device and Network Abuse policy forbids an app
+         from installing its own updates. REQUEST_INSTALL_PACKAGES is reserved
+         for apps whose *core* purpose is installing packages (browsers, file
+         managers, MDM, backup/restore); a downmixer that declares it is
+         rejected, and since 2022-09-29 even submitting it demands a sensitive-
+         permission declaration with a demo video.
+
+         Selected by build.gradle.kts when the build carries the dart-define
+         PLAY_STORE=true (or the Gradle property play-store=true), which is the
+         same flag that closes the Dart-side paths (`canSelfUpdate`).
+
+         Whatever is added to AndroidManifest.xml has to be added here too —
+         test/android_manifest_test.dart fails when the two drift apart. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Foreground service keeps multi-minute renders alive when the app
+         goes to the background (progress shows as a notification). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- The ota_update plugin declares these in ITS manifest, so the merger
+         adds them to every build that has the plugin on the classpath —
+         removing our own declaration is not enough. INSTALL_PACKAGES in
+         particular is a signature|privileged permission that a normal app can
+         never hold, and its mere presence is a review flag. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove"/>
+    <!-- Implicitly injected — it carries no source in the merger blame report
+         and follows from the WRITE_EXTERNAL_STORAGE above. The app reads every
+         recording through SAF (per-URI grants from ACTION_OPEN_DOCUMENT_TREE),
+         which never needed it, and at targetSdk 36 it has no runtime effect at
+         all. What it does do is put "Photos and media" on the store listing of
+         an audio mixer. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
+
+    <application
+        android:label="Mixstack"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".ExportService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <!-- No ota_update FileProvider here: nothing downloads an APK in a Play
+             build, and an exported-looking provider for an installer path is
+             exactly what a review flags. -->
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Still needed without the installer: the feedback dialog opens the
+             pre-filled GitHub issue form in a browser, and package visibility
+             on Android 11+ hides the browser without this. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+</manifest>

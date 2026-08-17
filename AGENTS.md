@@ -1,8 +1,10 @@
-# Agent Instructions — DurecMix
+# Agent Instructions — Mixstack
 
-Cross-platform (macOS/Windows/Android/iOS), fully offline downmixer for RME DUREC multichannel WAV recordings. Successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer) (Python, stays untouched). The approved rework plan with the full audio-engineering gap analysis lives in `docs/PLAN.md` — read it before large changes.
+Cross-platform (macOS/Windows/Android/iOS/web), fully offline mixdown of multichannel WAV recordings. Successor of [MultiChannelWavMixer](https://github.com/MacBuchi/MultiChannelWavMixer) (Python, stays untouched). The approved rework plan with the full audio-engineering gap analysis lives in `docs/PLAN.md` — read it before large changes.
 
-Cross-project guidelines (architecture, state, testing, CI, signing, in-app update/feedback) live in the DocuHub at `/Volumes/MacStore/Programming/ProgrammingGuidelineDocuHub/`. This file covers what DurecMix does differently or additionally.
+**Renamed from DurecMix in v0.20.0** (`docs/PLAN-PLAYSTORE.md` §1 carries the reasoning). The engine reads any interleaved RIFF/RF64/BW64 at any channel count, so the name no longer claims one vendor's recorder. RME and DUREC may still be **named descriptively** — "for recordings from the RME DUREC" is referential use under § 23 Abs. 1 Nr. 3 MarkenG / Art. 14 Abs. 1 lit. c UMV — but never as part of the product name, an identifier or a store title. What deliberately kept the old name: the Dart package `durecmix` (invisible, in every import), the Rust crates `durecmix-engine`/`rust_lib_durecmix`, the `.durecmix.json` session suffix and the web IndexedDB name (both would orphan saved mixes), the `durecmix/saf` and `durecmix/files` method channels, `DURECMIX_FEEDBACK_TOKEN` (a GitHub secret name), the macOS bundle id, and the repository itself.
+
+Cross-project guidelines (architecture, state, testing, CI, signing, in-app update/feedback) live in the DocuHub at `/Volumes/MacStore/Programming/ProgrammingGuidelineDocuHub/`. This file covers what Mixstack does differently or additionally.
 
 ## Architecture rules
 
@@ -97,7 +99,7 @@ Natively the values travel as a `Vec<AtomicU32>` so the decode thread still neve
 
 `lib/state/debug_log.dart` is the app's **one** logger plus a 200-entry ring buffer; `main.dart` installs `FlutterError.onError` and `PlatformDispatcher.instance.onError` before anything else can fail. Until v0.18.0 there was none of this, and it cost a real diagnosis: when the app vanished on the iPad after eight minutes, nothing distinguished a system kill from a crash.
 
-- **There is no crash service and there should not be one.** DurecMix has no backend at all, which is a documented strength — so the sink is the bug report the user files anyway: `submitFeedback` attaches `DebugLog.recent()` to a **bug** report (never a feature request). That is the DocuHub's route A in its backend-free form.
+- **There is no crash service and there should not be one.** Mixstack has no backend at all, which is a documented strength — so the sink is the bug report the user files anyway: `submitFeedback` attaches `DebugLog.recent()` to a **bug** report (never a feature request). That is the DocuHub's route A in its backend-free form.
 - **Everything that travels goes through `redactPaths`.** The repo is public and the PII rule is explicit: stack traces and log lines may be sent, paths carrying a user name may not. The name segment deliberately runs to the next separator *including spaces* — a Windows home is the display name (`C:\Users\Jane Doe\…`), and stopping at the space published half of it. A test pins that.
 - **Log where an error already reaches the UI**, not everywhere: the sites that set `error =` are exactly the diagnosable ones. `DebugLog.info` is for milestones, not per-frame — the ring is 200 deep and a report wants the span around the failure.
 - **`recent()` truncates from the front.** The entries next to the failure are the ones worth keeping; a report that drops them to make room for start-up is useless.
@@ -112,6 +114,43 @@ User docs live in `docs/GUIDE.md` (annotated walkthrough) and README. Screenshot
 `lib/state/feedback.dart` files GitHub issues; `lib/state/update_check.dart` polls the latest release; `lib/ui/app_banners.dart` renders the two dismissible banners above the mixer (session-only dismissal, PilzBuddy-style — no Supabase). The repo is public, so the update check is tokenless. Feedback uses a fine-grained PAT (this repo only, Issues: read+write) injected at build time via `--dart-define=DURECMIX_FEEDBACK_TOKEN` (release.yml, from the same-named repo secret); **without the secret the app builds fine and falls back to opening the pre-filled issue-form URL in the browser** — so PR/debug builds never carry a token. Issue bodies mirror the `.github/ISSUE_TEMPLATE/*.yml` form sections (Description / App version / Platform) so API- and browser-filed issues look identical. To set up direct filing: create the PAT, add it as secret `DURECMIX_FEEDBACK_TOKEN`; rotate by replacing the secret (no app change). Integration/CI never hits the network — `UpdateCheck.enabled=false` in the test setup. Deps added: `package_info_plus`, `url_launcher`, `ota_update`.
 
 **Android in-app install requires FOUR manifest/Gradle pieces that must stay together — see issue #56, currently incomplete:** `INTERNET` and `REQUEST_INSTALL_PACKAGES` permissions; a `<provider>` for `androidx.core.content.FileProvider` with authority **exactly** `${applicationId}.ota_update_provider`; `android/app/src/main/res/xml/filepaths.xml` containing `<files-path name="ota_update" path="ota_update/"/>` (the plugin writes the APK to internal `files/ota_update/`); and a `<queries>` entry for `VIEW`/`https` so the browser fallback survives Android 11+ package visibility. Core library desugaring is already enabled in `build.gradle.kts` — it is required by the plugin. **Without the FileProvider the app dies with a native `IllegalArgumentException` right after the download completes** — the failure never appears in a debug run, only on a user's first real update (PilzBuddy hit exactly this: MacBuchi/pilzbuddy#21). Guard these with a manifest regression test (see Testing) and verify on a real device before shipping an update-related change.
+
+## The Play Store build (`docs/PLAN-PLAYSTORE.md`)
+
+Android ships through **two** channels now, and they differ in exactly one
+thing: whether the app may install its own updates. `--dart-define=PLAY_STORE=true`
+is the single switch for both halves — Gradle swaps `src/main/AndroidManifest.xml`
+for `AndroidManifest-play.xml`, and Dart gets `isPlayStoreBuild`, `canSelfUpdate`
+and `canCheckForUpdates` in the shim.
+
+- **One flag, not two.** Two separate switches is precisely how you get a build
+  that strips the permission and still offers "Update now" — or the reverse,
+  which is a rejected upload. Gradle prints which manifest it picked, because
+  the failure is otherwise silent until a review weeks later.
+- **Removing our own `REQUEST_INSTALL_PACKAGES` does nothing.** The ota_update
+  plugin declares it — plus `INSTALL_PACKAGES` (signature-level!),
+  `WRITE_EXTERNAL_STORAGE`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` — in
+  *its* manifest, so the merger adds them to any build with the plugin on the
+  classpath. They must be removed with `tools:node="remove"`, and
+  `READ_EXTERNAL_STORAGE` comes along implicitly (no source in the blame
+  report) and has to go too.
+- **Prove it on the build output, not the sources.** `aapt2 dump xmltree` cannot
+  read an AAB (protobuf manifest, "could not identify format of APK"); read
+  `build/app/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml`
+  instead. `test/android_manifest_test.dart` holds the two manifests against
+  each other so a permission added to one but not the other fails a test rather
+  than a release.
+- **`versionCode` is derived from the semver** (0.19.0 → 19000), not from
+  pubspec's `+N` — that has been `+1` since M0 and nothing bumps it. Android
+  tolerates reinstalling the same version code, so the GitHub APK never
+  noticed; Play rejects a reused one, so the **second** release would be the
+  one that fails.
+- **No feedback token in a Play build.** `_token` is a compile-time constant
+  and sits extractable in the shipped bundle, so `submitFeedback` takes the
+  browser-form route there regardless of what the workflow injects.
+- **XML comments may not contain `--`.** Writing the dart-define into a comment
+  makes the merger fail with a bare "Error parsing" and no line number; a test
+  pins it.
 
 ## Release signing (Android)
 

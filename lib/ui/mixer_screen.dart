@@ -348,7 +348,7 @@ class _MixerScreenState extends State<MixerScreen> {
             // Tapping the loaded file's name reopens the browser — the fast
             // path for switching between takes of the same folder.
             title: rec == null
-                ? const Text('DurecMix', style: TextStyle(fontSize: 16))
+                ? const Text('Mixstack', style: TextStyle(fontSize: 16))
                 : Tooltip(
                     message: 'Switch recording',
                     child: InkWell(
@@ -727,8 +727,8 @@ class _MixerScreenState extends State<MixerScreen> {
           else ...[
             Text(
               canPickFolders
-                  ? 'Choose a folder with DUREC recordings'
-                  : 'Choose DUREC recordings',
+                  ? 'Choose a folder with multichannel recordings'
+                  : 'Choose multichannel recordings',
               style: TextStyle(color: AppColors.of(context).dim),
             ),
             const SizedBox(height: 16),

@@ -28,7 +28,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Appearance'), findsOneWidget);
-      expect(find.text('About DurecMix'), findsOneWidget);
+      expect(find.text('About Mixstack'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -63,7 +63,7 @@ void main() {
       expect(find.textContaining('1.7× realtime'), findsOneWidget);
       expect(find.textContaining('430 ms'), findsOneWidget);
       expect(find.textContaining('kept in this browser'), findsOneWidget);
-      expect(find.text('About DurecMix'), findsOneWidget);
+      expect(find.text('About Mixstack'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

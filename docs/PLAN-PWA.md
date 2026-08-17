@@ -1,6 +1,6 @@
-# PLAN-PWA — DurecMix im Browser (Issue #93)
+# PLAN-PWA — Mixstack im Browser (Issue #93)
 
-Ziel: DurecMix ohne App Store zu den Nutzern bringen — vor allem iOS. Eine
+Ziel: Mixstack ohne App Store zu den Nutzern bringen — vor allem iOS. Eine
 PWA auf GitHub Pages erreicht alle Plattformen, kostet nichts und braucht
 weder Apple-Account noch Review. Integration läuft über den Branch
 `dev/pwa`; `main` bleibt davon unberührt, bis eine Stufe echten Nutzwert
@@ -211,7 +211,7 @@ Version-Bump. Exit-Kriterien entscheiden, ob die nächste Stufe startet.
   vorgezogen für den iPad-Test).** `web/coi-sw.js` stellt die
   Cross-Origin-Isolation selbst her, weil Pages keine Header setzen kann;
   `.github/workflows/pages.yml` baut wasm + Flutter-Web und deployt aus
-  `dev/pwa`. Manifest trägt jetzt DurecMix-Branding. Lokal gegen einen
+  `dev/pwa`. Manifest trägt jetzt Mixstack-Branding. Lokal gegen einen
   Server **ohne** COOP/COEP verifiziert (die Pages-Situation): Isolation
   nach genau einem Reload, danach voller Ablauf mit `UFX34_00.WAV` —
   Mixer nach 6,1 s, Wellenformen nach 31,5 s, identisch zum Lauf mit

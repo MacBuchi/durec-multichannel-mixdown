@@ -1,9 +1,10 @@
-# DurecMix — User Guide
+# Mixstack — User Guide
 
-DurecMix turns a multichannel **RME DUREC** recording (WAV/RF64/BW64 from a
-USB stick) into a finished stereo mix — on macOS, Windows, Android and iOS,
-fully offline. This guide walks through every screen; the numbered badges in
-the screenshots match the lists below them.
+Mixstack turns a **multichannel WAV recording** (RIFF/RF64/BW64, any channel
+count — for example a take off an **RME DUREC** USB stick, a field recorder or
+a DAW export) into a finished stereo mix, on macOS, Windows, Android, iOS and
+in the browser, fully offline. This guide walks through every screen; the
+numbered badges in the screenshots match the lists below them.
 
 All screenshots are generated from the app itself and can be refreshed any
 time with `tool/make_screenshots.sh` (see [Development](#regenerating-the-screenshots)).
@@ -13,7 +14,7 @@ time with `tool/make_screenshots.sh` (see [Development](#regenerating-the-screen
 ## 1. Opening a recording — the WAV browser
 
 On first launch, pick your recordings folder (the DUREC USB stick or a copy
-of it). DurecMix lists the WAV files with their metadata and remembers the
+of it). Mixstack lists the WAV files with their metadata and remembers the
 folder.
 
 ![WAV browser](screenshots/browser_annotated.png)

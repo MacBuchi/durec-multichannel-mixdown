@@ -235,6 +235,18 @@ const canMasterToReference = true;
 /// connection for a route that does not exist.
 const hasNetwork = false;
 
+/// There is no Play build of the PWA — the flag exists so both halves of the
+/// conditional import declare the same surface.
+const isPlayStoreBuild = false;
+
+/// No APK, no installer: [installApk] throws here by construction.
+const canSelfUpdate = false;
+
+/// The browser has no [hasNetwork], so the check could only ever fail
+/// silently — and a silent failure is what produced the "You're up to date."
+/// bug this flag family exists to prevent.
+const canCheckForUpdates = false;
+
 /// The browser's export destination: a download.
 RenderOutput createDownloadOutput(String filename) =>
     BlobRenderOutput(filename);

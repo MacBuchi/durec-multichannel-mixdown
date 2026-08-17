@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// The DurecMix logo (six channel lines converging into a stereo pair),
+/// The Mixstack logo (six channel lines converging into a stereo pair),
 /// drawn live. With [animate] the channel lines carry travelling sine
 /// ripples — audio flowing towards the mix — and the stereo terminals
 /// pulse gently; without it the painter renders the still logo mark.

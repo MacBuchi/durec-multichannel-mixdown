@@ -1,4 +1,6 @@
-//! durecmix-engine — pure DSP and file I/O core for DurecMix.
+//! durecmix-engine — pure DSP and file I/O core for Mixstack (the crate name
+//! predates the rename and stays: `System.loadLibrary` and the wasm
+//! `--out-name` both hang off it).
 //!
 //! No FFI, no GUI, no network. Everything here is unit-testable on any
 //! platform. The `rust` crate (flutter_rust_bridge API layer) is the only
