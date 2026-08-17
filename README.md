@@ -86,6 +86,18 @@ The original Python tool ran on desktop only, loaded entire recordings into RAM,
 - iOS on-device verification (macOS/Windows/Android are device-tested)
 - Signed store releases (needs an Apple Developer account)
 
+## Support
+
+Mixstack is free and has no ads, and it stays that way. If you would like to
+support the work anyway, you can — the tool is the same for everyone either
+way, and nothing here unlocks a feature.
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-buy%20a%20coffee-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/macbuchi)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-become%20a%20sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/MacBuchi)
+
+One Ko-fi page serves all my apps, so a note saying which one you came from is
+welcome.
+
 ## Development
 
 Prerequisites: [Flutter](https://docs.flutter.dev/get-started/install) (stable) and [Rust](https://rustup.rs) (stable).

@@ -9,23 +9,30 @@ bundled asset.
     tool/gen_rust_licenses.py            # rewrite the asset
     tool/gen_rust_licenses.py --check    # fail if Cargo.lock moved
 
-`--check` compares a hash of **Cargo.lock**, recorded in the asset header.
-Nothing else is environment-independent:
+`--check` compares a hash of **Cargo.lock**, recorded in the asset header —
+that is the file which actually moves when dependencies change, and a licence
+text does not change under a version that is already pinned.
 
-* the licence texts come from `~/.cargo/registry/src/`, which only holds
-  crates this machine has unpacked;
-* `cargo tree --target all` enumerates the *installed* rustup targets, so a
-  runner with one target sees a different crate set than a dev box with six.
+The licence texts themselves come from `~/.cargo/registry/src/`. A crate that
+has never been unpacked there falls back to the canonical text of one licence
+from its SPDX expression, but `cargo metadata` fetches the whole graph on the
+way in, so a first run heals that by itself.
 
-Cargo.lock is the same file everywhere and is what actually moves when
-dependencies change. A licence text does not change under a version that is
-already pinned.
+⚠️ **`--target all` does not depend on the installed rustup targets** — and
+this file claimed the opposite until 2026-08-18, together with an instruction
+to install every shipping target before regenerating or the platform-specific
+crates would "silently drop out of the notices". Both were wrong. Measured
+against this repo on 2026-08-18:
 
-**Regenerate on a machine with all shipping targets installed**
-(`aarch64-apple-darwin`, `aarch64-apple-ios`, the three Android triples,
-plus a Windows target if you have one). On a bare Linux box the
-platform-specific crates — cpal's CoreAudio and NDK subtrees above all —
-silently drop out of the notices.
+* the 11 `windows-*` crates are in the asset **with their own verbatim licence
+  texts** (`license-mit`, `license-apache-2.0` from the registry), although no
+  Windows target is installed here;
+* `cargo tree -e normal --target x86_64-pc-windows-msvc` resolves that same
+  subtree without the target being installed at all.
+
+So regenerating is fine on any machine, a bare Linux runner included. What the
+asset does depend on is the Cargo.lock — which is exactly what `--check` keys
+on.
 
 Scope decisions worth knowing:
 

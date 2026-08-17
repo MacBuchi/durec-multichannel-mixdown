@@ -1,0 +1,5 @@
+# Ein Ko-fi-Konto und ein Sponsors-Profil für alle Apps (Issue #145).
+# Der Sponsor-Knopf oben am Repo erscheint automatisch, sobald diese Datei
+# auf dem Default-Branch liegt.
+ko_fi: macbuchi
+github: [MacBuchi]
