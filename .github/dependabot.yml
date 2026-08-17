@@ -42,6 +42,14 @@ updates:
   # This is the more valuable half: cpal, the codec crates and the LAME and
   # FLAC bindings all parse user-supplied WAV files, which is exactly where
   # a memory-safety advisory would matter.
+  #
+  # ⚠️ This directory setting governs SCHEDULED updates only. A *security*
+  # update ignores it and scans every manifest GitHub's dependency graph
+  # found — so a committed lockfile of a workspace member produces alerts
+  # against versions that were never built. That happened with a stale
+  # rust/Cargo.lock from the M0 bootstrap: it still named tokio 1.34.0 while
+  # the root lock was long past it, and PR #136 was opened to "fix" a file
+  # cargo does not read. The file is gone and .gitignore keeps it out.
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:

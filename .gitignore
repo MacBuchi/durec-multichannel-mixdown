@@ -52,3 +52,10 @@ app.*.map.json
 
 # Local signing secrets (see secrets/README.md) — never tracked
 /secrets/
+
+# Lockfiles von Workspace-Mitgliedern. Cargo benutzt ausschliesslich die
+# Wurzel-Cargo.lock und ignoriert diese hier; eingecheckt sind sie trotzdem
+# schaedlich, weil GitHubs Dependency-Graph sie liest und Sicherheitswarnungen
+# gegen laengst gepatchte Versionen meldet (siehe PR #136).
+/rust/Cargo.lock
+/engine/Cargo.lock
