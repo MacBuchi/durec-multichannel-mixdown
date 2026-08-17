@@ -81,10 +81,13 @@ liegt und der About-Dialog dorthin verlinkt.
 
 MP3-Patente sind seit 2017 abgelaufen — kein Thema.
 
-⚠️ **Das Asset nie auf einer Maschine ohne alle Ziel-Targets neu erzeugen.**
-`cargo tree --target all` sieht nur installierte Targets; auf einem Rechner
-ohne Windows-Target fallen Crates stillschweigend aus den Hinweisen. Der
-Header der Datei nennt die Bedingung.
+Das Asset lässt sich **auf jeder Maschine** neu erzeugen. Eine frühere Fassung
+dieses Absatzes behauptete das Gegenteil — man brauche alle Ziel-Targets, sonst
+fielen Crates stillschweigend heraus. Das stammte aus der Doku von
+`tool/gen_rust_licenses.py` und war falsch: `--target all` löst den Graphen
+plattformunabhängig auf. Nachgemessen am 18.08.2026 — die 11 `windows-*`-Crates
+stehen mit ihrem eigenen Lizenztext im Asset, obwohl hier kein Windows-Target
+installiert ist. Die Begründung steht jetzt korrigiert im Header des Skripts.
 
 ## 2. Der Play-Build (in diesem Branch erledigt)
 
