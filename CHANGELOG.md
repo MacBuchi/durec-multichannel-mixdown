@@ -5,6 +5,13 @@ All notable changes to Mixstack. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.20.2] – 2026-08-17
+
+### Changed
+
+- **Updated the building blocks the app is made of** — among them the decoder
+  that reads a reference song. Nothing you can see.
+
 ## [0.20.1] – 2026-08-17
 
 ### Changed
@@ -537,6 +544,7 @@ MP3 export.
 - **Listen while you mix**, with meters for level, loudness and how well the
   two sides of the stereo image agree — plus a waveform on every track.
 
+[0.20.2]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.2
 [0.20.1]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.1
 [0.20.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.20.0
 [0.19.0]: https://github.com/MacBuchi/durec-multichannel-mixdown/releases/tag/v0.19.0
