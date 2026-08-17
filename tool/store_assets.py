@@ -11,9 +11,10 @@ away from a refreshed store listing.
 Play rejects assets on three counts that are easy to miss because nothing in
 the repo enforces them, and all three actually bit us:
 
-* **Aspect ratio at most 2:1.** The phone shots come off the device at
-  840x1720, which is 1:2.048 — just over. They are padded (not scaled) to
-  9:16 with the app's own background colour, so the padding is invisible.
+* **Aspect ratio at most 2:1.** `tool/screenshots_web.sh` lands on 1080x1920
+  and needs nothing. The older device shots were 840x1720, which is 1:2.048 —
+  just over — and are padded (not scaled) to 9:16 with the app's own
+  background colour, so the padding stays invisible.
 * **No alpha channel** on screenshots or the feature graphic. Every shot the
   Flutter harness writes carries one. They are composited onto the background
   colour rather than simply dropped, because discarding alpha turns any real
@@ -53,8 +54,11 @@ MAX_ICON_BYTES = 1024 * 1024
 
 # Which screenshot goes to which store slot, in upload order — Play shows
 # them exactly like this, and the first is the one most people see alone.
-PHONE = [("phone_android.png", "phone-1-mixer.png"),
-         ("phone_menu_android.png", "phone-2-menue.png")]
+# Erst die Browser-Fassung (tool/screenshots_web.sh) — sie fällt in exakt
+# 1080x1920 und braucht kein Auffüllen. Fehlt sie, die Gerätebilder, die mit
+# 840x1720 knapp über Plays 2:1 liegen und deshalb aufgefüllt werden.
+PHONE = [(["phone_web.png", "phone_android.png"], "phone-1-mixer.png"),
+         (["phone_menu_web.png", "phone_menu_android.png"], "phone-2-menue.png")]
 TABLET = [("mixer.png", "tablet-1-mixer.png"),
           ("eq.png", "tablet-2-eq.png"),
           ("mastering.png", "tablet-3-mastering.png"),
@@ -124,12 +128,12 @@ def main() -> int:
     flatten(out / "feature-graphic.png", out / "feature-graphic.png", None)
 
     missing = []
-    for src, dst in PHONE:
-        p = shots / src
-        if p.exists():
+    for candidates, dst in PHONE:
+        p = next((shots / c for c in candidates if (shots / c).exists()), None)
+        if p:
             flatten(p, out / dst, pad_to_ratio=16 / 9)
         else:
-            missing.append(src)
+            missing.append(" oder ".join(candidates))
     for src, dst in TABLET:
         p = shots / src
         if p.exists():

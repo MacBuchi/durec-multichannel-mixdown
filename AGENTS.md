@@ -131,10 +131,37 @@ right profile; start your own instance on a non-default port
   start Dart Development Service`. `--no-dds` did not help. The macOS run is
   unaffected. Whoever picks this up next: check whether a plain
   `flutter run -d emulator-5560` attaches at all before touching the script.
+  **The emulator is no longer needed for screenshots** — see below — so this
+  only blocks the on-device playback test.
 - The AVD carries other projects' apps (PilzBuddy was installed on it), so it
   is shared state — do not assume a clean device.
 
 ## Documentation & screenshots
+
+**Phone screenshots come from the browser, not a device** — `tool/screenshots_web.sh`
+builds the PWA, serves it with COOP/COEP and drives it with Playwright, the way
+MitFahrBar does it. The phone layout is the same (the breakpoint is 640 logical
+px, the viewport is 432), and it needs no emulator. Three things are
+load-bearing there:
+
+- **432×768 at `deviceScaleFactor: 2.5` lands on exactly 1080×1920** — Play's
+  recommended resolution and exactly 9:16, so nothing has to be padded
+  afterwards. The device shots were 840×1720, which is 1:2.048 and over Play's
+  2:1 ceiling.
+- **The `filechooser` handler must be registered before the click.** Playwright
+  only intercepts the dialog when something is listening; without it the dialog
+  is discarded, the app never receives a file, and the run dies in a timeout
+  that names the wrong thing.
+- **`colorScheme: 'dark'` and `reducedMotion: 'reduce'`** — the first so the
+  phone shots match the dark tablet ones, the second so two runs produce the
+  same image instead of catching the logo ripple at a different phase.
+
+⚠️ **It writes `phone_web.png` / `phone_menu_web.png`, deliberately not the
+`*_android.png` the docs use.** Those have annotated twins whose marker rects
+only fall out of the live widget tree during the integration test; the browser
+path cannot produce them, and overwriting only the plain half would leave image
+and legend showing two different renderings. The `_web` pair is the store
+source, and `tool/store_assets.py` prefers it.
 
 User docs live in `docs/GUIDE.md` (annotated walkthrough) and README. Screenshots are generated, never hand-made: `tool/make_screenshots.sh` (desktop) and `tool/make_screenshots.sh -d <emulator-id>` (Android phone shots; boots nothing itself — start an emulator first, never commandeer one the user is working on). The integration test's SCREENSHOTS mode renders every screen from the doc fixture and dumps per-control marker rects from the live widget tree; `tool/annotate_screenshots.py` (pillow) draws the numbered callouts, and its stdout legends feed the numbered lists in GUIDE.md — regenerate both together after UI changes. Local Android debug builds skip the x86 ABIs via `CARGOKIT_NO_EMULATOR_ABIS` (cargokit patch; LAME's configure breaks cross-compiling i686 on Apple Silicon). Housekeeping treats `docs/`, `*.md`, `.github/`, `engine/examples`, `engine/tests`, `integration_test/`, `tool/` as non-shipping.
 
