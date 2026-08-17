@@ -88,6 +88,14 @@ Future<void> showAboutMixstackDialog(BuildContext context) {
             ListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('Privacy'),
+              subtitle: const Text('What stays on your device — all of it'),
+              onTap: () => openUrl(AppInfo.privacyUrl),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
               leading: const Icon(Icons.gavel),
               title: const Text('Open-source licenses'),
               subtitle: const Text('Flutter, Dart packages and Rust crates'),

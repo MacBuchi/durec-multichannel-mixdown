@@ -9,6 +9,15 @@ class AppInfo {
   static const guideUrl =
       'https://github.com/$repoSlug/blob/main/docs/GUIDE.md';
 
+  /// Hosted next to the PWA — `web/datenschutz.html`, which `pages.yml`
+  /// deploys along with the rest of `build/web`.
+  ///
+  /// Written out rather than built from [repoSlug]: a Pages host is
+  /// lower-cased while the path keeps the repository's own spelling, so a
+  /// constructed URL would be wrong on one half or the other.
+  static const privacyUrl =
+      'https://macbuchi.github.io/durec-multichannel-mixdown/datenschutz.html';
+
   /// Installed app version (e.g. "0.12.0"); "–" if unavailable.
   static Future<String> version() async {
     try {
