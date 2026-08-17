@@ -284,4 +284,4 @@ angefasst, jeweils mit Grund:
 | `DURECMIX_FEEDBACK_TOKEN` | Name eines GitHub-Secrets, Änderung bräuchte einen Handgriff im Repo |
 | macOS-Bundle-ID `com.example.durecmix` | verwaist sonst den Sandbox-Container mit den Sessions |
 | iOS-Bundle-ID `de.macbuchi.durecmix` | hängt am Free Provisioning, für Play irrelevant |
-| Repo `durec-multichannel-mixdown` | eigene Entscheidung; alle Release- und Issue-Links hängen daran |
+| Repo `mixstack` | eigene Entscheidung; alle Release- und Issue-Links hängen daran |

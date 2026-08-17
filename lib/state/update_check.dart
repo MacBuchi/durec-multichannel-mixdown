@@ -5,7 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../io/platform_shim.dart';
 
 /// The public GitHub repo powering the update check and feedback issues.
-const repoSlug = 'MacBuchi/durec-multichannel-mixdown';
+const repoSlug = 'MacBuchi/mixstack';
 
 /// Info about an available update, from the latest GitHub release.
 class UpdateInfo {

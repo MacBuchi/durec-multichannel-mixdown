@@ -103,7 +103,7 @@ void main() {
           changelog,
           contains(
             '[${entry.version}]: https://github.com/MacBuchi/'
-            'durec-multichannel-mixdown/releases/tag/v${entry.version}',
+            'mixstack/releases/tag/v${entry.version}',
           ),
           reason: 'house convention: link list at the file end',
         );
