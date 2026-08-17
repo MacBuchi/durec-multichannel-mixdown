@@ -5,7 +5,7 @@ graph (cargo tree -e normal --target all). Mixstack's own licence is
 the MIT LICENSE in the repository root.
 
 176 crates, 90 licence texts.
-Generated from Cargo.lock sha256 70da6b9ecd6ddd6c7e92f27e0ca6ba738679ad5d210ca45bbda7819e9f9b975a
+Generated from Cargo.lock sha256 61101c68d5a217245a19319ca20d359c906ec153891949fc68b488dd31650d33
 
 ========================================================================
   addr2line 0.25.1 — Apache-2.0 OR MIT
@@ -284,9 +284,9 @@ limitations under the License.
   syn 2.0.118 — MIT OR Apache-2.0
   syn 3.0.2 — MIT OR Apache-2.0
   thiserror 1.0.69 — MIT OR Apache-2.0
-  thiserror 2.0.19 — MIT OR Apache-2.0
+  thiserror 2.0.20 — MIT OR Apache-2.0
   thiserror-impl 1.0.69 — MIT OR Apache-2.0
-  thiserror-impl 2.0.19 — MIT OR Apache-2.0
+  thiserror-impl 2.0.20 — MIT OR Apache-2.0
   unicode-ident 1.0.24 — (MIT OR Apache-2.0) AND Unicode-3.0
   zmij 1.0.21 — MIT
 ========================================================================
@@ -333,9 +333,9 @@ DEALINGS IN THE SOFTWARE.
   syn 2.0.118 — MIT OR Apache-2.0
   syn 3.0.2 — MIT OR Apache-2.0
   thiserror 1.0.69 — MIT OR Apache-2.0
-  thiserror 2.0.19 — MIT OR Apache-2.0
+  thiserror 2.0.20 — MIT OR Apache-2.0
   thiserror-impl 1.0.69 — MIT OR Apache-2.0
-  thiserror-impl 2.0.19 — MIT OR Apache-2.0
+  thiserror-impl 2.0.20 — MIT OR Apache-2.0
   unicode-ident 1.0.24 — (MIT OR Apache-2.0) AND Unicode-3.0
 ========================================================================
 
@@ -558,18 +558,18 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-  symphonia 0.6.0 — MPL-2.0
-  symphonia-bundle-flac 0.6.0 — MPL-2.0
-  symphonia-bundle-mp3 0.6.0 — MPL-2.0
-  symphonia-codec-adpcm 0.6.0 — MPL-2.0
-  symphonia-codec-pcm 0.6.0 — MPL-2.0
-  symphonia-codec-vorbis 0.6.0 — MPL-2.0
-  symphonia-common 0.6.0 — MPL-2.0
-  symphonia-core 0.6.0 — MPL-2.0
-  symphonia-format-mkv 0.6.0 — MPL-2.0
-  symphonia-format-ogg 0.6.0 — MPL-2.0
-  symphonia-format-riff 0.6.0 — MPL-2.0
-  symphonia-metadata 0.6.0 — MPL-2.0
+  symphonia 0.6.1 — MPL-2.0
+  symphonia-bundle-flac 0.6.1 — MPL-2.0
+  symphonia-bundle-mp3 0.6.1 — MPL-2.0
+  symphonia-codec-adpcm 0.6.1 — MPL-2.0
+  symphonia-codec-pcm 0.6.1 — MPL-2.0
+  symphonia-codec-vorbis 0.6.1 — MPL-2.0
+  symphonia-common 0.6.1 — MPL-2.0
+  symphonia-core 0.6.1 — MPL-2.0
+  symphonia-format-mkv 0.6.1 — MPL-2.0
+  symphonia-format-ogg 0.6.1 — MPL-2.0
+  symphonia-format-riff 0.6.1 — MPL-2.0
+  symphonia-metadata 0.6.1 — MPL-2.0
 ========================================================================
 
 Mozilla Public License Version 2.0
