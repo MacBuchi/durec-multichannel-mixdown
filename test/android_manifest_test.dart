@@ -151,7 +151,8 @@ void main() {
       expect(
         kts,
         contains('create("play")'),
-        reason: 'the Play flavor is missing — nothing would pick up '
+        reason:
+            'the Play flavor is missing — nothing would pick up '
             'src/play/AndroidManifest.xml',
       );
       expect(
