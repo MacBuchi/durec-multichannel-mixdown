@@ -238,7 +238,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: de.mcbuchi.mixstack
           releaseFiles: mixstack-${{ needs.version.outputs.tag }}.aab
-          track: internal
+          tracks: internal
           status: draft
       - name: Play upload skipped
         if: steps.play.outputs.have == 'false'
