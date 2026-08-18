@@ -1,9 +1,20 @@
 # Changelog
 
 All notable changes to Mixstack. Version scheme: `MAJOR.MINOR.PATCH`, kept in
-`pubspec.yaml`; every version bump merged to `main` automatically tags,
-releases and ships the artifacts. The app bundles this file and shows it under
-**About → What's new**.
+`pubspec.yaml`; every version bump merged to `main` automatically tags and
+builds a release, but it stays a prerelease — invisible to the update check —
+until someone runs the Promote workflow by hand. The app bundles this file
+and shows it under **About → What's new**.
+
+## [0.20.5] – 2026-08-19
+
+### Changed
+
+- **Updates now arrive in batches instead of after every single change.**
+  New versions still get built right away, but the in-app update check (and
+  the GitHub release page) only shows a version once it's been reviewed and
+  promoted — usually bundling a few changes together instead of prompting
+  you every day. Nothing about how you install an update changes.
 
 ## [0.20.4] – 2026-08-18
 
@@ -568,6 +579,7 @@ MP3 export.
 - **Listen while you mix**, with meters for level, loudness and how well the
   two sides of the stereo image agree — plus a waveform on every track.
 
+[0.20.5]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.5
 [0.20.4]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.4
 [0.20.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.3
 [0.20.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.2

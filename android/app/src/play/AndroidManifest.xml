@@ -1,0 +1,39 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Play flavor: self-updates violate "Device and Network Abuse", Play
+         is the update channel in the store. The Dart side is already fully
+         closed here (canSelfUpdate, gated on the PLAY_STORE dart-define)
+         — this removes the matching permissions from the merged manifest so
+         no permission ships without a function behind it.
+
+         A flavor manifest is merged on top of src/main, so tools:node
+         "remove" is enough — no need to repeat anything main declares. That
+         is the point of this file being flavor-only rather than a second
+         full manifest: it cannot drift from main by omission, because it
+         never duplicates main in the first place.
+
+         WATCH OUT when editing this comment: two consecutive hyphens are
+         illegal inside an XML comment. The spelling of a dart-define flag
+         must never go in here — Dart's xml package lets it through, but
+         Android's manifest merger aborts with a bare "Error parsing" and no
+         line number (hit this exact way once already, elsewhere in this
+         portfolio — cheap to avoid, annoying to find). -->
+
+    <!-- ota_update declares these in ITS OWN manifest, so the merger adds
+         them to any build with the plugin on the classpath — not declaring
+         them ourselves changes nothing. INSTALL_PACKAGES is signature-level;
+         a normal app can never hold it, and its mere presence is a review
+         flag. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove"/>
+    <!-- Implicitly injected — no source in the merger blame report, follows
+         from WRITE_EXTERNAL_STORAGE above. The app reads every recording
+         through SAF (per-URI grants from ACTION_OPEN_DOCUMENT_TREE), which
+         never needed it, and at targetSdk 36 it has no runtime effect at
+         all. What it does do is put "Photos and media" on the store listing
+         of an audio mixer. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
+</manifest>

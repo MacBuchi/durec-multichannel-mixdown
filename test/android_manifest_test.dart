@@ -9,8 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// Play review, which is exactly the class of bug the house rule about
 /// configuration regression tests exists for.
 void main() {
-  final direct = File('android/app/src/main/AndroidManifest.xml');
-  final play = File('android/app/src/main/AndroidManifest-play.xml');
+  final mainManifest = File('android/app/src/main/AndroidManifest.xml');
+  final play = File('android/app/src/play/AndroidManifest.xml');
   final gradle = File('android/app/build.gradle.kts');
 
   /// Every `<uses-permission …/>` element, keyed by permission name, with the
@@ -43,11 +43,11 @@ void main() {
     'android.permission.READ_EXTERNAL_STORAGE',
   };
 
-  group('direct-distribution manifest', () {
+  group('main manifest (github flavor)', () {
     test('keeps the four pieces the in-app install needs together', () {
-      final xml = direct.readAsStringSync();
+      final xml = mainManifest.readAsStringSync();
       expect(
-        permissions(direct),
+        permissions(mainManifest),
         contains('android.permission.REQUEST_INSTALL_PACKAGES'),
         reason: 'without it the installer hand-over is refused outright',
       );
@@ -67,7 +67,7 @@ void main() {
     });
   });
 
-  group('Play Store manifest', () {
+  group('play manifest', () {
     test('removes every permission the installer path pulled in', () {
       final declared = permissions(play);
       for (final permission in installPermissions) {
@@ -91,48 +91,27 @@ void main() {
       }
     });
 
-    test('ships no ota_update FileProvider', () {
-      expect(
-        play.readAsStringSync(),
-        isNot(contains('ota_update_provider')),
-        reason:
-            'nothing downloads an APK in a Play build, and a provider for an '
-            'installer path is what a review looks for',
-      );
-    });
-
-    test('carries everything the direct manifest carries besides the '
-        'installer', () {
-      final directPermissions = permissions(direct).keys.toSet();
-      final playPermissions = permissions(play);
-      for (final permission in directPermissions.difference(
-        installPermissions,
-      )) {
-        expect(
-          playPermissions[permission],
-          allOf(isNotNull, isNot(contains('tools:node="remove"'))),
-          reason:
-              '$permission was added to the direct manifest but not to the '
-              'Play one — the two are maintained by hand and this is the '
-              'drift that leaves a Play build without its foreground service '
-              'or its network access',
-        );
-      }
-
+    test('declares nothing beyond the six removals', () {
+      // A flavor manifest is merged on top of the main one, not swapped in
+      // for it — it never needs to (and must never) repeat the main
+      // manifest's <application>, activities or providers. That's what
+      // makes the file structurally unable to drift from it: there's
+      // nothing here that could drift.
       final xml = play.readAsStringSync();
-      for (final required in const [
+      for (final foreign in const [
+        '<application',
         '.MainActivity',
         '.ExportService',
+        'ota_update_provider',
         'flutterEmbedding',
-        'android.intent.action.VIEW',
       ]) {
         expect(
           xml,
-          contains(required),
+          isNot(contains(foreign)),
           reason:
-              '$required is missing from the Play manifest — the app would '
-              'not launch, would lose background export, or would silently '
-              'fail to open the feedback form in a browser',
+              '$foreign has no place in a flavor-only manifest — it belongs '
+              'in android/app/src/main/AndroidManifest.xml, where the '
+              'github and play flavors both already get it from the merge',
         );
       }
     });
@@ -143,7 +122,7 @@ void main() {
       // `--` is illegal inside `<!-- -->`, so writing a flag like the
       // dart-define into a comment makes the manifest merger fail with a bare
       // "Error parsing" and no line number. Cheap to pin, annoying to find.
-      for (final manifest in [direct, play]) {
+      for (final manifest in [mainManifest, play]) {
         for (final comment in RegExp(
           r'<!--(.*?)-->',
           dotAll: true,
@@ -162,20 +141,29 @@ void main() {
   });
 
   group('build wiring', () {
-    test('Gradle picks the Play manifest from the same flag Dart reads', () {
+    test('declares both distribution flavors sharing one applicationId', () {
       final kts = gradle.readAsStringSync();
       expect(
         kts,
-        contains('AndroidManifest-play.xml'),
-        reason: 'the twin manifest exists but nothing selects it',
+        contains('create("github")'),
+        reason: 'the direct-distribution flavor is missing',
       );
       expect(
         kts,
-        contains('PLAY_STORE=true'),
+        contains('create("play")'),
         reason:
-            'the manifest swap must hang off the same --dart-define that sets '
-            'isPlayStoreBuild — two separate flags is how you get a build '
-            'that strips the permission and still shows "Update now"',
+            'the Play flavor is missing — nothing would pick up '
+            'src/play/AndroidManifest.xml',
+      );
+      expect(
+        kts,
+        isNot(contains(RegExp(r'applicationIdSuffix\s*='))),
+        reason:
+            'a suffix would make github and play two different Android '
+            'apps — Fahrgemeinschaft paid for exactly that lesson once, in '
+            'their own bundle-id move (mentioning the word in a comment, '
+            'like this file already does to explain why, is fine — only an '
+            'actual assignment is the regression)',
       );
     });
   });

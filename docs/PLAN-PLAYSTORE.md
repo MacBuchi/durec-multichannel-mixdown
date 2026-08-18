@@ -114,24 +114,41 @@ halten, und ihr bloßes Vorhandensein ist ein Review-Flag.
 
 ### Wie es jetzt gelöst ist
 
-Ein einziges Flag, `--dart-define=PLAY_STORE=true`, steuert beide Seiten:
+**Update 18.08.2026:** Ein AAB, lokal ohne das Flag gebaut, ging trotzdem an
+Play raus — Play meldete `REQUEST_INSTALL_PACKAGES` als nicht deklariert.
+Der Dart-Define-Mechanismus selbst funktionierte korrekt (live nachgebaut,
+mit dem Flag verschwanden alle sechs Permissions), aber genau das ist die
+Fehlerklasse, die ein Dart-Define strukturell zulässt: vergessen, und der
+Build läuft trotzdem durch. Gelöst über PilzBuddys/Fahrgemeinschafts Weg
+(dasselbe Konzept, hier übernommen): die Gradle-Seite ist jetzt ein
+**Product Flavor** (`github`/`play`), kein Flag mehr. Fehlt `--flavor`,
+bricht der Build sofort ab — es gibt kein stillschweigend falsches
+Artefakt mehr.
 
 * **Gradle** ([android/app/build.gradle.kts](../android/app/build.gradle.kts))
-  dekodiert die dart-defines und tauscht das Manifest gegen
-  `src/main/AndroidManifest-play.xml`, das die sechs Permissions per
-  `tools:node="remove"` entfernt und den ota_update-FileProvider weglässt.
-  Der gewählte Pfad wird ins Build-Log gedruckt — die Alternative wäre ein
-  stiller Fehlgriff, der erst Wochen später als Review-Ablehnung auftaucht.
+  deklariert `flavorDimensions += "distribution"` mit `create("github")` und
+  `create("play")`, beide mit derselben `applicationId` (kein
+  `applicationIdSuffix` — sonst wären es für Android zwei verschiedene
+  Apps). `android/app/src/play/AndroidManifest.xml` ist eine reine
+  Diff-Datei (nur die sechs `tools:node="remove"`-Zeilen), die Android
+  Gradle Plugin automatisch auf `src/main/AndroidManifest.xml` mergt, sobald
+  der `play`-Flavor gebaut wird — kein zweites, von Hand paralleles
+  Vollmanifest mehr, das driften könnte.
 * **Dart** ([lib/io/platform_shim_io.dart](../lib/io/platform_shim_io.dart))
-  bekommt `isPlayStoreBuild`, `canSelfUpdate` und `canCheckForUpdates` als
-  Shim-Flags — nach der Hausregel, dass eine fehlende Fähigkeit ein `const`
-  ist und keine Exception an der Aufrufstelle. Der Update-Banner läuft im
-  Play-Build gar nicht erst an: Play ist dort der Update-Kanal, und ein
-  Hinweis auf einen Download außerhalb des Stores wäre falsch und
-  policy-nah.
+  bleibt unverändert bei `--dart-define=PLAY_STORE=true`: `isPlayStoreBuild`,
+  `canSelfUpdate` und `canCheckForUpdates` als Shim-Flags — nach der
+  Hausregel, dass eine fehlende Fähigkeit ein `const` ist und keine
+  Exception an der Aufrufstelle. Der Update-Banner läuft im Play-Build gar
+  nicht erst an: Play ist dort der Update-Kanal, und ein Hinweis auf einen
+  Download außerhalb des Stores wäre falsch und policy-nah.
 
-**Ein Flag, nicht zwei** — zwei getrennte Schalter sind genau der Weg zu
-einem Build, der die Permission entfernt und trotzdem „Update now" anbietet.
+**Zwei unabhängige Schalter jetzt, bewusst:** `--flavor` wählt das Manifest
+(Gradle-Seite, harter Build-Fehler bei Fehlen), `--dart-define=PLAY_STORE=true`
+schaltet die Dart-Pfade ab (weiche Laufzeit-Entscheidung). Beide gehören bei
+einem Play-Build zusammen — `release.yml` setzt sie immer gemeinsam
+(`--flavor play --dart-define=PLAY_STORE=true`), `test/android_manifest_test.dart`
+hält nur noch die Gradle-Seite fest (die Dart-Seite hat keine
+Manifest-Auswirkung mehr, dafür bräuchte es einen eigenen Dart-Test).
 
 ### Außerdem geändert
 
@@ -151,51 +168,45 @@ einem Build, der die Permission entfernt und trotzdem „Update now" anbietet.
 ### Bauen und prüfen
 
 ```sh
-flutter build appbundle --release --dart-define=PLAY_STORE=true
-flutter build apk --release                    # unverändert: der GitHub-Weg
-flutter test test/android_manifest_test.dart   # Drift zwischen den Manifesten
+flutter build appbundle --release --flavor play --dart-define=PLAY_STORE=true
+flutter build apk --release --flavor github     # unverändert im Ergebnis: der GitHub-Weg
+flutter test test/android_manifest_test.dart    # play-Manifest, Flavor-Deklaration
 ```
-
-Der Test hält beide Manifeste gegeneinander: jede Permission, die im
-Direkt-Manifest steht und nicht zum Installer gehört, muss auch im
-Play-Manifest stehen. Das ist der Drift, der sonst einen Play-Build ohne
-Foreground-Service oder ohne Netzzugriff hinterlässt.
 
 Der abschließende Beweis führt aber über das Build-Ergebnis, nicht über die
 Quelldateien. **Nicht** über `aapt2 dump xmltree` auf der AAB — deren Manifest
 ist Protobuf, aapt2 antwortet mit „could not identify format of APK". Das
-gemergte Manifest, das Gradle erzeugt, ist Klartext und ist genau das
-Merger-Ergebnis, um das es geht:
+gemergte Manifest, das Gradle erzeugt, ist Klartext und liegt jetzt unter
+einem Flavor-spezifischen Pfad:
 
 ```sh
 grep -o 'uses-permission android:name="[^"]*"' \
-  build/app/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml \
+  build/app/intermediates/merged_manifest/playRelease/processPlayReleaseMainManifest/AndroidManifest.xml \
   | sort -u
 grep -o 'android:versionCode="[0-9]*"' \
-  build/app/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml
+  build/app/intermediates/merged_manifest/playRelease/processPlayReleaseMainManifest/AndroidManifest.xml
 ```
 
-Gemessen am 2026-08-14 nach `flutter build appbundle --dart-define=PLAY_STORE=true`:
+Gemessen am 19.08.2026 nach `flutter build appbundle --flavor play --dart-define=PLAY_STORE=true`:
 
 ```text
 android.permission.FOREGROUND_SERVICE
 android.permission.FOREGROUND_SERVICE_DATA_SYNC
 android.permission.INTERNET
 android.permission.POST_NOTIFICATIONS
-de.macbuchi.durecmix.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION   (AndroidX, selbst deklariert)
-android:versionCode="19000"
+de.mcbuchi.mixstack.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION   (AndroidX, selbst deklariert)
+android:versionCode="20004"
 ```
 
 Kein `REQUEST_INSTALL_PACKAGES`, kein `INSTALL_PACKAGES`, kein
 `ota_update_provider`.
 
-Die Gegenprobe zählt genauso: `flutter build apk --release` **ohne** das Flag
+Die Gegenprobe zählt genauso: `flutter build apk --release --flavor github`
 liefert weiterhin `REQUEST_INSTALL_PACKAGES`, `INSTALL_PACKAGES`,
-`WRITE_EXTERNAL_STORAGE`, `READ_EXTERNAL_STORAGE` und
-`de.macbuchi.durecmix.ota_update_provider` — der GitHub-Weg ist unangetastet.
-(`ACCESS_NETWORK_STATE` und `ACCESS_WIFI_STATE` aus dem Plugin-Manifest tauchen
-in keinem der beiden Builds auf; die `remove`-Direktiven dafür bleiben trotzdem
-stehen, falls ein Plugin-Update sie wieder einzieht.)
+`WRITE_EXTERNAL_STORAGE`, `READ_EXTERNAL_STORAGE`, `ACCESS_NETWORK_STATE`,
+`ACCESS_WIFI_STATE` und `de.mcbuchi.mixstack.ota_update_provider` (Pfad:
+`.../merged_manifest/githubRelease/processGithubReleaseMainManifest/...`) —
+der GitHub-Weg ist unangetastet.
 
 Zwei Nebenbefunde aus derselben Messung:
 

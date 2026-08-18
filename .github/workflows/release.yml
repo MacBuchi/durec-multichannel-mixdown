@@ -85,8 +85,8 @@ jobs:
             artifact: mixstack-${{ needs.version.outputs.tag }}-windows.zip
           - name: Android
             os: ubuntu-latest
-            build: flutter build apk --release --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
-            package: cp build/app/outputs/flutter-apk/app-release.apk mixstack-${{ needs.version.outputs.tag }}-android.apk
+            build: flutter build apk --release --flavor github --dart-define=DURECMIX_FEEDBACK_TOKEN=$DURECMIX_FEEDBACK_TOKEN
+            package: cp build/app/outputs/flutter-apk/app-github-release.apk mixstack-${{ needs.version.outputs.tag }}-android.apk
             artifact: mixstack-${{ needs.version.outputs.tag }}-android.apk
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -153,8 +153,8 @@ jobs:
       - name: Build Play bundle (AAB)
         if: matrix.name == 'Android'
         run: |
-          flutter build appbundle --release --dart-define=PLAY_STORE=true
-          cp build/app/outputs/bundle/release/app-release.aab \
+          flutter build appbundle --release --flavor play --dart-define=PLAY_STORE=true
+          cp build/app/outputs/bundle/playRelease/app-play-release.aab \
              "mixstack-${{ needs.version.outputs.tag }}.aab"
       - uses: actions/upload-artifact@v7
         if: matrix.name == 'Android'
@@ -181,6 +181,17 @@ jobs:
           files: |
             mixstack-*.zip
             mixstack-*.apk
+          # Every merge publishes a PRERELEASE, never "latest" — that's the
+          # whole channel trick: update_check.dart queries /releases/latest,
+          # and GitHub never returns a prerelease there, neither the version
+          # hint nor the APK for the in-app update. Nobody sees this until
+          # promote.yml promotes it.
+          #
+          # make_latest: false is not optional alongside prerelease: true —
+          # without it GitHub still marks the newest release "latest" even
+          # when it's a prerelease.
+          prerelease: true
+          make_latest: false
 
   # AAB into the Play Console internal test track — pattern from PilzBuddy /
   # Fahrgemeinschaft (see docs/PLAN-PLAYSTORE.md). A separate job AFTER the
