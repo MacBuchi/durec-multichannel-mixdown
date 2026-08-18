@@ -39,7 +39,10 @@ neuen Store-Eintrag, und Bewertungen wie Installationszahlen sind weg.
 
 **Entscheidung: generischer Name, RME/DUREC nur noch beschreibend.** Umgesetzt
 in v0.20.0 — die App heißt **Mixstack**, die Package-ID ist
-`de.macbuchi.mixstack`. Websuche nach dem Namen: kein Audio-Produkt, keine
+`de.mcbuchi.mixstack` (korrigiert am 18.08.2026 von `de.macbuchi.mixstack` —
+dieselbe Entwickler-Namensraum-Konvention wie bei PilzBuddy und MitFahrbar,
+kein Handlungsbedarf davor, weil noch nichts im Play Store veröffentlicht war).
+Websuche nach dem Namen: kein Audio-Produkt, keine
 Firma. Verworfen wurden dabei „Wavesum" (Wavesum Oy, finnische
 Audio-Softwarefirma), „Mixbus" (Harrison-DAW), „Summit" (Summit Audio) und
 „MultiMix" (Alesis-Mischpultserie).
@@ -257,7 +260,9 @@ setzt `targetSdk = 36`); die Frist am 31.08.2026 ist damit erledigt.
 
 ## 5. Offen
 
-* [x] App-Name festlegen — **Mixstack**, `de.macbuchi.mixstack` (v0.20.0)
+* [x] App-Name festlegen — **Mixstack**, `de.mcbuchi.mixstack` (v0.20.0,
+  Package-ID am 18.08.2026 auf die portfolioweite `mcbuchi`-Namensraum-
+  Konvention korrigiert)
 * [x] `applicationId`/`namespace`, `android:label`, `web/manifest.json`,
   pubspec-`description`, README, Docs und UI-Strings gezogen
 * [ ] **Registerprüfung „Mixstack" und „DUREC"** bei DPMA und TMview (§1) —

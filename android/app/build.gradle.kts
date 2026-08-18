@@ -39,7 +39,7 @@ val isPlayBuild = dartDefines.contains("PLAY_STORE=true") ||
 println("Mixstack Android manifest: " + if (isPlayBuild) "PLAY (no self-update)" else "DIRECT (GitHub APK)")
 
 android {
-    namespace = "de.macbuchi.mixstack"
+    namespace = "de.mcbuchi.mixstack"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -65,7 +65,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "de.macbuchi.mixstack"
+        applicationId = "de.mcbuchi.mixstack"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // cpal live playback uses AAudio, which needs API 26+ (libaaudio is
