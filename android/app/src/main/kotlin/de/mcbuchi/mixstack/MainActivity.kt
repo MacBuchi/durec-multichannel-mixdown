@@ -1,4 +1,4 @@
-package de.macbuchi.mixstack
+package de.mcbuchi.mixstack
 
 import android.app.Activity
 import android.content.Context

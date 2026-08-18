@@ -1,4 +1,4 @@
-package de.macbuchi.mixstack
+package de.mcbuchi.mixstack
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -58,9 +58,9 @@ class ExportService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "de.macbuchi.mixstack.export.START"
-        const val ACTION_UPDATE = "de.macbuchi.mixstack.export.UPDATE"
-        const val ACTION_STOP = "de.macbuchi.mixstack.export.STOP"
+        const val ACTION_START = "de.mcbuchi.mixstack.export.START"
+        const val ACTION_UPDATE = "de.mcbuchi.mixstack.export.UPDATE"
+        const val ACTION_STOP = "de.mcbuchi.mixstack.export.STOP"
         const val EXTRA_PROGRESS = "progress"
         const val EXTRA_NAME = "name"
         private const val CHANNEL_ID = "export"

@@ -232,3 +232,9 @@ jobs:
             echo "::error file=pubspec.yaml::$MSG"
             exit 1
           fi
+      # The Data Safety CSV is generated, not maintained: answers live in
+      # tool/play_data_safety.py, the reasoning in docs/PLAN-PLAYSTORE.md
+      # §3.5. Without this check both drift silently from the checked-in
+      # CSV, and it only surfaces when Play rejects the import.
+      - name: Data safety CSV matches its template + answers
+        run: python3 tool/play_data_safety.py --check

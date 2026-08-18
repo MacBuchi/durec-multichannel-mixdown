@@ -140,6 +140,29 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.artifact }}
+      # AAB for the Play Store — same signing as the APK above. Deliberately
+      # NOT part of the GitHub Release: an .aab isn't installable and would
+      # just confuse people next to the APK. Kept as its own workflow
+      # artifact and picked up by the `play` job below.
+      #
+      # No DURECMIX_FEEDBACK_TOKEN here: it's a compile-time const
+      # (lib/state/feedback.dart), so passing it would bake the token into a
+      # binary that ships to strangers. PLAY_STORE=true already routes
+      # feedback through the tokenless issue form at runtime, but the string
+      # would still be extractable from the bundle if defined.
+      - name: Build Play bundle (AAB)
+        if: matrix.name == 'Android'
+        run: |
+          flutter build appbundle --release --dart-define=PLAY_STORE=true
+          cp build/app/outputs/bundle/release/app-release.aab \
+             "mixstack-${{ needs.version.outputs.tag }}.aab"
+      - uses: actions/upload-artifact@v7
+        if: matrix.name == 'Android'
+        with:
+          name: android-aab
+          path: mixstack-${{ needs.version.outputs.tag }}.aab
+          if-no-files-found: error
+          retention-days: 90
 
   release:
     name: Create GitHub Release
@@ -158,3 +181,61 @@ jobs:
           files: |
             mixstack-*.zip
             mixstack-*.apk
+
+  # AAB into the Play Console internal test track — pattern from PilzBuddy /
+  # Fahrgemeinschaft (see docs/PLAN-PLAYSTORE.md). A separate job AFTER the
+  # release, not folded into `build`: a Play-side failure (quota, a 503) then
+  # only costs this job — the release itself still stands, and re-running
+  # just this job later picks the artifact back up (90-day retention).
+  #
+  # Draft only, never published: a human still promotes it in the Console.
+  # Inert without secrets.PLAY_SERVICE_ACCOUNT_JSON — until the Play Console
+  # side of docs/PLAN-PLAYSTORE.md §3 is done, every run just skips here.
+  play:
+    name: Upload to Play (internal, draft)
+    needs: [version, release]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # No AAB if the Android leg's keystore secrets were missing — nothing
+      # to do then either.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: android-aab
+      # `secrets` isn't available in step `if:` — reading it here first and
+      # branching on the step's own output avoids that.
+      - name: Play access and bundle present?
+        id: play
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "why=PLAY_SERVICE_ACCOUNT_JSON secret missing" >> "$GITHUB_OUTPUT"
+          elif ! ls mixstack-*.aab > /dev/null 2>&1; then
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "why=no AAB from this run (Android keystore secrets missing?)" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload to Play internal testing
+        if: steps.play.outputs.have == 'true'
+        uses: r0adkll/upload-google-play@v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: de.mcbuchi.mixstack
+          releaseFiles: mixstack-${{ needs.version.outputs.tag }}.aab
+          track: internal
+          status: draft
+      - name: Play upload skipped
+        if: steps.play.outputs.have == 'false'
+        env:
+          WHY: ${{ steps.play.outputs.why }}
+        run: |
+          {
+            echo "### Not uploaded to Play — $WHY"
+            echo ""
+            echo "Setup: docs/PLAN-PLAYSTORE.md"
+          } >> "$GITHUB_STEP_SUMMARY"

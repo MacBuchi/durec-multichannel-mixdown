@@ -5,6 +5,20 @@ All notable changes to Mixstack. Version scheme: `MAJOR.MINOR.PATCH`, kept in
 releases and ships the artifacts. The app bundles this file and shows it under
 **About → What's new**.
 
+## [0.20.4] – 2026-08-18
+
+### Changed
+
+- **The Android package id changed again**, from `de.macbuchi.mixstack` to
+  `de.mcbuchi.mixstack` — a typo from the original rename, corrected before
+  any store listing locked it in.
+- ⚠️ **Same consequence as the last package id change: on Android, this one
+  takes your saved mixes with it.** The new version installs alongside the
+  old one instead of replacing it; your takes and their WAV files are
+  untouched, but the mixes stored inside the app do not come along. Export
+  anything you want to keep first, then remove the old version. macOS,
+  Windows, iOS and the browser are unaffected.
+
 ## [0.20.3] – 2026-08-18
 
 ### Fixed
@@ -554,6 +568,7 @@ MP3 export.
 - **Listen while you mix**, with meters for level, loudness and how well the
   two sides of the stereo image agree — plus a waveform on every track.
 
+[0.20.4]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.4
 [0.20.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.3
 [0.20.2]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.2
 [0.20.1]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.1

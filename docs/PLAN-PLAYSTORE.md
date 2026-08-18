@@ -39,7 +39,10 @@ neuen Store-Eintrag, und Bewertungen wie Installationszahlen sind weg.
 
 **Entscheidung: generischer Name, RME/DUREC nur noch beschreibend.** Umgesetzt
 in v0.20.0 — die App heißt **Mixstack**, die Package-ID ist
-`de.macbuchi.mixstack`. Websuche nach dem Namen: kein Audio-Produkt, keine
+`de.mcbuchi.mixstack` (korrigiert am 18.08.2026 von `de.macbuchi.mixstack` —
+dieselbe Entwickler-Namensraum-Konvention wie bei PilzBuddy und MitFahrbar,
+kein Handlungsbedarf davor, weil noch nichts im Play Store veröffentlicht war).
+Websuche nach dem Namen: kein Audio-Produkt, keine
 Firma. Verworfen wurden dabei „Wavesum" (Wavesum Oy, finnische
 Audio-Softwarefirma), „Mixbus" (Harrison-DAW), „Summit" (Summit Audio) und
 „MultiMix" (Alesis-Mischpultserie).
@@ -231,9 +234,26 @@ Der erste Punkt hat den längsten Vorlauf und gehört deshalb zuerst angefasst.
    das Feedback-Posting. Ansonsten ist die App vollständig offline und
    verarbeitet Aufnahmen ausschließlich lokal — das ist ein Verkaufsargument
    und gehört so in den Text.
-5. **Data-Safety-Formular** — der Feedback-Text ist vom Nutzer eingegebener
-   Inhalt und geht an GitHub. Der angehängte Log durchläuft `redactPaths`,
-   Benutzernamen werden also entfernt; das lässt sich wörtlich so angeben.
+5. **Data-Safety-Formular** — generiert, nicht von Hand gepflegt:
+   `tool/play_data_safety.py` füllt `docs/store/data_safety_template.csv`
+   (Blanko-Export aus der Play Console) zu `docs/store/data_safety.csv`,
+   `--check` hält beide in CI deckungsgleich (Muster von PilzBuddy und
+   Fahrgemeinschaft). Ändern heißt: die `ANSWERS`-Tabelle im Skript
+   anfassen, neu erzeugen, diesen Absatz im selben Commit nachziehen —
+   nie die CSV direkt editieren.
+
+   | Frage | Antwort | Begründung |
+   | --- | --- | --- |
+   | `PSL_DATA_COLLECTION_COLLECTS_PERSONAL_DATA` | **Nein** | Der Play-Build hat weder den Update-Check (`api.github.com`) noch das token-basierte Feedback-Posting aktiv (§2/§3.4) — beide Netzwerkpfade des Direkt-Builds sind hier abgeschaltet, die App bleibt vollständig offline. |
+
+   Damit ist praktisch der gesamte Rest des Formulars nicht nur unnötig,
+   sondern **nicht beantwortbar** — Play lehnt eine Antwort auf eine
+   nachgelagerte Frage ab, sobald ihr Zweig durch das „Nein" oben inaktiv
+   ist (Import-Fehler „Du kannst … nicht beantworten"). Das Skript erzwingt
+   das über eine Sperre auf alle Fragen, die die Vorlage als `OPTIONAL`
+   markiert (Fahrgemeinschafts Lösung für dasselbe Problem) — genau dort
+   war die zuvor von Hand gepflegte CSV falsch (`PSL_SUPPORTED_ACCOUNT_CREATION_METHODS`
+   mit „keine Konten" statt leer beantwortet).
 6. **Content Rating** über den IARC-Fragebogen.
 7. **Play App Signing** — der Keystore unter `secrets/` wird zum *Upload*-Key,
    den Signaturschlüssel verwaltet Play. `secrets/` ist gitignored und muss
@@ -257,7 +277,9 @@ setzt `targetSdk = 36`); die Frist am 31.08.2026 ist damit erledigt.
 
 ## 5. Offen
 
-* [x] App-Name festlegen — **Mixstack**, `de.macbuchi.mixstack` (v0.20.0)
+* [x] App-Name festlegen — **Mixstack**, `de.mcbuchi.mixstack` (v0.20.0,
+  Package-ID am 18.08.2026 auf die portfolioweite `mcbuchi`-Namensraum-
+  Konvention korrigiert)
 * [x] `applicationId`/`namespace`, `android:label`, `web/manifest.json`,
   pubspec-`description`, README, Docs und UI-Strings gezogen
 * [ ] **Registerprüfung „Mixstack" und „DUREC"** bei DPMA und TMview (§1) —
