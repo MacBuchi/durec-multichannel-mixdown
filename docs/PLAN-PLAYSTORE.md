@@ -234,9 +234,26 @@ Der erste Punkt hat den längsten Vorlauf und gehört deshalb zuerst angefasst.
    das Feedback-Posting. Ansonsten ist die App vollständig offline und
    verarbeitet Aufnahmen ausschließlich lokal — das ist ein Verkaufsargument
    und gehört so in den Text.
-5. **Data-Safety-Formular** — der Feedback-Text ist vom Nutzer eingegebener
-   Inhalt und geht an GitHub. Der angehängte Log durchläuft `redactPaths`,
-   Benutzernamen werden also entfernt; das lässt sich wörtlich so angeben.
+5. **Data-Safety-Formular** — generiert, nicht von Hand gepflegt:
+   `tool/play_data_safety.py` füllt `docs/store/data_safety_template.csv`
+   (Blanko-Export aus der Play Console) zu `docs/store/data_safety.csv`,
+   `--check` hält beide in CI deckungsgleich (Muster von PilzBuddy und
+   Fahrgemeinschaft). Ändern heißt: die `ANSWERS`-Tabelle im Skript
+   anfassen, neu erzeugen, diesen Absatz im selben Commit nachziehen —
+   nie die CSV direkt editieren.
+
+   | Frage | Antwort | Begründung |
+   | --- | --- | --- |
+   | `PSL_DATA_COLLECTION_COLLECTS_PERSONAL_DATA` | **Nein** | Der Play-Build hat weder den Update-Check (`api.github.com`) noch das token-basierte Feedback-Posting aktiv (§2/§3.4) — beide Netzwerkpfade des Direkt-Builds sind hier abgeschaltet, die App bleibt vollständig offline. |
+
+   Damit ist praktisch der gesamte Rest des Formulars nicht nur unnötig,
+   sondern **nicht beantwortbar** — Play lehnt eine Antwort auf eine
+   nachgelagerte Frage ab, sobald ihr Zweig durch das „Nein" oben inaktiv
+   ist (Import-Fehler „Du kannst … nicht beantworten"). Das Skript erzwingt
+   das über eine Sperre auf alle Fragen, die die Vorlage als `OPTIONAL`
+   markiert (Fahrgemeinschafts Lösung für dasselbe Problem) — genau dort
+   war die zuvor von Hand gepflegte CSV falsch (`PSL_SUPPORTED_ACCOUNT_CREATION_METHODS`
+   mit „keine Konten" statt leer beantwortet).
 6. **Content Rating** über den IARC-Fragebogen.
 7. **Play App Signing** — der Keystore unter `secrets/` wird zum *Upload*-Key,
    den Signaturschlüssel verwaltet Play. `secrets/` ist gitignored und muss
