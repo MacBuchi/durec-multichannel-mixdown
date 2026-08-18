@@ -1,0 +1,118 @@
+name: Promote
+
+# Every merge to main builds, tags and publishes a PRERELEASE (release.yml) —
+# invisible to update_check.dart, which queries /releases/latest and never
+# gets a prerelease there. This is the only thing that makes one visible:
+# workflow_dispatch only, a human decides when. Promotes the newest
+# prerelease by default, or a specific one via the version input.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without v, e.g. 0.21.0 (empty = newest prerelease)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine the tag to promote
+        id: pick
+        run: |
+          set -euo pipefail
+          input="${{ inputs.version }}"
+          if [ -n "$input" ]; then
+            tag="v${input#v}"
+          else
+            tag=$(gh release list --limit 30 --exclude-drafts \
+              --json tagName,isPrerelease \
+              --jq '[.[] | select(.isPrerelease)] | .[0].tagName // ""')
+          fi
+          if [ -z "$tag" ]; then
+            echo "::error::no prerelease found to promote (and no version input given)"
+            exit 1
+          fi
+          if ! gh release view "$tag" --json isPrerelease --jq .isPrerelease | grep -q true; then
+            echo "::error::$tag is not a prerelease — already promoted, or doesn't exist"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Promoting $tag"
+
+      - name: Find the last stable release
+        id: prev
+        env:
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The tag being promoted must be excluded here — otherwise a
+          # re-run of this workflow (after a failed first attempt, say)
+          # finds ITSELF as "the last stable release" once step 4 below has
+          # already flipped its prerelease flag, and collects empty notes
+          # the second time round.
+          stable=$(gh release list --limit 60 --exclude-drafts \
+            --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease | not)] | .[].tagName')
+          prev=""
+          while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+            if [ "$candidate" != "$TAG" ]; then
+              prev="$candidate"
+              break
+            fi
+          done <<< "$stable"
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
+          echo "Last stable release: ${prev:-(none — this is the first promotion)}"
+
+      - name: Collect CHANGELOG notes since the last stable release
+        env:
+          TAG: ${{ steps.pick.outputs.tag }}
+          PREV: ${{ steps.prev.outputs.prev }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          prev="${PREV#v}"
+          awk -v ver="$version" -v prev="$prev" '
+            $0 ~ "^## \\[" ver "\\]" { hit = 1 }
+            hit && prev != "" && $0 ~ "^## \\[" prev "\\]" { exit }
+            hit { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > release-body.md
+          if [ ! -s release-body.md ]; then
+            echo "::warning::no CHANGELOG section collected for $TAG — falling back to a link"
+            echo "Details: https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md" > release-body.md
+          fi
+          cat release-body.md
+
+      - name: Promote the release
+        env:
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" \
+            --prerelease=false \
+            --latest \
+            --notes-file release-body.md
+          # Check at the exact endpoint the app queries
+          # (lib/state/update_check.dart -> /releases/latest), not just
+          # `gh release view`'s own idea of "latest" — a wording or field
+          # change in a newer `gh` version could report success here while
+          # the app-visible state never actually changed.
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          echo "GitHub reports latest as: $latest"
+          if [ "$latest" != "$TAG" ]; then
+            echo "::error::$TAG is not latest (GitHub reports $latest)"
+            exit 1
+          fi
