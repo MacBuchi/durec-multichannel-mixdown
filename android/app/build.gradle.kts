@@ -1,5 +1,4 @@
 import java.io.FileInputStream
-import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -19,38 +18,10 @@ val keystoreProperties = Properties().apply {
     if (f.exists()) FileInputStream(f).use { load(it) }
 }
 
-// Play builds swap in a manifest without the in-app APK updater (see
-// src/main/AndroidManifest-play.xml). The switch is driven by the SAME flag
-// that closes the Dart paths — `--dart-define=PLAY_STORE=true` — so the two
-// halves cannot drift into a build that strips the permission but still shows
-// the "Update now" button, or worse, the reverse. Flutter hands dart-defines
-// to Gradle base64-encoded in the `dart-defines` property; `-Pplay-store=true`
-// is accepted as a fallback for invoking Gradle directly.
-val dartDefines: List<String> = (project.findProperty("dart-defines") as String?)
-    ?.split(",")
-    ?.filter { it.isNotBlank() }
-    ?.map { String(Base64.getDecoder().decode(it)) }
-    ?: emptyList()
-val isPlayBuild = dartDefines.contains("PLAY_STORE=true") ||
-    (project.findProperty("play-store") as String?) == "true"
-
-// Printed because the failure mode is silent: a Play build that quietly picked
-// the direct manifest only surfaces weeks later as a review rejection.
-println("Mixstack Android manifest: " + if (isPlayBuild) "PLAY (no self-update)" else "DIRECT (GitHub APK)")
-
 android {
     namespace = "de.mcbuchi.mixstack"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
-
-    sourceSets {
-        getByName("main") {
-            manifest.srcFile(
-                if (isPlayBuild) "src/main/AndroidManifest-play.xml"
-                else "src/main/AndroidManifest.xml"
-            )
-        }
-    }
 
     compileOptions {
         // Core library desugaring: required by the ota_update plugin
@@ -86,6 +57,26 @@ android {
                 part(0) * 1_000_000 + part(1) * 1_000 + part(2)
             }
         versionName = flutter.versionName
+    }
+
+    // Two distribution channels, one app (pattern from PilzBuddy/
+    // Fahrgemeinschaft): the GitHub APK self-updates and keeps
+    // REQUEST_INSTALL_PACKAGES for that; the Play bundle must not carry it
+    // (Play forbids self-updates as "Device and Network Abuse") —
+    // src/play/AndroidManifest.xml removes it via tools:node="remove". Both
+    // flavors share the same applicationId (no applicationIdSuffix — that
+    // would make github/play two different Android apps, exactly what
+    // Fahrgemeinschaft's own bundle-id move cost them once).
+    //
+    // The point of a flavor over a dart-define switch: every build now
+    // needs an explicit --flavor, and Gradle refuses to build without one.
+    // A forgotten flag used to produce a silently wrong but buildable
+    // artifact — that's what shipped REQUEST_INSTALL_PACKAGES to Play once
+    // already. A forgotten --flavor just fails the build.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") { dimension = "distribution" }
+        create("play") { dimension = "distribution" }
     }
 
     signingConfigs {
