@@ -174,15 +174,21 @@ User docs live in `docs/GUIDE.md` (annotated walkthrough) and README. Screenshot
 ## The Play Store build (`docs/PLAN-PLAYSTORE.md`)
 
 Android ships through **two** channels now, and they differ in exactly one
-thing: whether the app may install its own updates. `--dart-define=PLAY_STORE=true`
-is the single switch for both halves — Gradle swaps `src/main/AndroidManifest.xml`
-for `AndroidManifest-play.xml`, and Dart gets `isPlayStoreBuild`, `canSelfUpdate`
-and `canCheckForUpdates` in the shim.
+thing: whether the app may install its own updates. Two independent
+switches, both required for a real Play build (`release.yml` always sets
+both together): `--flavor play` picks the Gradle side, `--dart-define=PLAY_STORE=true`
+closes the Dart paths (`isPlayStoreBuild`, `canSelfUpdate`, `canCheckForUpdates`
+in the shim).
 
-- **One flag, not two.** Two separate switches is precisely how you get a build
-  that strips the permission and still offers "Update now" — or the reverse,
-  which is a rejected upload. Gradle prints which manifest it picked, because
-  the failure is otherwise silent until a review weeks later.
+- **A flavor, not a dart-define, on the Gradle side (since 2026-08-19).** A
+  build with `PLAY_STORE=true` missing used to produce a silently wrong but
+  still-buildable artifact — that's what actually shipped
+  `REQUEST_INSTALL_PACKAGES` to Play once. `flavorDimensions += "distribution"`
+  with `create("github")`/`create("play")` (same `applicationId`, no
+  `applicationIdSuffix`) makes a missing `--flavor` a hard build failure
+  instead. `android/app/src/play/AndroidManifest.xml` is a diff-only manifest
+  merged onto `src/main/AndroidManifest.xml` — it cannot drift from the base
+  manifest by omission the way two full parallel manifests could.
 - **Removing our own `REQUEST_INSTALL_PACKAGES` does nothing.** The ota_update
   plugin declares it — plus `INSTALL_PACKAGES` (signature-level!),
   `WRITE_EXTERNAL_STORAGE`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` — in
@@ -192,10 +198,10 @@ and `canCheckForUpdates` in the shim.
   report) and has to go too.
 - **Prove it on the build output, not the sources.** `aapt2 dump xmltree` cannot
   read an AAB (protobuf manifest, "could not identify format of APK"); read
-  `build/app/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml`
-  instead. `test/android_manifest_test.dart` holds the two manifests against
-  each other so a permission added to one but not the other fails a test rather
-  than a release.
+  `build/app/intermediates/merged_manifest/playRelease/processPlayReleaseMainManifest/AndroidManifest.xml`
+  instead (flavor-specific path). `test/android_manifest_test.dart` checks the
+  play manifest removes the six permissions and declares nothing else, plus
+  that `build.gradle.kts` declares both flavors with no suffix.
 - **`versionCode` is derived from the semver** (0.19.0 → 19000), not from
   pubspec's `+N` — that has been `+1` since M0 and nothing bumps it. Android
   tolerates reinstalling the same version code, so the GitHub APK never
@@ -206,11 +212,21 @@ and `canCheckForUpdates` in the shim.
   browser-form route there regardless of what the workflow injects.
 - **XML comments may not contain `--`.** Writing the dart-define into a comment
   makes the merger fail with a bare "Error parsing" and no line number; a test
-  pins it.
+  pins it (hit this exact way once already, writing the play manifest's own
+  comment about the trap).
+
+**Prerelease/promote channel (since 2026-08-19):** every merge with a version
+bump still tags and publishes automatically, but as a **prerelease** — GitHub
+never returns those at `/releases/latest`, which is exactly what
+`update_check.dart` queries, so nobody sees a merge until a human runs
+`promote.yml` (`workflow_dispatch`, optional `version` input, defaults to the
+newest prerelease). This replaces the older "merge = release, immediately
+live" rule below the version-bump section — a merge now only *builds* the
+release; promotion is what *ships* it.
 
 ## Release signing (Android)
 
-Release APKs are signed with a **stable keystore** so downloaded APKs update an existing installation (before v0.7.2 every CI run used a fresh debug key → signature mismatch, uninstall required). The keystore lives on the user's machine at `~/durecmix-keys/` (keystore + PASSWORDS.txt — **must be backed up; losing it permanently breaks updates**) and in the repo secrets `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD`. `android/key.properties` (gitignored) activates it locally; without it builds fall back to debug signing (PR CI, `flutter run --release`). The release workflow hard-fails if the secrets are missing. `applicationId`/`namespace` is `de.macbuchi.durecmix` (renamed from com.example in v0.7.2 — same forced reinstall); the **macOS** bundle id deliberately stays `com.example.durecmix` (a change would orphan the sandbox container with the user's sessions). iOS moved to `de.macbuchi.durecmix` in 2026-07 because Apple App IDs are globally unique and `com.example.*` is long taken — see below.
+Release APKs are signed with a **stable keystore** so downloaded APKs update an existing installation (before v0.7.2 every CI run used a fresh debug key → signature mismatch, uninstall required). The keystore lives on the user's machine at `~/durecmix-keys/` (keystore + PASSWORDS.txt — **must be backed up; losing it permanently breaks updates**) and in the repo secrets `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD`. `android/key.properties` (gitignored) activates it locally; without it builds fall back to debug signing (PR CI, `flutter run --release`). The release workflow hard-fails if the secrets are missing. **Android** `applicationId`/`namespace` is `de.mcbuchi.mixstack` (renamed from com.example in v0.7.2, then durecmix→mixstack in v0.20.0, then macbuchi→mcbuchi in v0.20.4 fixing a typo against the portfolio convention — each one a forced reinstall for anyone with the app already on a device); the **macOS** bundle id deliberately stays `com.example.durecmix` (a change would orphan the sandbox container with the user's sessions). iOS moved to `de.macbuchi.durecmix` in 2026-07 because Apple App IDs are globally unique and `com.example.*` is long taken, and stays there — irrelevant to Play, tied to Free Provisioning — see below.
 
 ## iOS on a device (free provisioning, no paid account)
 
@@ -246,4 +262,4 @@ Rust carries the correctness load (107 engine tests: pan law, limiter ceiling, L
 
 ## Workflow
 
-Conventional Commits (`feat:`/`fix:`/`feat!:`/`chore:`/`ci:`/`docs:`/`test:`/`refactor:`). **Feature branches + PRs** (since M3b): branch `feat/<topic>` or `fix/<topic>` off `main`, push, open a PR, merge only when the full CI matrix is green (squash-merge, PR title in conventional-commit form). Stacked PRs are fine: base each on its predecessor; GitHub retargets to `main` as they merge in order. PRs are opened with `gh pr create`. **Who merges is decided by the version bump**, because with auto-release the merge *is* the publication: a PR that does not bump publishes nothing, so the agent may squash-merge it once the full matrix is green; the bumping PR of a chain is the release and belongs to the user. (Since 2026-07-20, replacing the blanket self-merge ban of 2026-07-12 — that rule stalled entire stacked chains on the user, although every PR but the last publishes nothing. Same rule as Fahrgemeinschaft.) Releases: the LAST PR of a shipping chain must bump `pubspec.yaml` — a merge to `main` with an untagged version auto-tags and releases (`release.yml`); without a bump there is NO release, and the CI `Housekeeping (version bump)` job warns on the PR and fails the `main` run. **Every bump adds a matching section at the top of `CHANGELOG.md`** (house format, link list at the file end) — the app bundles the file as the About → "What's new" view, and `test/changelog_test.dart` fails when changelog and pubspec drift. Remote: https://github.com/MacBuchi/mixstack (public).
+Conventional Commits (`feat:`/`fix:`/`feat!:`/`chore:`/`ci:`/`docs:`/`test:`/`refactor:`). **Feature branches + PRs** (since M3b): branch `feat/<topic>` or `fix/<topic>` off `main`, push, open a PR, merge only when the full CI matrix is green (squash-merge, PR title in conventional-commit form). Stacked PRs are fine: base each on its predecessor; GitHub retargets to `main` as they merge in order. PRs are opened with `gh pr create`. **Who merges is decided by the version bump**, because with auto-release the merge *is* the publication: a PR that does not bump publishes nothing, so the agent may squash-merge it once the full matrix is green; the bumping PR of a chain is the release and belongs to the user. (Since 2026-07-20, replacing the blanket self-merge ban of 2026-07-12 — that rule stalled entire stacked chains on the user, although every PR but the last publishes nothing. Same rule as Fahrgemeinschaft.) Releases: the LAST PR of a shipping chain must bump `pubspec.yaml` — a merge to `main` with an untagged version auto-tags and releases (`release.yml`); without a bump there is NO release, and the CI `Housekeeping (version bump)` job warns on the PR and fails the `main` run. **"Publication" here means built, tagged and pushed as a GitHub prerelease (since 2026-08-19)** — not yet visible to users; see the prerelease/promote channel above. "Who merges" is unaffected: it's still about who owns triggering the build, promotion is a later, separate, always-manual step. **Every bump adds a matching section at the top of `CHANGELOG.md`** (house format, link list at the file end) — the app bundles the file as the About → "What's new" view, and `test/changelog_test.dart` fails when changelog and pubspec drift. Remote: https://github.com/MacBuchi/mixstack (public).
