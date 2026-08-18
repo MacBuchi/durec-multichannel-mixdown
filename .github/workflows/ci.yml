@@ -109,7 +109,12 @@ jobs:
             build: flutter build windows --debug
           - name: Android
             os: ubuntu-latest
-            build: flutter build apk --debug
+            # --flavor is required once product flavors exist — Gradle has
+            # no default task to fall back to otherwise. Building `play`
+            # specifically (not `github`) means a broken manifest merge on
+            # the Play side fails here, on every PR, instead of surfacing
+            # only after tagging (or worse, only in a Play review).
+            build: flutter build apk --debug --flavor play
           - name: iOS
             os: macos-14
             build: flutter build ios --debug --no-codesign
