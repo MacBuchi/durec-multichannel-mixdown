@@ -6,6 +6,17 @@ builds a release, but it stays a prerelease — invisible to the update check �
 until someone runs the Promote workflow by hand. The app bundles this file
 and shows it under **About → What's new**.
 
+## [0.20.6] – 2026-08-19
+
+### Fixed
+
+- **The Android app crashed the moment you opened it — fixed.** Every Android
+  version from 0.20.0 to 0.20.5 closed again immediately on launch, showing
+  nothing at all. The cause was the app's rename: the Rust audio engine still
+  answered to the old name, so the app could never reach it. If you installed
+  one of those versions and it "did nothing", this is why — it was not your
+  device. macOS, Windows and the browser version were never affected.
+
 ## [0.20.5] – 2026-08-19
 
 ### Changed
@@ -579,6 +590,7 @@ MP3 export.
 - **Listen while you mix**, with meters for level, loudness and how well the
   two sides of the stereo image agree — plus a waveform on every track.
 
+[0.20.6]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.6
 [0.20.5]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.5
 [0.20.4]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.4
 [0.20.3]: https://github.com/MacBuchi/mixstack/releases/tag/v0.20.3

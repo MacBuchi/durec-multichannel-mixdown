@@ -20,11 +20,20 @@ use jni_sys::{jobject, JNIEnv};
 /// on rotation/theme change, but `ndk_context::initialize_android_context`
 /// asserts on double-init, so only the first call does anything.
 ///
+/// **The name encodes the application id** (`de.mcbuchi.mixstack` with dots as
+/// underscores) — that is how the JVM resolves a `native` method, so renaming
+/// the package without renaming this symbol makes `onCreate` throw
+/// `UnsatisfiedLinkError` and the app dies on launch, in release only, with
+/// nothing failing at build time. It happened: v0.20.0 renamed the id from
+/// `de.macbuchi.durecmix` and left this behind, and every Android release from
+/// then until v0.20.6 crashed instantly. `test/android_jni_symbol_test.dart`
+/// now pins the two together.
+///
 /// # Safety
 /// `env` and `context` are live JNI pointers for the duration of the call —
 /// guaranteed by the JVM for a `native` method invocation.
 #[no_mangle]
-pub unsafe extern "system" fn Java_de_macbuchi_durecmix_MainActivity_initNdkContext(
+pub unsafe extern "system" fn Java_de_mcbuchi_mixstack_MainActivity_initNdkContext(
     env: *mut JNIEnv,
     _class: jobject,
     context: jobject,
